@@ -490,7 +490,8 @@ const songDB = {
 
 // ---------- state ----------
 
-let state = "menu"; // "menu" | "tutorial" | "difficulty" | "garage" | "options" | "map" | "playing" | "paused" | "camera" | "over"
+let state = "title"; // "title" | "menu" | "tutorial" | "difficulty" | "garage" | "options" | "map" | "playing" | "paused" | "camera" | "over" ...
+const leaveTitle = () => { state = "menu"; sel = 0; sound.ensure(); sound.tone(440, 880, 0.12); }; // any key / click / tap / button
 let mode = "single"; // "single" | "vs" | "multi"
 let difficulty = "medium";
 let racers, enemies, pickups, particles, scenery, roadItems, wx;
@@ -1622,6 +1623,8 @@ function pollPads() {
       if (edge("rb")) fireNitro(racers[rid]);
       if (edge("start")) pause();
       else if (edge("y") || edge("back")) openCamera();
+    } else if (k === 0 && state === "title") {
+      if (Object.keys(now).some(n => edge(n))) leaveTitle();
     } else if (k === 0) {
       if (edge("up")) menuAction("up");
       if (edge("down")) menuAction("down");
@@ -1661,7 +1664,7 @@ function update() {
   sound.engineTick(state === "playing", effV(racers[0]), racers[0].nitro > 0);
   if (state === "playing" && racers[0].rev > 0.9 && Math.random() < 0.12) sound.burst(0.05, 0.4, "lowpass", 900, 260); // rev-limiter pops
   sound.envTick(state === "playing", Math.max(rainI, wet), 0, 0);
-  music.tick(state === "menu" || state === "tutorial" || state === "difficulty" || state === "garage" || state === "upgrades" || state === "options" || state === "songs" || state === "controls" || state === "map" || state === "brief" || state === "stats");
+  music.tick(state === "title" || state === "menu" || state === "tutorial" || state === "difficulty" || state === "garage" || state === "upgrades" || state === "options" || state === "songs" || state === "controls" || state === "map" || state === "brief" || state === "stats");
 }
 
 // ---------- tile textures (pre-rendered once per resolution) ----------
@@ -3338,6 +3341,43 @@ function drawConfetti(oy) { // tumbling paper rectangles (oy undoes the menu cen
   }
 }
 
+// ---- title screen: animated logo over the demo race, your tour progress, press any key ----
+function drawLogo(cx, cy, k) {
+  ctx.save(); ctx.translate(cx, cy + Math.sin(clock / 30) * 3); ctx.scale(k, k); ctx.transform(1, 0, -0.18, 1, 0, 0); // a racing lean
+  ctx.textAlign = "center"; ctx.textBaseline = "alphabetic"; ctx.lineJoin = "round";
+  const word = (s, y, size, fill) => {
+    ctx.font = `900 ${size}px sans-serif`;
+    ctx.lineWidth = size / 6; ctx.strokeStyle = "#120a04"; ctx.strokeText(s, 0, y);
+    ctx.fillStyle = fill; ctx.fillText(s, 0, y);
+    const w = ctx.measureText(s).width, p = ((clock % 150) / 150) * (w + 200) - w / 2 - 100; // a shine sweeping across the letters
+    const sh = ctx.createLinearGradient(p - 40, 0, p + 40, 0); sh.addColorStop(0, "rgba(255,255,255,0)"); sh.addColorStop(0.5, "rgba(255,255,255,0.75)"); sh.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = sh; ctx.fillText(s, 0, y);
+  };
+  const g = ctx.createLinearGradient(0, -60, 0, 0); g.addColorStop(0, "#ffe25a"); g.addColorStop(1, "#ff6a1a");
+  word("EXTREME", -6, 58, g);
+  word("RACER", 44, 46, "#ffffff");
+  ctx.restore();
+}
+function drawTitle(moy) {
+  ctx.fillStyle = "rgba(10,10,16,0.45)"; ctx.fillRect(0, -moy, W, H);
+  ctx.save(); ctx.globalCompositeOperation = "lighter"; // speed streaks rushing past behind the logo
+  for (let i = 0; i < (settings.lowfx ? 8 : 22); i++) {
+    const y = 120 + ((i * 37) % 120), len = 60 + (i % 5) * 30, x = W - ((clock * (6 + (i % 4) * 2) + i * 97) % (W + len * 2));
+    ctx.strokeStyle = `rgba(255,${150 + (i % 3) * 40},60,${0.18 + (i % 4) * 0.06})`; ctx.lineWidth = 1 + (i % 3);
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + len, y); ctx.stroke();
+  }
+  ctx.restore();
+  drawLogo(W / 2, 190, Math.min(1, (W - 30) / 330));
+  text("WORLD TOUR", 262, 16, "center", "#ff5a5a");
+  const next = Math.min(tourCleared, ROUTE.length - 1), st = ROUTE[next];
+  const prog = tourCleared >= ROUTE.length ? "Tour complete!" : `Next stop: ${st.venue}  -  city ${st.n} of ${ROUTE.length}`;
+  text(prog, 296, 14, "center", "#ddd");
+  if (totalStars()) { drawStar(W / 2 - 34, 318, 7, true); textAt(`${totalStars()} / ${ROUTE.length * 3}`, W / 2 - 22, 323, 13, "left", "#ffd23f"); }
+  ctx.globalAlpha = 0.55 + 0.45 * Math.sin(clock / 12);
+  text(hasTouch ? "TAP TO START" : "PRESS ANY KEY", 392, 20, "center", "#fff");
+  ctx.globalAlpha = 1;
+}
+
 function drawUpgrades() {
   text("UPGRADES", 46, 30);
   text(`Coins ${wallet}`, 74, 16, "center", "#ffd23f");
@@ -3553,6 +3593,7 @@ function draw() {
   const moy = menuOY(); // menus and overlays are laid out for a 480-high screen: centre them on taller ones
   ctx.save(); ctx.translate(0, moy);
 
+  if (state === "title") drawTitle(moy);
   if (state === "menu" || state === "tutorial" || state === "difficulty" || state === "garage" || state === "upgrades" || state === "options" || state === "songs" || state === "controls" || state === "map" || state === "brief" || state === "stats") {
     ctx.fillStyle = "rgba(15,15,20,0.66)"; // fade the highway behind the title
     ctx.fillRect(0, -moy, W, H);
@@ -3692,6 +3733,7 @@ document.addEventListener("keydown", e => {
   if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Space"].includes(c)) e.preventDefault();
   held.add(c);
   sound.ensure();
+  if (state === "title") { if (!e.repeat) leaveTitle(); return; }
   if (c === "KeyM") { sound.toggle(); return; }
   if (c === "KeyF") { toggleFullscreen(); return; }
   if (state === "over" && c === "KeyR") { if (!e.repeat) activate(0); return; } // instant retry (activate ignores it for 0.6s after a crash)
@@ -3738,6 +3780,7 @@ canvas.addEventListener("pointerdown", e => {
   const p = canvasPoint(e);
   sound.ensure();
   if (e.pointerType === "touch") hasTouch = true;
+  if (state === "title") { leaveTitle(); return; }
   if (state === "playing") {
     const pr = pedalRects();
     if (Math.hypot(p.x - 24, p.y - 24) < 20) openCamera();
