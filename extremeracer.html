@@ -1130,6 +1130,12 @@ function updateFx() {
   if (statsDirty && clock % 600 === 0) saveStats();
   kickFx *= 0.93;
   lightning.t *= 0.86;
+  for (const s of splashes) s.life--; // rain splashes on the road (3D views)
+  splashes = splashes.filter(s => s.life > 0);
+  if (view3D() && rainI > 0.25 && !settings.lowfx) {
+    const hor = camFor(view3D()).hor;
+    for (let i = 0; i < 3 * rainI; i++) { const y = rnd(hor + 30, H), depth = (y - hor) / (H - hor); splashes.push({ x: W / 2 + rnd(-1, 1) * (40 + depth * W * 0.6), y, r: 2 + depth * 9, life: 12 }); }
+  }
   if (stA && stA.rain > 0.3 && !settings.lowfx && Math.random() < 1 / 520) strike(); // the odd thunderstorm
   for (const p of pops) p.t++;
   pops = pops.filter(p => p.t < 50);
@@ -3114,6 +3120,51 @@ function drawSpeedStreaks3D(C) {
   ctx.stroke();
 }
 
+// ---- light on the road: wet sheen and reflections, headlights, underglow, rain splashes (3D views) ----
+let splashes = [];
+const brightest = team => [team.p, team.s, team.a].map(hx).sort((a, b) => (b[0] + b[1] + b[2]) - (a[0] + a[1] + a[2]))[0]; // the team's lightest colour, for underglow
+function drawRoadFX(C) {
+  if (settings.lowfx) return;
+  const night = clamp(pal.dark * 4, 0, 1), wetk = clamp(wet * 1.6, 0, 1);
+  ctx.save();
+  if (wetk > 0.05) { // the sky mirrored in the far, wet asphalt
+    const c = mix(pal.sky1, [210, 220, 235], 0.3), g = ctx.createLinearGradient(0, C.hor, 0, C.hor + 140);
+    g.addColorStop(0, rgb(c, 0.32 * wetk)); g.addColorStop(1, rgb(c, 0));
+    ctx.fillStyle = g; ctx.fillRect(0, C.hor, W, 140);
+  }
+  ctx.globalCompositeOperation = "lighter";
+  const k = Math.max(wetk, night * 0.55);
+  if (k > 0.05) for (const e of enemies) { // tail lights smeared down the road surface
+    if (e.kind === "works") continue;
+    const back = e.y + lenOf(e) / 2, p = toScreen(C, e.x, back - CAR_H / 2, CAR_H / 2);
+    if (!p) continue;
+    const a = k * fade3D(C, p.d) * (1 - nightHide(e) * 0.5), len = 70 * p.sc * (0.5 + wetk), w = 5 * p.sc;
+    for (const s of [-1, 1]) {
+      const x = p.sx + s * 21 * p.sc, g = ctx.createLinearGradient(0, p.sy, 0, p.sy + len);
+      g.addColorStop(0, `rgba(255,50,40,${0.55 * a})`); g.addColorStop(1, "rgba(255,50,40,0)");
+      ctx.fillStyle = g; ctx.fillRect(x - w, p.sy - 2, 2 * w, len);
+    }
+  }
+  const r = racers && racers[0];
+  if (r && r.alive && night > 0.1) {
+    const pc = toScreen(C, r.x, r.y) || { sx: W / 2, sy: H + 10, sc: 3 }, far = toScreen(C, r.x, r.y - 460);
+    if (far) { // headlight beam reaching up the road
+      const g = ctx.createLinearGradient(0, pc.sy, 0, far.sy);
+      g.addColorStop(0, `rgba(255,242,205,${0.42 * night})`); g.addColorStop(0.6, `rgba(255,242,205,${0.12 * night})`); g.addColorStop(1, "rgba(255,242,205,0)");
+      ctx.fillStyle = g; ctx.beginPath();
+      ctx.moveTo(pc.sx - 30 * pc.sc, pc.sy - 30 * pc.sc); ctx.lineTo(pc.sx + 30 * pc.sc, pc.sy - 30 * pc.sc); ctx.lineTo(far.sx + 110 * far.sc, far.sy); ctx.lineTo(far.sx - 110 * far.sc, far.sy); ctx.closePath(); ctx.fill();
+    }
+    if (view3D() === 1) glow(pc.sx, pc.sy - 6 * pc.sc, 70 * pc.sc, brightest(r.team).join(","), 0.55 * night); // neon underglow
+  }
+  ctx.restore();
+}
+function drawSplashes() { // rain bouncing off the road, in screen space
+  if (!splashes.length) return;
+  ctx.save(); ctx.strokeStyle = "rgba(220,232,250,0.55)"; ctx.lineWidth = 1;
+  for (const s of splashes) { const k = 1 - s.life / 12; ctx.globalAlpha = 1 - k; ctx.beginPath(); ctx.ellipse(s.x, s.y, s.r * (0.4 + k), s.r * (0.4 + k) * 0.35, 0, 0, TAU); ctx.stroke(); }
+  ctx.restore();
+}
+
 function drawHaze(C) { // fades the far road into the sky so cars and trees never pop in
   const g = ctx.createLinearGradient(0, C.hor - 8, 0, C.hor + 90);
   const c = mix(pal.sky1, [150, 160, 172], rainI * 0.35);
@@ -3130,10 +3181,12 @@ function draw3D(C) {
   ctx.translate(-W / 2 + rnd(-vib, vib), -H * 0.62 + rnd(-vib, vib));
   drawSky(C);
   drawRoad3D(C);
+  drawRoadFX(C);
   drawHaze(C);
   drawSpeedStreaks3D(C);
   drawSprites3D(C);
   drawSprayFog(C);
+  drawSplashes();
   ctx.restore();
 }
 
