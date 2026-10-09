@@ -77,6 +77,10 @@ export function createCameraRig(scene) {
       rig.wheelAngle += (-t.tilt * 3.2 - rig.wheelAngle) * sm(14);
       wheel.rotation.z = rig.wheelAngle;
       rigDraw(Math.round(t.v * 60), fx.gear, fx.lit);
+    } else if (mode === "inspect") {
+      const q = new URLSearchParams(location.search).get("inspect");
+      const o = q === "front" ? [5, 2.5, -9] : q === "top" ? [0.5, 14, 2] : q === "rear" ? [4, 3, 9] : [9, 3, 1];
+      camera.position.set(t.x + o[0], o[1], t.z + o[2]); camera.lookAt(t.x, 1, t.z - 0.5); fovGoal = 45;
     } else { // menu: a slow, low sweep round the demo race
       rig.camX += (t.x - rig.camX) * sm(3);
       const a = fx.time * 0.18;

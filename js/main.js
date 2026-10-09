@@ -37,12 +37,13 @@ initDemo();
 requestAnimationFrame(loop);
 
 // Developer shortcut for testing and screenshots: index.html?dev=tour,3,1  starts World Tour city 4 (counting from 0: 3) with camera 1
-// (0 Overhead, 1 Chase, 2 Cockpit) and holds the gas down; add &ff=600 to skip the first 10 seconds. Modes: tour, single, vs.
+// (0 Overhead, 1 Chase, 2 Cockpit) and holds the gas down; add &ff=600 to skip the first 10 seconds and &god to ignore crashes. Modes: tour, single, vs.
 {
   const dev = new URLSearchParams(location.search).get("dev");
   if (dev) {
     const [m, c, k] = dev.split(",");
     cam = +k || 0; startGame(m || "single", "medium", +c || 0); held.add("ArrowUp");
+    if (new URLSearchParams(location.search).has("god")) racers[0].ghost = 1e9; // god: crashes are ignored
     for (let i = +new URLSearchParams(location.search).get("ff") || 0; i > 0; i--) update(); // ff=600 fast-forwards 600 sim ticks (10 s)
   }
 }
