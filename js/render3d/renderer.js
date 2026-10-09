@@ -61,7 +61,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
     renderer.shadowMap.enabled = Q.shadows > 0; world.sun.castShadow = Q.shadows > 0;
     if (world.sun.shadow.mapSize.x !== Q.shadows && Q.shadows > 0) { world.sun.shadow.mapSize.set(Q.shadows, Q.shadows); if (world.sun.shadow.map) { world.sun.shadow.map.dispose(); world.sun.shadow.map = null; } }
     renderer.shadowMap.needsUpdate = true;
-    fx.setDensity(Q.particles); reflect.enable(Q.reflect);
+    fx.setDensity(Q.particles); reflect.enable(Q.reflect); city.setQuality({ ahead: Q.cityAhead * Q.dist, density: Q.cityDensity });
     post.bloom.enabled = Q.bloom; post.fx.enabled = Q.grade; post.smaa.enabled = Q.smaa; post.fxaa.enabled = Q.fxaa;
     for (const t of [post.composer.renderTarget1, post.composer.renderTarget2]) if (t.samples !== Q.msaa) { t.samples = Q.msaa; t.dispose(); }
     for (const m of rig.mirrors) m.rt.setSize(Q.mirrorRes, Q.mirrorRes / 2);

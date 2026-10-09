@@ -296,6 +296,7 @@ export function createCity(scene) {
             const sw = Math.min(w * 0.62, 8.5);
             F.signs.add(side * (xEdge - 0.08), 3.55, zc, sw, sw / 4.4, 1, faceRot, 1, 1, 1, 0, signRect(r.int(0, SIGN_COUNT - 1)));
             if (neon || r.chance(0.3)) F.signs.add(side * (xEdge - 0.9), 9 + r.range(0, 8), zl(u + w * r.range(0.15, 0.85)), 1.6, 5.5, 1, 0, 1, 1, 1, 0, signRect(r.int(0, SIGN_COUNT - 1))); // blade sign over the street
+            if (neon && floors >= 6 && r.chance(0.45)) F.signs.add(side * (xEdge - 0.12), Math.min(h * 0.6, 40), zc, Math.min(w * 0.85, 17), Math.min(w * 0.85, 17) / 4.4, 1, faceRot, 1, 1, 1, 0, signRect(r.int(0, SIGN_COUNT - 1))); // a big LED screen
           }
           for (let i = r.int(0, 2); i > 0; i--) { const g = ROOF_KIT[r.int(0, 3)]; F.solid.add(xc + r.range(-d * 0.3, d * 0.3), h, zc + r.range(-w * 0.3, w * 0.3), r.range(1.5, 4), r.range(1, 2.8), r.range(1.5, 4), 0, g[0], g[1], g[2]); }
           if (floors > 12 && r.chance(0.4)) F.solid.add(xc, h, zc, 0.35, r.range(6, 15), 0.35, 0, 0.7, 0.7, 0.72);
