@@ -979,7 +979,7 @@ const throttleFor = r => { const p = pedals(r); return clamp(p.gas - p.brake, -1
 const ROAD_COLS = ["#f2f2f0", "#b9bec6", "#2a2c31", "#c0392b", "#2f5fa8", "#7d838c", "#2f6b4f", "#d8c9a3", "#8a1f2b", "#e0e3e8"];
 const TRUCK_LEN = 160, WORKS_LEN = 420, SIGN_AHEAD = 650; // roadworks: the warning sign stands this far before the cones
 const lenOf = e => e.len || CAR_H;
-const NEW_KINDS = { changer: "NEW: Lane changers - watch the blinkers", truck: "NEW: Trucks - longer to pass", works: "NEW: Roadworks - cones close a lane" };
+const NEW_KINDS = { changer: "NEW: Lane changers - watch the blinkers", truck: "NEW: Trucks - longer to pass", works: "NEW: Roadworks - cones close a lane", shield: "NEW: Shield - absorbs one crash" };
 let seenKinds = store.get("seenKinds", []);
 // World Tour adds a new kind every few cities; Endless as you pass cars (the menu's demo traffic stays plain)
 function trafficKinds() {
@@ -1017,7 +1017,7 @@ function seedTraffic(y0 = -60) { const lo = trafficGap() > 100 ? 220 : 150; let 
 function spawnPickup(y = -AHEAD, forceNitro = false) {
   const lane = Math.floor(Math.random() * LANES);
   if (laneBusy(lane, y, 20, 150)) return; // never in a closed lane or under a car
-  if (forceNitro || Math.random() < 0.3) pickups.push({ type: "nitro", lane, x: laneX(lane), y });
+  if (forceNitro || Math.random() < 0.3) pickups.push({ type: !forceNitro && Math.random() < 0.25 ? "shield" : "nitro", lane, x: laneX(lane), y }); // a rare shield instead of nitro
   else for (let i = 0; i < 4; i++) pickups.push({ type: "coin", lane, x: laneX(lane), y: y - i * 45 });
 }
 
@@ -1144,6 +1144,12 @@ function fireNitro(r) {
 function nitroBtn() { const g = pedalRects().gas; return { x: g.x + g.w / 2, y: g.y - 44, r: 30 }; } // touch: just above the gas pad
 
 function collect(r, k) {
+  if (k.type === "shield") {
+    r.shield = true;
+    burst(k.x, k.y, ["#7fffff", "#ffffff", "#3ad0ff"], 16, 3);
+    if (!r.ai) sound.tone(400, 1200, 0.25, "sine", 0.07);
+    return;
+  }
   if (k.type === "nitro") {
     r.charges = Math.min(NITRO_CHARGES, (r.charges || 0) + 1);
     burst(k.x, k.y, ["#5fd4ff", "#ffffff", "#2a7bff"], 14, 3);
@@ -1290,6 +1296,7 @@ function updatePlaying() {
 
   for (const k of pickups) {
     k.y += speed;
+    if (k.type === "shield" && k.y > 0 && !seenKinds.includes("shield")) { seenKinds.push("shield"); store.set("seenKinds", seenKinds); say(NEW_KINDS.shield); }
     for (const r of racers) {
       if (level && r.ai) continue; // the Grand Final CPU leaves pickups alone: a steady, readable rival
       if (r.alive && Math.abs(k.x - r.x) < 26 && Math.abs(k.y - r.y) < 42) {
@@ -1325,6 +1332,8 @@ function updatePlaying() {
       }
       const hitX = Math.abs(e.x - r.x) < CAR_W - 4;
       const hitY = Math.abs(e.y - r.y) < reach - 6;
+      if (hitX && hitY && r.ghost > 0) continue; // still flashing from a bump: no second hit
+      if (hitX && hitY && r.shield) { shieldBreak(r); continue; } // the shield takes it
       if (hitX && hitY && level && r.ai) { // the Grand Final CPU bumps off traffic instead of crashing: it loses speed and flashes for a second
         if (!(r.ghost > 0)) { r.v *= 0.6; r.ghost = 60; burst(r.x, r.y - 20, ["#ffffff", "#ffd23f"], 12, 3); }
         continue;
@@ -1348,6 +1357,15 @@ function updatePlaying() {
 }
 
 // Crossed the finish line of a World Tour city
+// the shield absorbs a crash: bounce off, lose the combo and some speed, and it shatters
+function shieldBreak(r) {
+  r.shield = false; r.combo = 0; r.comboT = 0;
+  r.v *= 0.7; r.y = Math.min(r.y + 26, H - 38); r.ghost = 45;
+  burst(r.x, r.y - 10, ["#7fffff", "#ffffff", "#3ad0ff", "#bff6ff"], 60, 7);
+  shake = Math.max(shake, 10);
+  if (!r.ai) { sound.burst(0.35, 0.5, "highpass", 3000, 9000); sound.tone(900, 220, 0.3, "triangle", 0.08); pops.push({ r, text: "SHIELD!", t: 0 }); rumble(); }
+}
+
 function finishLevel() {
   state = "cleared"; overAt = performance.now(); sel = 0; toast = null; // nothing covering the results
   touch.gas = touch.brake = false;
@@ -1623,6 +1641,22 @@ function drawCarRear(L, o = {}) {
   }
 }
 
+function drawShieldIcon(x, y, r, t) { // a glowing cyan shield badge
+  glow(x, y, r * 2.4, "80,230,255", 0.35 + 0.15 * Math.sin(t / 6));
+  ctx.fillStyle = "#0d4a66"; ctx.strokeStyle = "#7fffff"; ctx.lineWidth = Math.max(1.5, r * 0.15);
+  ctx.beginPath(); ctx.moveTo(x, y - r); ctx.lineTo(x + r * 0.85, y - r * 0.6); ctx.lineTo(x + r * 0.7, y + r * 0.35); ctx.lineTo(x, y + r); ctx.lineTo(x - r * 0.7, y + r * 0.35); ctx.lineTo(x - r * 0.85, y - r * 0.6); ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  ctx.fillStyle = "#7fffff"; ctx.fillRect(x - r * 0.12, y - r * 0.55, r * 0.24, r * 1.0); ctx.fillRect(x - r * 0.45, y - r * 0.15, r * 0.9, r * 0.24);
+}
+const drawPickupIcon = (k, x, y, s) => k.type === "nitro" ? drawNitroIcon(x, y, 13 * s, clock) : k.type === "shield" ? drawShieldIcon(x, y, 13 * s, clock) : drawCoin(x, y, 10 * s, Math.cos(clock / 8 + k.y / 20));
+function drawShieldBubble(cx, cy, rx, ry) { // the bubble round a shielded car
+  const a = 0.35 + 0.12 * Math.sin(clock / 5);
+  ctx.save(); ctx.globalCompositeOperation = "lighter";
+  ctx.strokeStyle = `rgba(110,240,255,${a + 0.3})`; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, TAU); ctx.stroke();
+  ctx.fillStyle = `rgba(80,220,255,${a * 0.35})`; ctx.fill();
+  ctx.restore();
+}
+
 function drawNitroIcon(x, y, r, t) {
   ctx.save();
   ctx.translate(x, y);
@@ -1745,6 +1779,7 @@ function drawRacer(r) {
   ctx.translate(r.x, r.y);
   ctx.rotate(r.tilt);
   drawCar(r.team, { brake: r.alive && r.braking, slip: r.alive && r.v >= 4.6, nitro: r.alive && r.nitro > 0 });
+  if (r.shield && r.alive) drawShieldBubble(0, 0, 34, 48);
   ctx.restore();
 }
 
@@ -1934,7 +1969,7 @@ function drawTopDown() {
   drawSpeedLines();
   for (const k of pickups) {
     if (k.y < -30) continue;
-    if (k.type === "nitro") drawNitroIcon(k.x, k.y, 13, clock); else drawCoin(k.x, k.y, 10, Math.cos(clock / 8 + k.y / 20));
+    drawPickupIcon(k, k.x, k.y, 1);
   }
   for (const e of enemies) if (e.y + lenOf(e) / 2 + (e.kind === "works" ? SIGN_AHEAD + 40 : 0) > -40) drawEnemy(e);
   for (const r of racers) drawRacer(r);
@@ -2707,7 +2742,7 @@ function drawSprites3D(C) {
   }
   for (const r of racers) {
     const p = toScreen(C, r.x, r.y, CAR_H / 2);
-    if (p) list.push({ d: p.d, p, fn: () => { if (r.ghost > 0 && Math.floor(r.ghost / 5) % 2) ctx.globalAlpha *= 0.35; drawCarRear(r.team, { brake: r.alive && r.braking, slip: r.alive && r.v >= 4.6, nitro: r.alive && r.nitro > 0 }); }, tilt: r.tilt, dead: !r.alive });
+    if (p) list.push({ d: p.d, p, fn: () => { if (r.ghost > 0 && Math.floor(r.ghost / 5) % 2) ctx.globalAlpha *= 0.35; drawCarRear(r.team, { brake: r.alive && r.braking, slip: r.alive && r.v >= 4.6, nitro: r.alive && r.nitro > 0 }); if (r.shield && r.alive) drawShieldBubble(0, -22, 40, 30); }, tilt: r.tilt, dead: !r.alive });
   }
   for (const it of roadItems) { const p = toScreen(C, it.x, it.y); if (p) list.push({ d: p.d + 0.5, p, item: it }); }
   if (startObj) { const p = toScreen(C, W / 2, startObj.y); if (p) list.push({ d: p.d, p, fn: () => drawGantry3D() }); }
@@ -2716,7 +2751,7 @@ function drawSprites3D(C) {
   for (const o of list) {
     const p = o.p, a = fade3D(C, p.d);
     if (a <= 0) continue;
-    if (o.coin) { ctx.globalAlpha = a; if (o.coin.type === "nitro") drawNitroIcon(p.sx, p.sy - 26 * p.sc, 14 * p.sc, clock); else drawCoin(p.sx, p.sy - 18 * p.sc, 10 * p.sc, Math.cos(clock / 8 + o.coin.y / 20)); ctx.globalAlpha = 1; continue; }
+    if (o.coin) { ctx.globalAlpha = a; drawPickupIcon(o.coin, p.sx, p.sy - (o.coin.type === "coin" ? 18 : 26) * p.sc, p.sc * (o.coin.type === "coin" ? 1 : 1.08)); ctx.globalAlpha = 1; continue; }
     if (o.item) { // flat things on the road: leaves and puddles
       const it = o.item, ry = it.ry ? it.ry * C.f * C.h / (p.d * p.d) : 2 * p.sc;
       ctx.globalAlpha = a;
@@ -3115,6 +3150,7 @@ function drawHud() {
       text(`${Math.round(r.v * 60)} km/h`, 72, 12, i === 0 ? "left" : "right", "#ddd");
     });
   }
+  if (p0.shield && p0.alive) drawShieldIcon(24, 64, 11, clock); // shield ready (under the camera button)
   if (p0.comboT > 0 && p0.combo >= 2) { // the live combo and how long it has left
     const y = level ? 104 : 86, k = p0.comboT / COMBO_T, pulse = 1 + 0.15 * Math.max(0, 1 - (COMBO_T - p0.comboT) / 10);
     textAt(`COMBO x${p0.combo}`, W / 2, y, 16 * pulse, "center", p0.combo >= 5 ? "#ff7a1a" : "#ffd23f");
