@@ -1293,7 +1293,10 @@ function stepRacers() {
     if (r.alive) {
       r.x += (laneX(r.lane) - r.x) * (0.3 - 0.09 * rainPlay()) * (r.ai ? 1 : 1 + 0.08 * upLvl("handling")); // wet road: lane changes take a little longer; the Handling upgrade quickens them
       // slower than the pace car -> slip back down the screen; the spring pulls you back when you keep up
-      if (level && level.final && r.ai) r.y = clamp(r.y + (speed - r.v), -AHEAD + 60, H + 400); // the final's CPU sits at its true distance from you, on screen or not
+      if (level && level.final && r.ai) { // the final's CPU: trueY is its real distance from you; y is where it can be drawn
+        r.trueY = (r.trueY === undefined ? r.y : r.trueY) + (speed - r.v);
+        r.y = clamp(r.trueY, -AHEAD + 60, H + 400);
+      }
       else r.y = clamp(r.y + (speed - r.v) - 0.015 * (r.y - r.ty), 80, H - 38);
       const target = clamp(Math.atan2(r.x - px, 10), -0.45, 0.45);
       r.tilt += (target - r.tilt) * 0.3;
@@ -1511,7 +1514,8 @@ function updatePlaying() {
   for (const e of enemies) {
     e.y += speed;
     if (e.kind === "changer" && !e.moved) { // blink for a second, then move over (only into a clear lane)
-      const ahead = racers[0].y - e.y, ok = l => l >= 0 && l < LANES && !laneBusy(l, e.y, CAR_H, 60, e) && !wouldWall(l, e.y, CAR_H, e);
+      const ahead = racers[0].y - e.y, ok = l => l >= 0 && l < LANES && !laneBusy(l, e.y, CAR_H, 60, e) && !wouldWall(l, e.y, CAR_H, e)
+        && !racers.some(r => r.alive && r.lane === l && Math.abs(r.y - e.y) < CAR_H + 40); // never pull over onto someone alongside
       if (!e.blink && ahead > 0 && ahead < 450) { const opts = [e.lane - 1, e.lane + 1].filter(ok); if (opts.length) { e.to = opts.includes(e.lane + e.side) ? e.lane + e.side : opts[0]; e.blink = 60; } else e.moved = true; }
       else if (e.blink && --e.blink === 0) { if (ok(e.to)) e.lane = e.to; e.moved = true; }
     }
@@ -1533,6 +1537,7 @@ function updatePlaying() {
       const hitX = Math.abs(e.x - r.x) < CAR_W - 4;
       const hitY = Math.abs(e.y - r.y) < reach - 6;
       if (hitX && hitY && r.ghost > 0) continue; // still flashing from a bump: no second hit
+      if (r.trueY !== undefined && r.trueY !== r.y) continue; // the final's CPU is beyond the stretch of road that exists: nothing to hit there
       if (hitX && hitY && r.shield) { shieldBreak(r); continue; } // the shield takes it
       if (hitX && hitY && level && level.final && r.id === 1) { // the Grand Final CPU bumps off traffic instead of crashing: it loses speed and flashes for a second
         if (!(r.ghost > 0)) { r.v *= 0.6; r.ghost = 60; burst(r.x, r.y - 20, ["#ffffff", "#ffd23f"], 12, 3); }
@@ -1550,7 +1555,7 @@ function updatePlaying() {
 
   if (level ? !racers[0].alive : racers.some(r => !r.alive)) endRound(); // in the tour only your crash ends it (a crashed CPU is simply out)
   else if (finishObj && finishObj.y >= racers[0].y - CAR_H / 2) finishLevel(); // nose over the line
-  else if (finishObj && level.final && racers[1].alive && finishObj.y >= racers[1].y - CAR_H / 2) { result = "CPU won the final!"; endRound(true); } // beaten to the line
+  else if (finishObj && level.final && racers[1].alive && finishObj.y >= (racers[1].trueY === undefined ? racers[1].y : racers[1].trueY) - CAR_H / 2) { result = "CPU won the final!"; endRound(true); } // beaten to the line
   if (racers[0].alive) racers[0].topV = Math.max(racers[0].topV || 0, racers[0].v);
   for (const r of racers) if (!r.ai && r.alive && grid.done) { // lifetime distance and top speed
     bump("km", r.v * KM_PER_UNIT);
@@ -1712,7 +1717,7 @@ function rescaleWorld(oldL, oldR) {
 // The screen got taller or shorter: the world stays pinned to the bottom edge, so the new space at the top is more road ahead
 function reheightWorld(dH) {
   for (const o of [...(enemies || []), ...(pickups || []), ...(racers || []), ...(roadItems || []), ...(scenery || []), ...(particles || []), ...(wx || [])]) {
-    o.y += dH; if (o.ty !== undefined) o.ty += dH;
+    o.y += dH; if (o.ty !== undefined) o.ty += dH; if (o.trueY !== undefined) o.trueY += dH;
   }
   if (startObj) startObj.y += dH;
   if (finishObj) finishObj.y += dH;
@@ -3521,7 +3526,7 @@ function drawHud() {
       else { for (let k = 0; k < 3; k++) drawStar(W / 2 - 18 + k * 12, 75, 5, true); }
       if (!grid.done) drawTargets();
       if (level.final) { // where the CPU really is: 1st / 2nd and the gap in seconds
-        const c = racers[1], first = !c.alive || racers[0].y <= c.y, gap = Math.abs(c.y - racers[0].y) / Math.max(1, racers[0].v * 60);
+        const c = racers[1], cy = c.trueY === undefined ? c.y : c.trueY, first = !c.alive || racers[0].y <= cy, gap = Math.abs(cy - racers[0].y) / Math.max(1, racers[0].v * 60);
         text(first ? "1st" : "2nd", 34, 20, "right", first ? "#3dff6e" : "#ff5a5a");
         if (grid.done && racers[0].v > 1) text(`${first ? "+" : "-"}${gap.toFixed(1)}s`, 56, 13, "right", "#ddd");
       }
@@ -3530,6 +3535,7 @@ function drawHud() {
     racers.forEach((r, i) => {
       text(`${r.label} ${r.score}`, 34, 20, i === 0 ? "left" : "right");
       text(`${Math.round(r.v * 60)} km/h`, 72, 12, i === 0 ? "left" : "right", "#ddd");
+      for (let k = 0; k < (r.charges || 0); k++) drawNitroIcon(i === 0 ? 52 + k * 16 : W - 18 - k * 16, 92, 6, clock); // nitro charges
     });
   }
   if (p0.shield && p0.alive) drawShieldIcon(24, 64, 11, clock); // shield ready (under the camera button)
