@@ -2,8 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Extreme Racer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="description" content="Race through 22 world cities in a free browser racing game: dodge traffic, chain near misses, fire nitro and earn 3 stars in every city.">
+<meta name="theme-color" content="#0b0b0d">
+<title>Extreme Racer – World Tour Racing</title>
+<link id="favicon" rel="icon" href="data:,">
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0b0d; }
   body { display: flex; justify-content: center; align-items: center; font-family: sans-serif; }
@@ -16,6 +19,21 @@
 <script>
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
+
+// the tab icon, drawn here so the game stays a single file: a yellow race car from above on a dark tile, with a speed streak
+(function makeFavicon() {
+  try {
+    const c = document.createElement("canvas"); c.width = c.height = 64;
+    const g = c.getContext("2d"), box = (x, y, w, h, col) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
+    g.fillStyle = "#16171c"; g.beginPath(); g.roundRect ? g.roundRect(0, 0, 64, 64, 14) : g.rect(0, 0, 64, 64); g.fill();
+    box(6, 40, 12, 4, "#ff7a1a"); box(2, 48, 10, 3, "#ff7a1a"); // speed streaks
+    for (const [x, y] of [[17, 13], [41, 13], [17, 39], [41, 39]]) box(x, y, 7, 13, "#0a0a0c"); // tyres
+    box(19, 6, 26, 5, "#ffe11a"); box(18, 52, 28, 5, "#ffe11a"); // front and rear wings
+    g.fillStyle = "#ffe11a"; g.beginPath(); g.moveTo(29, 8); g.lineTo(35, 8); g.lineTo(39, 34); g.lineTo(37, 54); g.lineTo(27, 54); g.lineTo(25, 34); g.closePath(); g.fill(); // body
+    box(30, 26, 4, 12, "#141416"); g.fillStyle = "#141416"; g.beginPath(); g.arc(32, 32, 4, 0, Math.PI * 2); g.fill(); // cockpit and helmet
+    document.getElementById("favicon").href = c.toDataURL("image/png");
+  } catch (e) {}
+})();
 
 let W = 400, H = 480; // the width stretches to fit your screen; on a portrait phone the height grows instead
 let ROAD_L = 40; const ROAD_W = 320; let ROAD_R = ROAD_L + ROAD_W; // grass verges either side of the road, always centred
