@@ -466,7 +466,7 @@ const songDB = {
 
 // ---------- state ----------
 
-let state = "menu"; // "menu" | "tutorial" | "difficulty" | "garage" | "options" | "jump" | "playing" | "paused" | "camera" | "over"
+let state = "menu"; // "menu" | "tutorial" | "difficulty" | "garage" | "options" | "map" | "playing" | "paused" | "camera" | "over"
 let mode = "single"; // "single" | "vs" | "multi"
 let difficulty = "medium";
 let racers, enemies, pickups, particles, scenery, roadItems, wx;
@@ -481,7 +481,7 @@ let starAnim = null, uiFx = []; // CITY COMPLETE: stars popping in one by one, a
 const STAR_T = [];
 const starTargets = i => STAR_T[i] || [250, 380]; // provisional until the per-city table is filled in
 const totalStars = () => cityStars.reduce((a, s) => a + (s || 0), 0);
-let sel = 0, overAt = 0, garageIdx = 0, jumpIdx = 0, runStage = 0, startDist = 0, toast = null, padG = [0, 0], padB = [0, 0], hasPad = false, hasTouch = false;
+let sel = 0, overAt = 0, garageIdx = 0, mapIdx = 0, runStage = 0, startDist = 0, toast = null, padG = [0, 0], padB = [0, 0], hasPad = false, hasTouch = false;
 const held = new Set();
 const touch = { gas: false, brake: false, gasId: null, brakeId: null }; // ids = which finger is on which pedal
 let steerHint = !store.get("steerHint", false), steerTaps = 0; // the first touch race shows where to tap to steer
@@ -530,7 +530,7 @@ function initDemo() {
 // the rival drives the top team (Aurora); if you're in Aurora or the similar purple Nightjar, it brings the hot pink Stratos
 function rivalTeam() { return TEAMS[equipped === 10 || equipped === 1 ? 8 : 10]; }
 
-// jump the world to the start of a given country (used by Jump Start and for the menu preview)
+// jump the world to the start of a given city (the World Tour map previews the selected city behind it)
 function jumpTo(i, frac = 0) {
   dist = STAGE_LEN * (i + frac);
   updateStage();
@@ -588,11 +588,10 @@ songInput.addEventListener("change", async () => {
 });
 
 const MAIN_MENU = [
-  { label: "World Tour", go: () => withTutorial(() => startGame("tour", null, Math.min(tourCleared, ROUTE.length - 1))) }, // carries on at the next unfinished city
+  { label: "World Tour", go: () => openMap() }, // the map of all 22 cities
   { label: "Endless", go: () => withTutorial(() => startGame("single")) },
   { label: "VS Computer", go: () => openMenu("difficulty", 1) },
   { label: "Multiplayer", go: () => startGame("multi") },
-  { label: "Jump Start", go: () => { jumpIdx = 0; jumpTo(0, 0.3); openMenu("jump"); } },
   { label: "Garage", go: () => { garageIdx = equipped; openMenu("garage"); } },
   { label: "Options", go: () => openMenu("options") },
 ];
@@ -603,7 +602,7 @@ const OPTIONS_MENU = [
   { label: () => `Add My Songs${music.userCount ? ` (${music.userCount})` : ""}`, go: () => songInput.click() },
   { label: () => `Fullscreen: ${document.fullscreenElement || document.webkitFullscreenElement ? "ON" : "OFF"}`, go: () => toggleFullscreen() },
   { label: "Clear My Songs", go: () => { music.clearUser(); songDB.clear().catch(() => {}); say("Songs cleared"); } },
-  { label: "Back", go: () => openMenu("menu", 6) },
+  { label: "Back", go: () => openMenu("menu", 5) },
 ];
 const DIFF_MENU = [
   { label: "Easy", go: () => startGame("vs", "easy") },
@@ -612,13 +611,23 @@ const DIFF_MENU = [
   { label: "Impossible", go: () => startGame("vs", "impossible") },
   { label: "Back", go: () => openMenu("menu", 2) },
 ];
-const JUMP_MENU = [
-  { label: "Start here", go: () => startGame("single", null, jumpIdx) },
-  { label: "Back", go: () => { initDemo(); openMenu("menu", 4); } },
-];
+// ---- World Tour map: 22 tiles in two columns; a city unlocks once the one before it is finished ----
+const MAP_COLS = 2, MAP_ROWS = Math.ceil(ROUTE.length / MAP_COLS);
+const unlocked = i => i <= tourCleared;
+function openMap() { mapIdx = Math.min(tourCleared, ROUTE.length - 1); jumpTo(mapIdx, 0.3); openMenu("map"); sel = -1; } // starts on the next unfinished city
+function mapTile(i) { // tiles run down the first column, then the second
+  const tw = Math.min((W - 24) / 2, 250), x0 = W / 2 - tw - 3, c = Math.floor(i / MAP_ROWS), r = i % MAP_ROWS;
+  return { x: x0 + c * (tw + 6), y: 64 + r * 34, w: tw, h: 31 };
+}
+function moveMap(i) { if (i === mapIdx) return; mapIdx = i; jumpTo(mapIdx, 0.3); sound.tone(520, 520, 0.04, "square", 0.03); }
+function startCity(i) {
+  if (!unlocked(i)) { sound.tone(200, 120, 0.2, "sawtooth", 0.05); say(`Finish ${ROUTE[i - 1].venue} to unlock`); return; }
+  withTutorial(() => startGame("tour", null, i));
+}
+const MAP_MENU = [{ label: "Back", go: () => { initDemo(); openMenu("menu", 0); } }];
 const GARAGE_MENU = [
   { label: () => owned.includes(garageIdx) ? (garageIdx === equipped ? "Equipped" : "Equip") : `Buy - ${TEAMS[garageIdx].cost} coins`, go: garageAction },
-  { label: "Back", go: () => openMenu("menu", 5) },
+  { label: "Back", go: () => openMenu("menu", 4) },
 ];
 function cycleCamera(dir) { cam = (cam + CAMS.length + dir) % CAMS.length; store.set("camera", cam); }
 const PAUSE_MENU = [
@@ -675,7 +684,7 @@ const BTN_W = 210;
 function currentMenu() {
   switch (state) {
     case "menu": return { items: MAIN_MENU, top: 178, h: 30, gap: 6 };
-    case "jump": return { items: JUMP_MENU, top: 362, h: 40, gap: 8 };
+    case "map": return { items: MAP_MENU, top: 446, h: 28, gap: 0 };
     case "options": return { items: OPTIONS_MENU, top: 138, h: 34, gap: 8 };
     case "difficulty": return { items: DIFF_MENU, top: 200, h: 40, gap: 10 };
     case "garage": return { items: GARAGE_MENU, top: 362, h: 40, gap: 8 };
@@ -724,10 +733,12 @@ function menuAction(a) {
   if (state === "garage" && (a === "left" || a === "right")) {
     garageIdx = (garageIdx + TEAMS.length + (a === "left" ? -1 : 1)) % TEAMS.length;
     sound.tone(520, 520, 0.05);
-  } else if (state === "jump" && (a === "left" || a === "right")) { // flick through the countries; the road behind changes with them
-    jumpIdx = (jumpIdx + ROUTE.length + (a === "left" ? -1 : 1)) % ROUTE.length;
-    jumpTo(jumpIdx, 0.3);
-    sound.tone(520, 520, 0.05);
+  } else if (state === "map" && a !== "back") { // move around the grid; the road behind shows the selected city
+    const c = Math.floor(mapIdx / MAP_ROWS), r = mapIdx % MAP_ROWS;
+    if (a === "up") moveMap(c * MAP_ROWS + Math.max(0, r - 1));
+    else if (a === "down") moveMap(Math.min(ROUTE.length - 1, c * MAP_ROWS + Math.min(MAP_ROWS - 1, r + 1)));
+    else if (a === "left" || a === "right") moveMap(Math.min(ROUTE.length - 1, (a === "left" ? 0 : 1) * MAP_ROWS + r));
+    else if (a === "confirm") startCity(mapIdx);
   } else if (state === "tutorial" && (a === "left" || a === "right")) { // flick between the tip cards
     if (a === "right") nextTip(); else { tipIdx = Math.max(0, tipIdx - 1); sel = 0; }
   } else if (state === "paused" && sel === 1 && (a === "left" || a === "right")) { // flick through the cameras
@@ -740,9 +751,9 @@ function menuAction(a) {
     if (state === "paused" || state === "camera") state = "playing";
     else if (state === "tutorial") endTutorial();
     else if (state === "difficulty") openMenu("menu", 2);
-    else if (state === "jump") { initDemo(); openMenu("menu", 4); }
-    else if (state === "garage") openMenu("menu", 5);
-    else if (state === "options") openMenu("menu", 6);
+    else if (state === "map") { initDemo(); openMenu("menu", 0); }
+    else if (state === "garage") openMenu("menu", 4);
+    else if (state === "options") openMenu("menu", 5);
     else if (state === "over" || state === "cleared") toMenu();
   }
 }
@@ -1294,7 +1305,7 @@ function update() {
   sound.engineTick(state === "playing", effV(racers[0]), racers[0].nitro > 0);
   if (state === "playing" && racers[0].rev > 0.9 && Math.random() < 0.12) sound.burst(0.05, 0.4, "lowpass", 900, 260); // rev-limiter pops
   sound.envTick(state === "playing", Math.max(rainI, wet), 0, 0);
-  music.tick(state === "menu" || state === "tutorial" || state === "difficulty" || state === "garage" || state === "options" || state === "jump");
+  music.tick(state === "menu" || state === "tutorial" || state === "difficulty" || state === "garage" || state === "options" || state === "map");
 }
 
 // ---------- tile textures (pre-rendered once per resolution) ----------
@@ -2717,18 +2728,30 @@ function drawTutorial() {
   (hasTouch && tip.touch ? tip.touch : tip.lines).forEach((s, i) => textAt(s, W / 2, 264 + i * 20, 13, "center", "#ddd"));
 }
 
-function drawJump() {
-  const st = ROUTE[jumpIdx];
-  text("JUMP START", 58, 32);
-  text("Single player: choose where your race begins", 82, 12, "center", "#ccc");
-  text(`${st.n} / ${ROUTE.length}`, 106, 13, "center", "#ccc");
-  ctx.save(); ctx.translate(W / 2 - 52, 122); drawFlag(st.flag, 104, 68); ctx.restore();
-  ctx.strokeStyle = "rgba(255,255,255,0.55)"; ctx.lineWidth = 2; ctx.strokeRect(W / 2 - 52, 122, 104, 68);
-  textAt("<", 12, 170, 44, "left"); textAt(">", W - 12, 170, 44, "right");
-  text(st.country, 232, st.country.length > 12 ? 24 : 28);
-  text(roundLabel(st), 256, 13, "center", "#ffd23f");
-  text(st.info, 282, 12, "center", "#fff");
-  [st.g, st.rd, st.s0, st.s1, st.lf].forEach((c, i) => { ctx.fillStyle = rgb(c); ctx.strokeStyle = "#000"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(W / 2 - 36 + i * 18, 312, 6, 0, TAU); ctx.fill(); ctx.stroke(); });
+function drawMap() {
+  text("WORLD TOUR", 34, 26);
+  drawStar(W / 2 - 40, 49, 7, true); textAt(`${totalStars()} / ${ROUTE.length * 3}`, W / 2 - 28, 54, 13, "left", "#ffd23f");
+  ROUTE.forEach((st, i) => {
+    const r = mapTile(i), open = unlocked(i), on = i === mapIdx, stars = cityStars[i] || 0;
+    roundRect(r.x, r.y, r.w, r.h, 7); ctx.fillStyle = on ? "#1d70f5" : open ? "rgba(0,0,0,0.62)" : "rgba(0,0,0,0.4)"; ctx.fill();
+    ctx.strokeStyle = on ? "#fff" : "rgba(255,255,255,0.25)"; ctx.lineWidth = on ? 2 : 1; ctx.stroke();
+    ctx.globalAlpha = open ? 1 : 0.45;
+    textAt(String(st.n), r.x + 14, r.y + 20, 11, "center", "#ccc");
+    ctx.save(); ctx.translate(r.x + 26, r.y + 9); drawFlag(st.flag, 20, 13); ctx.restore();
+    const room = r.w - 52 - (open ? 46 : 32); // shrink long names to fit between the flag and the stars, then shorten them if needed
+    let nm = st.venue, fs = 12;
+    const fits = () => { ctx.font = `bold ${fs}px sans-serif`; return ctx.measureText(nm).width + 4 <= room; };
+    while (!fits() && fs > 10) fs--;
+    while (!fits() && nm.length > 4) nm = nm.slice(0, nm.endsWith(".") ? -2 : -1).trimEnd() + ".";
+    textAt(nm, r.x + 52, r.y + 20, fs, "left", "#fff");
+    ctx.globalAlpha = 1;
+    if (open) for (let k = 0; k < 3; k++) drawStar(r.x + r.w - 40 + k * 13, r.y + r.h / 2, 5.5, k < stars);
+    else { // a little padlock
+      const lx = r.x + r.w - 22, ly = r.y + r.h / 2;
+      ctx.strokeStyle = "#aaa"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(lx, ly - 3, 4, Math.PI, TAU); ctx.stroke();
+      ctx.fillStyle = "#aaa"; ctx.fillRect(lx - 6, ly - 3, 12, 9);
+    }
+  });
 }
 
 function drawGarage() {
@@ -2909,10 +2932,10 @@ function draw() {
   const moy = menuOY(); // menus and overlays are laid out for a 480-high screen: centre them on taller ones
   ctx.save(); ctx.translate(0, moy);
 
-  if (state === "menu" || state === "tutorial" || state === "difficulty" || state === "garage" || state === "options" || state === "jump") {
+  if (state === "menu" || state === "tutorial" || state === "difficulty" || state === "garage" || state === "options" || state === "map") {
     ctx.fillStyle = "rgba(15,15,20,0.66)"; // fade the highway behind the title
     ctx.fillRect(0, -moy, W, H);
-    if (state === "jump") drawJump();
+    if (state === "map") drawMap();
     else if (state === "tutorial") drawTutorial();
     else if (state === "garage") drawGarage();
     else if (state === "options") {
@@ -2923,7 +2946,10 @@ function draw() {
       if (state === "difficulty") text("VS Computer: pick a level", 175, 18);
       else {
         text("WORLD TOUR", 142, 15, "center", "#ff5a5a");
-        text(`Best ${best}   Coins ${wallet}`, 166, 14, "center", "#ffd23f");
+        const line = `Best ${best}   Coins ${wallet}   `, tail = `${totalStars()} / ${ROUTE.length * 3}`; // plus the World Tour star total
+        ctx.font = "bold 14px sans-serif";
+        const w1 = ctx.measureText(line).width, w2 = ctx.measureText(tail).width, x0 = W / 2 - (w1 + 16 + w2) / 2;
+        textAt(line, x0, 166, 14, "left", "#ffd23f"); drawStar(x0 + w1 + 6, 161, 6, true); textAt(tail, x0 + w1 + 16, 166, 14, "left", "#ffd23f");
       }
     }
     drawButtons();
@@ -2932,7 +2958,7 @@ function draw() {
     ctx.textAlign = "center";
     const musicNote = music.on && sound.on ? (music.playing ? `Now playing: ${music.name}   (N = next)` : "Press any key to start the music") : "";
     if (state === "menu" && musicNote) ctx.fillText(musicNote, W / 2, 448);
-    ctx.fillText(state === "tutorial" ? (hasTouch ? "Tap Next, or Skip to go straight in" : "Enter = next   Esc = skip") : state === "garage" ? "Left / Right to browse, Enter to pick" : state === "jump" ? "Left / Right to choose a country, Enter to start" : `Up / Down + Enter, or tap an option${hasPad ? "  |  Controller ready" : ""}`, W / 2, 470);
+    ctx.fillText(state === "tutorial" ? (hasTouch ? "Tap Next, or Skip to go straight in" : "Enter = next   Esc = skip") : state === "garage" ? "Left / Right to browse, Enter to pick" : state === "map" ? "" /* the map has its own Back button there */ : `Up / Down + Enter, or tap an option${hasPad ? "  |  Controller ready" : ""}`, W / 2, 470);
   }
 
   if (state === "paused") {
@@ -3040,7 +3066,7 @@ document.addEventListener("keydown", e => {
     return;
   }
   if (state === "camera" && c === "KeyC") { state = "playing"; return; }
-  if ((state === "garage" || state === "jump" || state === "paused" || state === "tutorial") && e.repeat && (c === "ArrowLeft" || c === "ArrowRight" || c === "KeyA" || c === "KeyD")) return;
+  if ((state === "garage" || state === "paused" || state === "tutorial") && e.repeat && (c === "ArrowLeft" || c === "ArrowRight" || c === "KeyA" || c === "KeyD")) return;
   if (MENU_KEYS[c]) menuAction(MENU_KEYS[c]);
 });
 
@@ -3078,7 +3104,8 @@ canvas.addEventListener("pointerdown", e => {
   p.y -= menuOY(); // menu screens are centred on tall screens
   const i = menuIndexAt(p.x, p.y);
   if (i >= 0) { sel = i; activate(i); }
-  else if ((state === "garage" || state === "jump") && p.y > 110 && p.y < 300) menuAction(p.x < W / 2 ? "left" : "right");
+  else if (state === "garage" && p.y > 110 && p.y < 300) menuAction(p.x < W / 2 ? "left" : "right");
+  else if (state === "map") { const t = ROUTE.findIndex((_, k) => inRect(p, mapTile(k), 0)); if (t >= 0) { moveMap(t); startCity(t); } } // tap a city to race it
 });
 const releasePedals = e => { // only the finger that pressed a pedal lets it go, so steering taps don't cut the throttle
   if (e.pointerId === touch.gasId || e.pointerType !== "touch") { touch.gas = false; touch.gasId = null; }
