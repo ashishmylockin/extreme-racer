@@ -55,17 +55,18 @@ export function createCameraRig(scene) {
     const vv = Math.min(t.v, 9);
     cockpit.visible = mode === "cockpit";
     let fovGoal = 60;
+    const pk = Math.min(1, Math.max(0, (1.25 - camera.aspect) / 0.75)); // 0 on a wide screen .. 1 on a tall phone: the view widens and the camera backs off so the road still fits
     if (mode === "overhead") {
       rig.camX += (t.x * 0.35 - rig.camX) * sm(5);
-      camera.position.set(rig.camX, 64, t.z + 32);
+      camera.position.set(rig.camX, 64 + 38 * pk, t.z + 32 + 14 * pk);
       camera.lookAt(rig.camX, 0, t.z - 25); camera.rotation.z = 0;
       fovGoal = 42;
     } else if (mode === "chase") {
       rig.camX += (t.x - rig.camX) * sm(6); // spring: the camera trails the car across the road...
-      const backGoal = 14.5 + vv * 1.25 + (t.nitro ? 3.5 : 0);
+      const backGoal = (14.5 + vv * 1.25 + (t.nitro ? 3.5 : 0)) * (1 + 0.45 * pk);
       rig.back += (backGoal - rig.back) * sm(2.5); // ...and drops back the faster you go
       const lean = t.x - rig.camX;
-      camera.position.set(rig.camX, 5.4 + vv * 0.12, t.z + rig.back);
+      camera.position.set(rig.camX, (5.4 + vv * 0.12) * (1 + 0.5 * pk), t.z + rig.back);
       camera.lookAt(rig.camX * 0.4 + t.x * 0.6, 1.5, t.z - 30);
       camera.rotateZ(-lean * 0.02); // lean into the lane change
       fovGoal = 58 + vv * 2.6 + (t.nitro ? 6 : 0);
@@ -102,6 +103,7 @@ export function createCameraRig(scene) {
       camera.lookAt(rig.camX, 1.4, t.z - 22);
       fovGoal = 55;
     }
+    fovGoal *= 1 + 0.38 * pk; // (portrait)
     rig.fov += (fovGoal + fx.kick * 12 - rig.fov) * sm(8);
     if (Math.abs(camera.fov - rig.fov) > 0.01) { camera.fov = rig.fov; camera.updateProjectionMatrix(); }
     if (fx.shake > 0.5) camera.position.add(rig.shakeV.set((Math.random() - 0.5) * fx.shake * 0.035, (Math.random() - 0.5) * fx.shake * 0.035, 0));

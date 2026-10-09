@@ -24,7 +24,7 @@ function render3D(alpha) { try { R3D.render(alpha); } catch (e) { disable3D(e); 
 
 function loop(now) {
   if (window.R3D_PENDING) { lastTime = now; requestAnimationFrame(loop); return; } // still loading the 3D assets: hold the game
-  perfGuard(now - lastTime);
+  if (!window.R3D) perfGuard(now - lastTime); // (the 2D renderer's "reduce effects" watchdog; the 3D renderer has its own Auto quality)
   acc += Math.min(100, now - lastTime) * (slowT > 0 && state === "playing" ? 0.35 : 1); // big combos: a moment of slow motion
   lastTime = now;
   while (acc >= STEP) { if (ticksLeft > 0) { update(); ticksLeft--; if (window.R3D) tick3D(); } acc -= STEP; }

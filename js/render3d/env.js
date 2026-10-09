@@ -12,9 +12,9 @@ export const CITY_TOD = {
 };
 // sun / moon direction (azimuth: 0 = straight ahead, positive to the right; elevation in degrees), light colour and strength, sky brightness
 export const LOOK = {
-  morning:  { az: -50, el: 24, color: 0xffe2b8, sun: 2.4, env: 0.95, sky: 1.0 },
+  morning:  { az: -50, el: 24, color: 0xffe2b8, sun: 3.4, env: 0.6, sky: 1.0 },
   midday:   { az: -35, el: 58, color: 0xfff4e2, sun: 3.0, env: 1.0, sky: 1.0 },
-  sunset:   { az: -20, el: 9, color: 0xffa860, sun: 2.6, env: 0.9, sky: 1.0 },
+  sunset:   { az: -48, el: 9, color: 0xffa860, sun: 2.6, env: 0.9, sky: 1.0 },
   night:    { az: 30, el: 38, color: 0x8fa8ff, sun: 0.35, env: 0.5, sky: 1.0 },
   overcast: { az: -30, el: 50, color: 0xdfe6ee, sun: 0.0, env: 1.1, sky: 1.0 },
 };
@@ -61,6 +61,7 @@ export function createSkyDome() {
         vec3 d = normalize(vDir);
         vec3 col = mix(texture2D(tA, eq(d, yawA), 1.5).rgb, texture2D(tB, eq(d, yawB), 1.5).rgb, mixB) * expo * tint;
         col = mix(col, haze, hazeAmt * (1.0 - smoothstep(0.0, 0.55, d.y)));
+        col = min(col, vec3(7.0)); // the sun disc is thousands of times brighter than the sky: cap it so it can't blow the bloom out
         gl_FragColor = vec4(col, 1.0);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>

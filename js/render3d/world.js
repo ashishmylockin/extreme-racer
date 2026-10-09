@@ -83,6 +83,7 @@ export function createWorld(scene) {
 
   let skyKey = "";
   return {
+    groundMeshes: [road, lineMesh], reflectMats: [roadMat, lineMat],
     sun, dome, fill, // (fill is a soft sky-coloured ambient: used when the image-based lighting is off, and a little at night)
     // pal = the simulation's blended palette; stA / stB = this city and the next; b = how far through the blend (0..1)
     update(pal, rain, scrollWu, focus, stA, stB, b, wetness = 0) {

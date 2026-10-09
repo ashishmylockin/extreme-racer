@@ -15,6 +15,7 @@ import { glows } from "./landmarks.js";
 import { createWeather } from "./weather.js";
 import { createNight } from "./night.js";
 import { createPost } from "./post.js";
+import { createReflection } from "./reflect.js";
 import { createFX } from "./fx.js";
 import { createPhoto } from "./photo.js";
 import { createShowroom } from "./showroom.js";
@@ -40,6 +41,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
   const nightFx = createNight(scene), lampList = [];
   const post = createPost(renderer, scene, camera);
   const fx = createFX(scene);
+  const reflect = createReflection(renderer, scene, camera, world.groundMeshes, world.reflectMats); // wet-road reflections (Ultra)
   const photo = createPhoto();
   let showroom = null;
   const GRADE = { Miami: { sat: 1.2, tint: [1.05, 0.97, 1.03] }, Shanghai: { sat: 0.85, tint: [0.95, 1, 1.06] }, London: { sat: 0.8 }, Brussels: { sat: 0.78 }, "Sao Paulo": { sat: 0.92 }, "Las Vegas": { sat: 1.2, contrast: 1.14 }, Singapore: { sat: 1.15, contrast: 1.1 }, Doha: { sat: 1.1, tint: [1.05, 1, 0.92] }, "Abu Dhabi": { sat: 1.15, tint: [1.08, 0.98, 0.9] }, Tokyo: { sat: 1.1, tint: [1.02, 0.99, 1.03] }, Austin: { tint: [1.06, 1, 0.93] }, "Mexico City": { sat: 1.12 }, Barcelona: { tint: [1.04, 1, 0.95] }, Salzburg: { sat: 1.06, tint: [0.97, 1, 1.03] }, Baku: { sat: 1.1, tint: [1.04, 0.98, 0.98] } };
@@ -56,7 +58,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
     renderer.shadowMap.enabled = Q.shadows > 0; world.sun.castShadow = Q.shadows > 0;
     if (world.sun.shadow.mapSize.x !== Q.shadows && Q.shadows > 0) { world.sun.shadow.mapSize.set(Q.shadows, Q.shadows); if (world.sun.shadow.map) { world.sun.shadow.map.dispose(); world.sun.shadow.map = null; } }
     renderer.shadowMap.needsUpdate = true;
-    fx.setDensity(Q.particles);
+    fx.setDensity(Q.particles); reflect.enable(Q.reflect);
     post.bloom.enabled = Q.bloom; post.fx.enabled = Q.grade; post.smaa.enabled = Q.smaa; post.fxaa.enabled = Q.fxaa;
     for (const t of [post.composer.renderTarget1, post.composer.renderTarget2]) if (t.samples !== Q.msaa) { t.samples = Q.msaa; t.dispose(); }
     for (const m of rig.mirrors) m.rt.setSize(Q.mirrorRes, Q.mirrorRes / 2);
@@ -240,10 +242,10 @@ export function createRenderer3D(canvas2d, glCanvas) {
     for (const name of START_FINISH) {
       const m = marks[name]; if (!m) continue;
       m.obj.position.set(0, 0, lerp(m.pz, m.cz, alpha));
-      if (name === "start") m.obj.userData.lights.forEach((mt, i) => {
+      if (name === "start") { const dd = m.obj.position.distanceTo(camera.position), near = Math.min(1, Math.max(0, (dd - 6) / 30)); m.obj.userData.lights.forEach((mt, i) => { // (the lights fade down when the camera is right under them, or they would wash out the screen)
         const green = grid.done, red = !green && i < grid.lit;
-        mt.emissive.set(green ? 0x00ff40 : red ? 0xff0000 : 0x000000); mt.emissiveIntensity = green ? 2.4 : red ? 1.8 : 0; mt.color.set(green ? 0x00aa30 : red ? 0xaa0000 : 0x220000); // (pure red at a lower strength: bright reds turn orange in the tone mapper)
-      });
+        mt.emissive.set(green ? 0x00ff40 : red ? 0xff0000 : 0x000000); mt.emissiveIntensity = (green ? 2.4 : red ? 1.8 : 0) * (0.15 + 0.85 * near); mt.color.set(green ? 0x00aa30 : red ? 0xaa0000 : 0x220000); // (pure red at a lower strength: bright reds turn orange in the tone mapper)
+      }); }
     }
 
     // what the camera follows: your car, interpolated. When you crash, the crash camera follows the wreck itself.
@@ -310,9 +312,12 @@ export function createRenderer3D(canvas2d, glCanvas) {
     // mirrors first (cockpit view only), without the cockpit in them
     if (mode === "cockpit") {
       rig.cockpit.visible = false;
+      const au = renderer.shadowMap.autoUpdate; renderer.shadowMap.autoUpdate = false; // the mirrors reuse the main view's shadows
       for (const m of rig.mirrors) { renderer.setRenderTarget(m.rt); renderer.render(scene, m.cam); }
+      renderer.shadowMap.autoUpdate = au;
       renderer.setRenderTarget(null); rig.cockpit.visible = true;
     }
+    if (Q.reflect && wet > 0.12 && mode !== "menu") reflect.render(Math.min(1, wet * 1.3)); // Ultra: reflections on a wet road
     post.render(dt);
     if (photo.capture) capture();
   }
