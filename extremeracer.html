@@ -596,7 +596,7 @@ const ACHIEVEMENTS = [
   { id: "champ", name: "World Champion", desc: "Win the Grand Final" },
   { id: "km100", name: "Long Hauler", desc: "Drive 100 km in total" },
   { id: "nitro3", name: "Rocket Fuel", desc: "Grab 3 nitros in one run" },
-  { id: "react", name: "Lights Out", desc: "React in under 0.200 s" },
+  { id: "react", name: "Perfect Launch", desc: "Full revs when the lights go green" },
   { id: "maxup", name: "Fully Loaded", desc: "Max out an upgrade" },
   { id: "daily", name: "Early Bird", desc: "Play a Daily Challenge" },
   { id: "streak3", name: "On a Roll", desc: "3-day Daily streak" },
@@ -844,7 +844,7 @@ const TIPS = [
     ctx.save(); ctx.scale(0.55, 0.55); drawCar(TEAMS[equipped]); ctx.restore();
     ctx.fillStyle = "#ffd23f"; for (const s of [-1, 1]) poly([[s * 74, -14], [s * 74, 14], [s * 94, 0]]);
   } },
-  { title: "LAUNCH START", lines: ["At the lights, hold BRAKE + GAS to rev.", "Let go of BRAKE on green for a launch!"], icon: () => {
+  { title: "LAUNCH START", lines: ["Hold GAS while the lights count down:", "the more revs, the faster you launch on green!"], icon: () => {
     for (const [y, col] of [[-16, "#ff2a2a"], [18, "#39ff6a"]]) for (let i = 0; i < 5; i++) {
       ctx.fillStyle = "#111"; ctx.beginPath(); ctx.arc(-56 + i * 28, y, 12, 0, TAU); ctx.fill();
       ctx.fillStyle = col; ctx.beginPath(); ctx.arc(-56 + i * 28, y, 8, 0, TAU); ctx.fill();
@@ -1419,13 +1419,9 @@ function updatePlaying() {
   // throttle / brake (nitro takes over completely while it burns)
   for (const r of racers) {
     if (!r.alive) continue;
-    if (!grid.done) { // on the grid: hold brake + throttle to build revs; going without the brake held is a false start
+    if (!grid.done) { // on the grid: holding gas builds revs (no penalties, no brake trick)
       r.v = 0; r.braking = false;
-      if (!r.ai) {
-        const pd = pedals(r);
-        r.rev += clamp((pd.brake > 0.3 ? pd.gas : 0) - r.rev, -0.08, 0.05);
-        if (pd.gas > 0.3 && pd.brake < 0.3 && !r.falseStart) { r.falseStart = true; if (r.id === 0) say("FALSE START!  +1s"); }
-      }
+      if (!r.ai) r.rev += clamp(pedals(r).gas - r.rev, -0.08, 0.05);
       continue;
     }
     const since = frame - grid.goFrame, boost = r.nitro > 0;
@@ -1442,19 +1438,14 @@ function updatePlaying() {
     } else {
       const pd = pedals(r);
       let t = clamp(pd.gas - pd.brake, -1, 1);
-      if (r.falseStart && since < 60) { t = 0; r.rev = 0; } // the one-second penalty for jumping the lights
-      else if (!r.launched) {
-        r.rev += clamp((pd.brake > 0.3 ? pd.gas : 0) - r.rev, -0.08, 0.05); // you can keep revving after green until you decide to go
-        if (pd.gas > 0.3 && pd.brake < 0.3) { // brake off, throttle on: away you go, instantly, harder the more revs you built
-          if (!r.falseStart && since / 60 < 0.2) unlock("react"); // lightning off the line
-          r.launched = true; r.reaction = since; r.v = Math.max(r.v, 0.4 + 1.5 * r.rev); r.rev = 0;
-          if (r.id === 0 && !r.falseStart) say(`Reaction ${(since / 60).toFixed(3)}s${mode === "vs" ? "   CPU 0.100s" : ""}`);
-        }
+      if (!r.launched && pd.gas > 0.3) { // on gas after green: away you go, harder the more revs you built on the grid
+        if (r.rev > 0.95) unlock("react"); // a perfect launch
+        r.launched = true; r.v = Math.max(r.v, 0.4 + 1.5 * r.rev); r.rev = 0;
       }
       r.v += t > 0 ? accelAt(r.v) * t : 0.05 * t; // brakes ~5g, like the real thing
       r.braking = t < -0.05;
-      if (t < -0.3 && r.launched) r.braked = true;
-      r.hardBrake = t < -0.6 && r.v > 2.5; // tyre smoke // for the "finish without braking" mission (revving on the grid doesn't count)
+      if (t < -0.3 && r.launched) r.braked = true; // for the "finish without braking" mission
+      r.hardBrake = t < -0.6 && r.v > 2.5; // tyre smoke
     }
     if (!boost && r.cruise !== undefined) { // nitro wears off: ease back down to where the throttle alone would have got you
       if (r.v > r.cruise + 0.06) r.v -= 0.06;
@@ -3595,11 +3586,10 @@ function drawHud() {
     ctx.globalAlpha = f;
     if (hasTouch && mode !== "multi") { // short enough to sit between the two pedals on a phone
       if (grid.done) text("Tap a side to steer", H - 78, 13);
-      else { text("Hold BRAKE + GAS to rev", H - 94, 12); text("Let go of BRAKE on green", H - 78, 12); }
+      else text("Hold GAS - go on green!", H - 86, 13);
     } else if (grid.done) text(mode === "multi" ? "P1: Arrows    P2: W A S D" : "Left/Right steer   Up/Down speed", H - 78, 13);
     else {
-      text(mode === "multi" ? "Rev: P1 Up+Down, P2 W+S" : "Rev: hold brake + throttle (Down+Up, or LT+RT)", H - 94, 12);
-      text("Let go of the brake the moment the lights go green", H - 78, 12);
+      text(mode === "multi" ? "Hold Up / W - go on green!" : "Hold Up (or RT) - go on green!", H - 86, 13);
     }
     ctx.globalAlpha = 1;
   }
