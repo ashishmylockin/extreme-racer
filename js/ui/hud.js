@@ -119,7 +119,7 @@ function drawGarage() {
   ctx.save();
   ctx.translate(W / 2, 190);
   ctx.scale(2.0, 2.0);
-  drawCar(t, { slip: false });
+  if (!window.R3D) drawCar(t, { slip: false }); // with 3D on, the car is on the turntable behind this canvas
   ctx.restore();
   textAt("<", 12, 204, 44, "left");
   textAt(">", W - 12, 204, 44, "right");
@@ -535,6 +535,7 @@ function draw() {
   ctx.setTransform(RES, 0, 0, RES, 0, 0);
   ctx.clearRect(0, 0, W, H);
   if (!window.R3D) { drawWorld(); drawAtmosphere(); postFX(); } // with the 3D renderer on, the world is drawn behind this canvas
+  if (window.R3D && R3D.photo.active) { drawPhotoHint(); return; } // photo mode: just a hint (or nothing at all when the HUD is hidden)
 
   if (state === "playing" || state === "paused" || state === "camera") drawHud();
   if (flashT > 0.02) { ctx.fillStyle = `rgba(255,255,255,${flashT})`; ctx.fillRect(0, 0, W, H); }
@@ -545,7 +546,7 @@ function draw() {
   if (state === "title" || state === "menu") { ctx.save(); ctx.translate(0, -moy); drawVersion(); ctx.restore(); }
   if (state === "title") drawTitle(moy);
   if (state === "menu" || state === "tutorial" || state === "difficulty" || state === "garage" || state === "upgrades" || state === "options" || state === "songs" || state === "controls" || state === "credits" || state === "map" || state === "brief" || state === "stats") {
-    ctx.fillStyle = "rgba(15,15,20,0.66)"; // fade the highway behind the title
+    ctx.fillStyle = window.R3D && state === "garage" ? "rgba(15,15,20,0.0)" : "rgba(15,15,20,0.66)"; // fade the highway behind the title (the 3D showroom needs no fade)
     ctx.fillRect(0, -moy, W, H);
     if (state === "map") drawMap();
     else if (state === "stats") drawStats();
@@ -622,7 +623,7 @@ function draw() {
     drawButtons();
   }
 
-  if (state === "over") {
+  if (state === "over" && !(window.R3D && performance.now() - overAt < R3D.overDelay())) { // (3D: the crash camera plays first)
     ctx.fillStyle = "rgba(0,0,0,0.5)";
     ctx.fillRect(0, -moy, W, H);
     const reached = `Reached ${ROUTE[stageIdx].country}  -  ${runKm()} km`, rc = "#ffd23f";
@@ -661,4 +662,23 @@ function draw() {
     ctx.globalAlpha = 1;
   }
   ctx.restore();
+  drawFps();
+}
+
+// ---- photo mode and the fps counter (3D renderer only) ----
+function drawPhotoHint() {
+  const ph = R3D.photo;
+  if (ph.hideHud) return;
+  ctx.save(); ctx.textAlign = "center";
+  ctx.fillStyle = "rgba(0,0,0,0.55)"; roundRect(W / 2 - 215, H - 58, 430, 44, 10); ctx.fill();
+  textAt("PHOTO MODE   Enter = save picture   P / Esc = back", W / 2, H - 40, 13, "center", "#fff");
+  textAt("WASD move   Q/E down/up   drag = look   Z/X zoom   V filter   B blur   H hide this", W / 2, H - 22, 11, "center", "#ccc");
+  if (ph.note) { textAt(ph.note, W / 2, 30, 15, "center", "#ffd23f"); }
+  ctx.restore();
+}
+function drawFps() {
+  if (!settings.fps || !window.R3D) return;
+  const q = R3D.quality;
+  ctx.save(); ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(W - 112, 4, 108, 20);
+  textAt(`${Math.round(R3D.fps)} fps  ${q.level}`, W - 58, 18, 12, "center", R3D.fps >= 55 ? "#7CFC9A" : R3D.fps >= 35 ? "#ffd23f" : "#ff7b7b"); ctx.restore();
 }

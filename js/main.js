@@ -39,14 +39,23 @@ grabFocus();
 initDemo();
 requestAnimationFrame(loop);
 
-// Developer shortcut for testing and screenshots: index.html?dev=tour,3,1  starts World Tour city 4 (counting from 0: 3) with camera 1
-// (0 Overhead, 1 Chase, 2 Cockpit) and holds the gas down; add &ff=600 to skip the first 10 seconds and &god to ignore crashes. Modes: tour, single, vs.
+// Developer shortcut for testing and screenshots (not linked from anywhere in the game):
+//   index.html?dev=tour,3,1   starts World Tour city 4 (counting from 0: 3) with camera 1 (0 Overhead, 1 Chase, 2 Cockpit), gas held down
+//   &ff=600  skips the first 10 seconds   &god  ignores crashes   &crash  crashes the car   &finish  crosses the finish line   &ticks=N  freeze after N ticks
+//   dev=garage / dev=menu / dev=pause  open that screen.  Modes: tour, single, vs, garage, menu, pause
 {
-  const dev = new URLSearchParams(location.search).get("dev");
+  const q = new URLSearchParams(location.search), dev = q.get("dev");
   if (dev) {
     const [m, c, k] = dev.split(",");
-    cam = +k || 0; startGame(m || "single", "medium", +c || 0); held.add("ArrowUp");
-    if (new URLSearchParams(location.search).has("god")) racers[0].ghost = 1e9; // god: crashes are ignored
-    for (let i = +new URLSearchParams(location.search).get("ff") || 0; i > 0; i--) update(); // ff=600 fast-forwards 600 sim ticks (10 s)
+    if (m === "garage") { garageIdx = +c || 0; openMenu("garage"); }
+    else if (m === "menu") openMenu("menu");
+    else {
+      cam = +k || 0; startGame(m === "pause" ? "tour" : m || "single", "medium", +c || 0); held.add("ArrowUp");
+      if (q.has("god")) racers[0].ghost = 1e9; // god: crashes are ignored
+      for (let i = +q.get("ff") || 0; i > 0; i--) update(); // ff=600 fast-forwards 600 sim ticks (10 s)
+      if (q.has("crash")) { racers[0].alive = false; racers[0].drift = 1.5; racers[0].ghost = 0; endRound(); }
+      if (q.has("finish") && level) finishLevel();
+      if (m === "pause") state = "paused";
+    }
   }
 }

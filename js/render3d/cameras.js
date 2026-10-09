@@ -77,6 +77,20 @@ export function createCameraRig(scene) {
       rig.wheelAngle += (-t.tilt * 3.2 - rig.wheelAngle) * sm(14);
       wheel.rotation.z = rig.wheelAngle;
       rigDraw(Math.round(t.v * 60), fx.gear, fx.lit);
+    } else if (mode === "grid") { // before green: a slow sweep round the car from the front, ending behind it with the gantry lights ahead
+      const e = fx.grid01, a = 2.5 * (1 - e) + 0.02, R = 9 + 5 * e, hh = 1.4 + 3.8 * e;
+      rig.camX = t.x; camera.position.set(t.x + Math.sin(a) * R, hh, t.z + Math.cos(a) * R); camera.lookAt(t.x, 1.4 + 1.6 * e, t.z - 3 - 6 * e); camera.rotateZ(0);
+      fovGoal = 52 + 8 * e;
+    } else if (mode === "crash") { // the crash camera: slow-motion orbit round the wreck
+      const k = fx.crashT, a = 0.3 + k * 0.75, R = 14 - Math.min(k, 2) * 2.6, hh = 3.6 - Math.min(k, 2) * 0.7;
+      camera.position.set(t.x + Math.sin(a) * R, hh, t.z + Math.cos(a) * R); camera.lookAt(t.x, 1, t.z);
+      fovGoal = 50;
+    } else if (mode === "finish") { // after the line: the camera swings round to the front of the car
+      const k = Math.min(1, fx.finishT / 2.6), e = k * k * (3 - 2 * k), a = Math.PI * e + 0.1, R = 13 - 2 * e;
+      camera.position.set(t.x + Math.sin(a) * R, 3.4 - 1.0 * e, t.z + Math.cos(a) * R); camera.lookAt(t.x, 1.3, t.z - 2 * (1 - e));
+      fovGoal = 55;
+    } else if (mode === "photo") { // free camera: position and angles come from the photo-mode controller
+      camera.position.copy(fx.photo.pos); camera.rotation.set(fx.photo.pitch, fx.photo.yaw, 0, "YXZ"); fovGoal = fx.photo.fov;
     } else if (mode === "inspect") {
       const q = new URLSearchParams(location.search).get("inspect");
       const o = q === "front" ? [5, 2.5, -9] : q === "top" ? [0.5, 14, 2] : q === "rear" ? [4, 3, 9] : [9, 3, 1];

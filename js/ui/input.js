@@ -3,11 +3,13 @@
 const MENU_KEYS = { ArrowUp: "up", KeyW: "up", ArrowDown: "down", KeyS: "down", ArrowLeft: "left", KeyA: "left", ArrowRight: "right", KeyD: "right", Enter: "confirm", Space: "confirm", Escape: "back", KeyP: "back", KeyN: "next" };
 
 document.addEventListener("keydown", e => {
+  if (window.R3D && R3D.photo.active) { e.preventDefault(); R3D.photo.key(e, true); return; } // photo mode owns the keyboard
   const c = e.code;
   if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Space"].includes(c)) e.preventDefault();
   held.add(c);
   sound.ensure();
   if (state === "title") { if (!e.repeat) leaveTitle(); return; }
+  if (state === "paused" && c === "KeyP" && window.R3D) { R3D.photo.enter(R3D.camera); return; } // P while paused: photo mode
   if (c === "KeyM") { sound.toggle(); return; }
   if (c === "KeyF") { toggleFullscreen(); return; }
   if (state === "over" && c === "KeyR") { if (!e.repeat) activate(0); return; } // instant retry (activate ignores it for 0.6s after a crash)
@@ -30,7 +32,7 @@ document.addEventListener("keydown", e => {
   if (MENU_KEYS[c]) menuAction(MENU_KEYS[c]);
 });
 
-document.addEventListener("keyup", e => held.delete(e.code));
+document.addEventListener("keyup", e => { held.delete(e.code); if (window.R3D && R3D.photo.active) R3D.photo.key(e, false); });
 window.addEventListener("blur", () => { held.clear(); touch.gas = touch.brake = false; pause(); }); // clicking outside an embedded game: pause rather than crash blind
 const grabFocus = () => { try { canvas.focus({ preventScroll: true }); } catch (e) {} try { window.focus(); } catch (e) {} };
 for (const ev of ["touchend", "click"]) document.addEventListener(ev, () => sound.ensure(), { passive: true }); // iOS Safari only unlocks audio on these
@@ -49,6 +51,7 @@ function canvasPoint(e) {
 }
 
 canvas.addEventListener("pointermove", e => {
+  if (window.R3D && R3D.photo.active) { if (e.buttons) R3D.photo.look(e.movementX, e.movementY); return; } // photo mode: drag to look round
   const p = canvasPoint(e);
   if (state === "menu") return; // hovering doesn't slide the carousel around
   const i = menuIndexAt(p.x, p.y - menuOY());
@@ -57,6 +60,7 @@ canvas.addEventListener("pointermove", e => {
 
 canvas.addEventListener("pointerdown", e => {
   grabFocus(); // inside an iframe, keys only reach the game once it has focus
+  if (window.R3D && R3D.photo.active) return; // photo mode: no hidden buttons to hit
   const p = canvasPoint(e);
   sound.ensure();
   if (e.pointerType === "touch") hasTouch = true;

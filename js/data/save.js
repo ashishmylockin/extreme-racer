@@ -14,7 +14,7 @@ let cam = store.get("camera", 0);
 if (!(cam >= 0 && cam < CAMS.length)) cam = 0;
 
 // ---------- settings: volumes (1 = the original mix), screen shake, reduced effects for slow machines ----------
-let settings = Object.assign({ music: 1, fx: 1, engine: 1, shake: true, lowfx: false }, store.get("settings", {}));
+let settings = Object.assign({ music: 1, fx: 1, engine: 1, shake: true, lowfx: false, gfx: "auto", renderScale: 0, shadows: "", effects: "", drawDist: "", fps: false }, store.get("settings", {}));
 const saveSettings = () => store.set("settings", settings);
 function applyVolumes() {
   if (sound.fxBus) { sound.fxBus.gain.value = settings.fx; sound.engBus.gain.value = settings.engine; }

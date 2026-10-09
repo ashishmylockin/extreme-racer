@@ -26,6 +26,7 @@ else {
     gl.style.display = "block"; canvas.classList.add("over3d"); // the 2D canvas becomes see-through: it only draws menus and HUD now
     window.R3D = r;
     r.tick();
+    if (new URLSearchParams(location.search).has("photo")) { state = "paused"; r.render(1); r.photo.enter(r.camera); r.photo.dof = true; r.photo.pos.y += 1.5; r.photo.pitch -= 0.1; r.photo.filter = +new URLSearchParams(location.search).get("photo") || 0; } // testing shortcut
     console.log(`3D renderer on (Three.js r${THREE.REVISION}), ${res.loaded} models${res.failed ? `, ${res.failed} failed` : ""}, ${skies} skies`);
   } catch (e) { disable3D(e); }
   hideLoading();

@@ -38,7 +38,7 @@ export async function loadSkies(renderer, onProgress = () => {}) {
     try {
       const tex = await loader.loadAsync(`assets/hdri/${name}.hdr`);
       tex.mapping = THREE.EquirectangularReflectionMapping; tex.colorSpace = THREE.LinearSRGBColorSpace;
-      tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false;
+      tex.minFilter = THREE.LinearMipmapLinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = true; tex.needsUpdate = true; // mipmaps let the sky shader soften the magnified image
       skies[name] = { tex, env: pmrem.fromEquirectangular(tex).texture, horizon: horizonColour(tex) };
     } catch (e) { console.warn("sky failed:", name, e.message || e); }
     onProgress(++done / TODS.length);
@@ -59,7 +59,7 @@ export function createSkyDome() {
       vec2 eq(vec3 d, float yaw) { float a = atan(d.z, d.x) + yaw; return vec2(a / 6.2831853 + 0.5, asin(clamp(d.y, -1.0, 1.0)) / 3.1415927 + 0.5); }
       void main() {
         vec3 d = normalize(vDir);
-        vec3 col = mix(texture2D(tA, eq(d, yawA)).rgb, texture2D(tB, eq(d, yawB)).rgb, mixB) * expo * tint;
+        vec3 col = mix(texture2D(tA, eq(d, yawA), 1.5).rgb, texture2D(tB, eq(d, yawB), 1.5).rgb, mixB) * expo * tint;
         col = mix(col, haze, hazeAmt * (1.0 - smoothstep(0.0, 0.55, d.y)));
         gl_FragColor = vec4(col, 1.0);
         #include <tonemapping_fragment>

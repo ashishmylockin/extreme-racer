@@ -53,13 +53,14 @@ export function createWorld(scene) {
   const grassMat = new THREE.MeshStandardMaterial({ map: grassTex, color: 0x5fae4a, roughness: 1 });
   const GRASS_W = 300;
   for (const s of [-1, 1]) { const m = new THREE.Mesh(new THREE.PlaneGeometry(GRASS_W, LEN).rotateX(-Math.PI / 2), grassMat); m.position.set(s * (RH + 1.4 + GRASS_W / 2), 0, Z_START - LEN / 2); m.receiveShadow = true; scene.add(m); }
-  const farGround = new THREE.Mesh(new THREE.PlaneGeometry(900, 600).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x5fae4a, fog: true }));
-  farGround.position.set(0, -0.05, -420); scene.add(farGround);
+  const farGround = new THREE.Mesh(new THREE.CircleGeometry(900, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x5fae4a, fog: true })); // a huge disc that follows the camera, so there is ground to the horizon in every direction
+  farGround.position.set(0, -0.05, -100); scene.add(farGround);
 
   // --- sky, fog, lights ---
   const dome = createSkyDome(); scene.add(dome);
   scene.fog = new THREE.Fog(0xbfe3fa, 40, 125);
   const sun = new THREE.DirectionalLight(0xfff2dd, 2.2); sun.position.set(-40, 70, 30); scene.add(sun); scene.add(sun.target);
+  Object.assign(sun.shadow.camera, { left: -48, right: 48, top: 62, bottom: -62, near: 1, far: 260 }); sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.06; sun.shadow.radius = 3; // the shadow box follows the player
   const fill = new THREE.HemisphereLight(0xffffff, 0x445533, 0.0); scene.add(fill); // a touch of ambient when the sky image is missing
 
   const spotCache = new Map();
@@ -78,7 +79,7 @@ export function createWorld(scene) {
 
   let skyKey = "";
   return {
-    sun, dome,
+    sun, dome, fill,
     // pal = the simulation's blended palette; stA / stB = this city and the next; b = how far through the blend (0..1)
     update(pal, rain, scrollWu, focus, stA, stB, b, wetness = 0) {
       const night = Math.min(1, pal.dark * 4);
@@ -88,7 +89,7 @@ export function createWorld(scene) {
       roadMat.color.setHex(arrToHex(pal.road.map(v => Math.min(255, v * (1.35 - 0.45 * wetness)))));
       roadMat.roughness = 0.85 - 0.6 * wetness; roadMat.metalness = 0.4 * wetness; lineMat.roughness = 0.6 - 0.3 * wetness; // wet asphalt shines
       grassMat.color.setHex(arrToHex(pal.grass));
-      farGround.material.color.setHex(arrToHex(pal.grass)).multiplyScalar(0.7 - 0.45 * night);
+      farGround.material.color.setHex(arrToHex(pal.grass)).multiplyScalar(0.7 - 0.45 * night); farGround.position.set(focus.camPos.x, -0.05, focus.camPos.z);
 
       const mA = mood(CITY_TOD[stA.venue]), mB = mood(CITY_TOD[stB.venue]) || mA;
       if (!mA) { scene.fog.color.setHex(arrToHex(pal.sky1)); sun.intensity = 2; fill.intensity = 1.2; return; }

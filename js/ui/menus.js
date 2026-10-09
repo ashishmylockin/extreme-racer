@@ -240,7 +240,7 @@ function menuIndexAt(px, py) {
 
 function activate(index) {
   const menu = currentMenu();
-  if (!menu || performance.now() - overAt < 600) return; // don't let crash-time taps hit buttons
+  if (!menu || performance.now() - overAt < Math.max(600, window.R3D ? R3D.overDelay() : 0)) return; // don't let crash-time taps hit buttons (or skip the crash camera)
   if (state !== "garage") sound.tone(440, 700, 0.08);
   menu.items[index].go();
 }
