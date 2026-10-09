@@ -1,11 +1,13 @@
 # Extreme Racer
 
-A single-file browser racing game: dodge traffic in an F1 car through all 22 Grand Prix countries of 2026.
+A single-file browser racing game: dodge traffic in an open-wheel race car on a world tour through 22 cities.
 
-Open `extremeracer.html` in a browser (press **F** for fullscreen).
+Open `extremeracer.html` in a browser (press **F** for fullscreen), or run `powershell -ExecutionPolicy Bypass -File serve.ps1` and visit http://localhost:8080.
 
-- Single Player, Jump Start (begin in any country), VS Computer (Easy to Impossible), Multiplayer (arrows + WASD)
+- Single Player, Jump Start (begin in any city), VS Computer (Easy to Impossible), Multiplayer (arrows + WASD)
 - Keyboard, controller and touch support
 - Grid start with the five-light gantry: hold brake + throttle to rev, release the brake on green
-- Three cameras: overhead, chase and first person (with mirrors)
-- Nitro, coins, and a garage with the 2026 F1 team liveries
+- Three cameras: overhead, chase and cockpit (with mirrors), switchable from the pause menu or with **C**
+- Nitro, coins, and a garage of 11 fictional teams to unlock
+
+All teams, liveries and names in the game are fictional.

@@ -17,15 +17,19 @@
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
-let W = 400; const H = 480; // the width stretches to fit your screen; the height is fixed
+let W = 400, H = 480; // the width stretches to fit your screen; on a portrait phone the height grows instead
 let ROAD_L = 40; const ROAD_W = 320; let ROAD_R = ROAD_L + ROAD_W; // grass verges either side of the road, always centred
 const LANES = 3, LANE_W = ROAD_W / LANES, CAR_W = 36, CAR_H = 72;
 const SPAWN_PX = 220;      // distance between traffic spawns at the start (shrinks as you progress)
 const GRID_STEP = 55;      // frames between the five red start lights coming on (~0.9s each)
 const AI_REACT = 6;        // the CPU pulls away exactly 6 frames = 0.100s after the lights turn green
-const STAGE_LEN = 2400;    // distance travelled per Grand Prix
-const VMAX = 5.5;          // top speed (x60 = km/h)
-const NITRO_MAX = VMAX * 1.3;  // top speed while nitro burns
+const STAGE_LEN = 2400;    // distance travelled per city
+const VMAX = 5.5;          // CPU top speed (x60 = km/h); the player has no cap
+const NITRO_MAX = VMAX * 1.3;  // where the speed dial needle tops out
+const NITRO_PUSH = 2.2;        // how far above your normal speed nitro can push you (~130 km/h)
+// throttle pull at speed v, per frame: ~40 km/h per second off the line, fading like air drag does
+// (0-100 in ~2.6s, 0-300 in ~10.5s), but never below 4 km/h per second, so holding on always gains speed
+const accelAt = v => Math.max(40 / (1 + (v * 60 / 250) ** 3), 4) / 3600;
 const NITRO_FRAMES = 200;      // nitro burn time (~3.3s)
 const AHEAD = 1000;        // how far up the road traffic, coins and scenery exist, so the 3D views see an endless road
 const TAU = Math.PI * 2;
@@ -51,25 +55,25 @@ function shade(hex, amt) { // amt -1..1 (darken..lighten)
 // gears: 8 of them, each covering a slice of the speed range (shared by the gauge, the sound and the rev lights)
 const effV = r => Math.max(r.v, (r.rev || 0) * 2.8); // what the engine sounds / the rev needle shows: revs count while you're on the grid
 const gearOf = v => clamp(1 + Math.floor(v / 0.75), 1, 8);
-function rpmOf(v) { const g = gearOf(v), lo = (g - 1) * 0.75; return clamp((v - lo) / (g < 8 ? 0.75 : 0.25), 0, 1); }
+function rpmOf(v) { const g = gearOf(v), lo = (g - 1) * 0.75; return clamp((v - lo) / 0.75, 0, 1); } // 8th redlines at 360 km/h, then sits on the limiter
 
-// ---------- the 2026 grid: p = primary, s = secondary, a = accent ----------
+// ---------- the teams: p = body, s = stripes, a = wings & accents ----------
 
 const TEAMS = [
-  { name: "Haas",         p: "#f1f2f5", s: "#d3202a", a: "#17181c", helmet: "#d3202a", cost: 0 },
-  { name: "Williams",     p: "#0a4fd6", s: "#ffffff", a: "#00b2ff", helmet: "#ffffff", cost: 0 },
-  { name: "Racing Bulls", p: "#f2f5fb", s: "#2b5bd7", a: "#e1262d", helmet: "#2b5bd7", cost: 30 },
-  { name: "Alpine",       p: "#0b86e8", s: "#ff7fc0", a: "#ffffff", helmet: "#ff7fc0", cost: 45 },
-  { name: "Cadillac",     p: "#c9ccd2", s: "#2b2e35", a: "#ffffff", helmet: "#f0f0f0", cost: 60 },
-  { name: "Audi",         p: "#aeb2b9", s: "#17181c", a: "#f50537", helmet: "#f50537", cost: 75 },
-  { name: "Aston Martin", p: "#0a6e5c", s: "#c9e000", a: "#0a3b33", helmet: "#c9e000", cost: 90 },
-  { name: "Red Bull",     p: "#16206b", s: "#e8112d", a: "#ffcc00", helmet: "#e8112d", cost: 110 },
-  { name: "McLaren",      p: "#ff8000", s: "#2fb6f0", a: "#17181c", helmet: "#2fb6f0", cost: 130 },
-  { name: "Mercedes",     p: "#23262b", s: "#c8ccd2", a: "#00d2be", helmet: "#00d2be", cost: 150 },
-  { name: "Ferrari",      p: "#dc0000", s: "#ffffff", a: "#ffd800", helmet: "#ffd800", cost: 180 },
+  { name: "Volt Racing",        p: "#ffe11a", s: "#141416", a: "#141416", helmet: "#141416", cost: 0 },
+  { name: "Nightjar",           p: "#3d1a6e", s: "#c3c7cf", a: "#c3c7cf", helmet: "#c3c7cf", cost: 0 },
+  { name: "Kestrel Motorsport", p: "#6cc4f0", s: "#ffffff", a: "#ff7a1a", helmet: "#ff7a1a", cost: 30 },
+  { name: "Ironbark",           p: "#1e4a26", s: "#d6a92c", a: "#d6a92c", helmet: "#d6a92c", cost: 45 },
+  { name: "Solstice",           p: "#ff5a36", s: "#1a2a50", a: "#1a2a50", helmet: "#1a2a50", cost: 60 },
+  { name: "Glacier",            p: "#f3f7fa", s: "#8ed4f5", a: "#4fb3e6", helmet: "#8ed4f5", cost: 75 },
+  { name: "Ember",              p: "#9c1430", s: "#35373d", a: "#35373d", helmet: "#ff7a3d", cost: 90 },
+  { name: "Mako",               p: "#12898a", s: "#32363c", a: "#32363c", helmet: "#32363c", cost: 110 },
+  { name: "Stratos",            p: "#ff2e93", s: "#141416", a: "#141416", helmet: "#141416", cost: 130 },
+  { name: "Titan Works",        p: "#4a4f57", s: "#a6e22e", a: "#a6e22e", helmet: "#a6e22e", cost: 150 },
+  { name: "Aurora",             p: "#8a5ae0", s: "#7ef2c6", a: "#7ef2c6", helmet: "#7ef2c6", cost: 180 },
 ];
 
-// ---------- the 2026 calendar: one country, and one look, per Grand Prix ----------
+// ---------- the world tour: 22 cities, each with its own look ----------
 
 const hx = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
 const PINE = [24, 86, 52];
@@ -96,8 +100,6 @@ const FLAGS = {
   },
   cn: (w, h) => { ctx.fillStyle = "#de2910"; ctx.fillRect(0, 0, w, h); dot(w * 0.22, h * 0.3, h * 0.17, "#ffde00"); },
   jp: (w, h) => { ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, w, h); dot(w / 2, h / 2, h * 0.3, "#bc002d"); },
-  sa: (w, h) => { ctx.fillStyle = "#006c35"; ctx.fillRect(0, 0, w, h); ctx.fillStyle = "#fff"; ctx.fillRect(w * 0.2, h * 0.38, w * 0.6, h * 0.08); ctx.fillRect(w * 0.25, h * 0.62, w * 0.5, h * 0.05); },
-  bh: (w, h) => { ctx.fillStyle = "#ce1126"; ctx.fillRect(0, 0, w, h); ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, w * 0.3, h); },
   us: (w, h) => { stripes(["#b22234", "#fff", "#b22234", "#fff", "#b22234", "#fff", "#b22234"])(w, h); ctx.fillStyle = "#3c3b6e"; ctx.fillRect(0, 0, w * 0.45, h * 0.54); },
   ca: (w, h) => { stripes(["#d52b1e", "#fff", "#d52b1e"], true, [1, 2, 1])(w, h); dot(w / 2, h / 2, h * 0.2, "#d52b1e"); },
   mc: stripes(["#ce1126", "#fff"]),
@@ -127,35 +129,33 @@ const FLAGS = {
 };
 function drawFlag(key, w, h) { FLAGS[key](w, h); ctx.strokeStyle = "rgba(0,0,0,0.35)"; ctx.lineWidth = 0.8; ctx.strokeRect(0, 0, w, h); }
 
-// The calendar in running order. grass/alt = verge colours (sand in the desert), horizon = what sits on the skyline,
-// night = how dark it is, rain/petals = weather. Bahrain and Saudi Arabia are off the 2026 calendar (cancelled), so off: true.
-const STAGES = [
-  { country: "AUSTRALIA", venue: "Melbourne", flag: "au", grass: "#5fae4a", alt: "#55a043", road: "#4a4c52", sky: ["#4aa3ea", "#bfe3fa"], mount: "#8aa5b8", hill: "#6fae5c", horizon: "city", leaf: "#5e9a58", trees: ["gum", "gum", "round"], props: [], lms: ["opera", "bridge"] },
+// The tour in running order. grass/alt = verge colours (sand in the desert), horizon = what sits on the skyline,
+// night = how dark it is, rain/petals = weather.
+const ROUTE = [
+  { country: "AUSTRALIA", venue: "Sydney", flag: "au", grass: "#5fae4a", alt: "#55a043", road: "#4a4c52", sky: ["#4aa3ea", "#bfe3fa"], mount: "#8aa5b8", hill: "#6fae5c", horizon: "city", leaf: "#5e9a58", trees: ["gum", "gum", "round"], props: [], lms: ["opera", "bridge"] },
   { country: "CHINA", venue: "Shanghai", flag: "cn", grass: "#6aa85c", alt: "#5e9a52", road: "#4a4c54", sky: ["#8fa6bc", "#dde5ec"], mount: "#a7b4c0", hill: "#7aa86c", horizon: "city", leaf: "#5a9a5a", trees: ["round", "pine"], sun: 0.35, cityH: 1.3, props: [["lanternpole", 3], ["paifang", 1, 1], ["bamboo", 3]], lms: ["pearl", "shtower"] },
-  { country: "JAPAN", venue: "Suzuka", flag: "jp", grass: "#5faa5a", alt: "#549d50", road: "#484a50", sky: ["#7cc0ee", "#dcefff"], mount: "#8fa6c0", hill: "#6eae6a", horizon: "fuji", leaf: "#ffb7d0", trees: ["round", "round", "pine"], petals: 0.8, props: [["torii", 2, 1], ["stonelantern", 3]], lms: ["pagoda", "ferriswheel"] },
-  { country: "BAHRAIN", venue: "Sakhir", flag: "bh", off: true, desert: true, grass: "#d9bf86", alt: "#cfb27a", road: "#3f4146", sky: ["#e8a35c", "#f7d9a8"], mount: "#d6b98a", hill: "#dcc592", horizon: "dunes", leaf: "#6b8a3a", trees: ["palm"], night: 0.1, props: [["camel", 1]], lms: [] },
-  { country: "SAUDI ARABIA", venue: "Jeddah", flag: "sa", off: true, desert: true, grass: "#6e5c40", alt: "#655439", road: "#2c2e36", sky: ["#070b22", "#26356a"], mount: "#2a2f55", hill: "#4a3f30", horizon: "city", leaf: "#4a6a3a", trees: ["palm"], night: 0.2, props: [["camel", 1]], lms: [] },
+  { country: "JAPAN", venue: "Tokyo", flag: "jp", grass: "#5faa5a", alt: "#549d50", road: "#484a50", sky: ["#7cc0ee", "#dcefff"], mount: "#8fa6c0", hill: "#6eae6a", horizon: "fuji", leaf: "#ffb7d0", trees: ["round", "round", "pine"], petals: 0.8, props: [["torii", 2, 1], ["stonelantern", 3]], lms: ["pagoda", "ferriswheel"] },
   { country: "UNITED STATES", venue: "Miami", flag: "us", grass: "#53b36a", alt: "#49a75f", road: "#4a4a52", sky: ["#ff8fb8", "#ffd9a8"], mount: "#c7a0c0", hill: "#58b878", horizon: "city", leaf: "#3f9a55", trees: ["palm"], sun: 0.6, cityH: 1.2, tint: [255, 140, 190, 0.07], props: [["neonsign", 2], ["flamingo", 3], ["lifeguard", 1]], lms: ["artdeco", "freedomtower"] },
   { country: "CANADA", venue: "Montreal", flag: "ca", grass: "#4e9a52", alt: "#458f49", road: "#484a50", sky: ["#6fb3e8", "#d4ebfa"], mount: "#7f95a8", hill: "#5c9a5c", horizon: "city", leaf: "#d2552b", trees: ["round", "round", "pine"], props: [["mapleleaf", 2]], lms: ["biosphere", "olympictower"] },
   { country: "MONACO", venue: "Monte Carlo", flag: "mc", grass: "#a8a69e", alt: "#9c9a92", road: "#44464c", sky: ["#58b4f2", "#d2ecff"], mount: "#9aa8b4", hill: "#8fae7a", horizon: "city", leaf: "#4f9a58", trees: ["palm", "round"], cityH: 1.1, bcols: ["#e8c9a0", "#f2b6a0", "#c9d8e8", "#f4e2b8"], props: [["yacht", 4]], lms: ["casino", "palace"] },
   { country: "SPAIN", venue: "Barcelona", flag: "es", grass: "#b3b45c", alt: "#a9aa52", road: "#4a4a4e", sky: ["#58a8e8", "#c8e4f8"], mount: "#b49a84", hill: "#a8a860", horizon: "peaks", leaf: "#7a9a4a", trees: ["pine", "fruit", "round"], fruit: "#ff8a1f", props: [["mosaic", 3]], lms: ["sagrada", "torreglories"] },
-  { country: "AUSTRIA", venue: "Spielberg", flag: "at", grass: "#4aa83e", alt: "#419b37", road: "#484a50", sky: ["#62b4f0", "#d6ecfb"], mount: "#7f95ac", hill: "#4f9a46", horizon: "alps", leaf: "#3f8a45", trees: ["pine", "pine", "round"], props: [["chalet", 3], ["cow", 3]], lms: ["church", "fortress"] },
-  { country: "GREAT BRITAIN", venue: "Silverstone", flag: "gb", grass: "#4b9a4a", alt: "#418f43", road: "#45474c", sky: ["#8f9cab", "#cdd6de"], mount: "#8a98a4", hill: "#55945a", horizon: "hills", leaf: "#3d7a45", trees: ["round"], rain: 0.5, sun: 0, props: [["phonebox", 2], ["bus", 1], ["sheep", 3]], lms: ["bigben", "towerbridge", "londoneye"] },
-  { country: "BELGIUM", venue: "Spa", flag: "be", grass: "#3f8a45", alt: "#37803d", road: "#414349", sky: ["#7c8894", "#bcc6ce"], mount: "#6f7f86", hill: "#3b7a48", horizon: "pines", leaf: "#2f7040", trees: ["pine"], rain: 0.7, sun: 0, props: [["canalhouse", 3]], lms: ["atomium", "belfry"] },
+  { country: "AUSTRIA", venue: "Salzburg", flag: "at", grass: "#4aa83e", alt: "#419b37", road: "#484a50", sky: ["#62b4f0", "#d6ecfb"], mount: "#7f95ac", hill: "#4f9a46", horizon: "alps", leaf: "#3f8a45", trees: ["pine", "pine", "round"], props: [["chalet", 3], ["cow", 3]], lms: ["church", "fortress"] },
+  { country: "GREAT BRITAIN", venue: "London", flag: "gb", grass: "#4b9a4a", alt: "#418f43", road: "#45474c", sky: ["#8f9cab", "#cdd6de"], mount: "#8a98a4", hill: "#55945a", horizon: "hills", leaf: "#3d7a45", trees: ["round"], rain: 0.5, sun: 0, props: [["phonebox", 2], ["bus", 1], ["sheep", 3]], lms: ["bigben", "towerbridge", "londoneye"] },
+  { country: "BELGIUM", venue: "Brussels", flag: "be", grass: "#3f8a45", alt: "#37803d", road: "#414349", sky: ["#7c8894", "#bcc6ce"], mount: "#6f7f86", hill: "#3b7a48", horizon: "pines", leaf: "#2f7040", trees: ["pine"], rain: 0.7, sun: 0, props: [["canalhouse", 3]], lms: ["atomium", "belfry"] },
   { country: "HUNGARY", venue: "Budapest", flag: "hu", grass: "#c0b04e", alt: "#b4a444", road: "#4a4a4e", sky: ["#5fb0ee", "#d8ecfa"], mount: "#a9a888", hill: "#b4aa58", horizon: "hills", leaf: "#6a9a40", trees: ["round"], props: [["sunflowers", 4], ["hayroll", 2]], lms: ["parliament", "chainbridge"] },
-  { country: "NETHERLANDS", venue: "Zandvoort", flag: "nl", grass: "#a9b86a", alt: "#9eae60", road: "#4a4c52", sky: ["#6fb8f0", "#d9edfb"], mount: "#d8c98f", hill: "#b6c070", horizon: "dunes", leaf: "#4f8a4a", trees: ["pine", "round"], crowd: ["#ff6a00", "#fff", "#ff6a00", "#21468b"], props: [["tulips", 5], ["canalhouse", 2]], lms: ["dutchmill", "canalhouses"] },
-  { country: "ITALY", venue: "Monza", flag: "it", grass: "#4d9a47", alt: "#44903f", road: "#484a50", sky: ["#66b4ec", "#d6ecfa"], mount: "#8a9fb4", hill: "#58a050", horizon: "hills", leaf: "#2f7a3f", trees: ["cypress", "cypress", "round"], crowd: ["#d4001f", "#fff", "#009246", "#d4001f"], props: [["villa", 2], ["vineyard", 3]], lms: ["colosseum", "pisa"] },
+  { country: "NETHERLANDS", venue: "Amsterdam", flag: "nl", grass: "#a9b86a", alt: "#9eae60", road: "#4a4c52", sky: ["#6fb8f0", "#d9edfb"], mount: "#d8c98f", hill: "#b6c070", horizon: "dunes", leaf: "#4f8a4a", trees: ["pine", "round"], crowd: ["#ff6a00", "#fff", "#ff6a00", "#21468b"], props: [["tulips", 5], ["canalhouse", 2]], lms: ["dutchmill", "canalhouses"] },
+  { country: "ITALY", venue: "Rome", flag: "it", grass: "#4d9a47", alt: "#44903f", road: "#484a50", sky: ["#66b4ec", "#d6ecfa"], mount: "#8a9fb4", hill: "#58a050", horizon: "hills", leaf: "#2f7a3f", trees: ["cypress", "cypress", "round"], crowd: ["#d4001f", "#fff", "#009246", "#d4001f"], props: [["villa", 2], ["vineyard", 3]], lms: ["colosseum", "pisa"] },
   { country: "SPAIN", venue: "Madrid", flag: "es", grass: "#b9a85c", alt: "#ae9d52", road: "#4a4a4e", sky: ["#5aa8ee", "#d4e8f8"], mount: "#a8a39a", hill: "#b6a860", horizon: "city", leaf: "#7a8a4a", trees: ["round", "fruit"], fruit: "#e8b020", cityH: 1.2, props: [["osborne", 2]], lms: ["alcala", "kiotowers"] },
   { country: "AZERBAIJAN", venue: "Baku", flag: "az", grass: "#b9a888", alt: "#ae9d7e", road: "#46484e", sky: ["#6bb2ec", "#d9ecf8"], mount: "#a6b4c0", hill: "#b8aa86", horizon: "city", leaf: "#6a8a4a", trees: ["round", "fruit"], fruit: "#c8283c", props: [["stonearch", 2]], lms: ["flame", "maiden", "heydar"] },
-  { country: "SINGAPORE", venue: "Marina Bay", flag: "sg", grass: "#245f43", alt: "#1f563b", road: "#2a2c34", sky: ["#080c24", "#2b2f5e"], mount: "#1a1e44", hill: "#1f4a3a", horizon: "city", leaf: "#2a7a4a", trees: ["palm"], night: 0.2, cityH: 1.3, props: [["orchid", 3]], lms: ["mbs", "supertrees", "merlion", "flyer"] },
+  { country: "SINGAPORE", venue: "Singapore", flag: "sg", grass: "#245f43", alt: "#1f563b", road: "#2a2c34", sky: ["#080c24", "#2b2f5e"], mount: "#1a1e44", hill: "#1f4a3a", horizon: "city", leaf: "#2a7a4a", trees: ["palm"], night: 0.2, cityH: 1.3, props: [["orchid", 3]], lms: ["mbs", "supertrees", "merlion", "flyer"] },
   { country: "UNITED STATES", venue: "Austin", flag: "us", grass: "#b7aa5a", alt: "#ac9f50", road: "#4a4a4e", sky: ["#5aa8ee", "#ecdcb4"], mount: "#a99a82", hill: "#b4a85c", horizon: "hills", leaf: "#7a8a42", trees: ["round", "cactus"], props: [["pumpjack", 3], ["hayroll", 1]], lms: ["capitol", "uttower"] },
   { country: "MEXICO", venue: "Mexico City", flag: "mx", grass: "#6ca24a", alt: "#619642", road: "#484a50", sky: ["#5db1ee", "#cfe6f6"], mount: "#8a7f7a", hill: "#6a9a4a", horizon: "volcano", leaf: "#4f8a3a", trees: ["cactus", "round"], props: [["agave", 3], ["papel", 3]], lms: ["angel", "pyramid"] },
   { country: "BRAZIL", venue: "Sao Paulo", flag: "br", grass: "#2f9a4a", alt: "#298f43", road: "#42444a", sky: ["#8a9cb0", "#cbd8e2"], mount: "#6f8a8a", hill: "#2f8a4a", horizon: "hills", leaf: "#1f8a3a", trees: ["palm", "round"], rain: 0.4, sun: 0.1, props: [["colorhouses", 2]], lms: ["christ", "sugarloaf", "ponte"] },
   { country: "UNITED STATES", venue: "Las Vegas", flag: "us", desert: true, grass: "#6e5640", alt: "#654e3a", road: "#2c2e36", sky: ["#14082e", "#4a1f6a"], mount: "#2a1a44", hill: "#4a3a30", horizon: "city", leaf: "#4a7a3a", trees: ["palm"], night: 0.2, cityH: 1.4, props: [["neonsign", 4]], lms: ["sphere", "luxor", "stratosphere", "eiffel", "welcome"] },
-  { country: "QATAR", venue: "Lusail", flag: "qa", desert: true, grass: "#8a7650", alt: "#7f6c48", road: "#2c2e36", sky: ["#060a22", "#223463"], mount: "#1a2144", hill: "#6a5a3c", horizon: "city", leaf: "#4a6a3a", trees: ["palm"], night: 0.2, props: [["camel", 2]], lms: ["lusail", "aspire"] },
-  { country: "ABU DHABI", venue: "Yas Marina", flag: "ae", desert: true, grass: "#b89a68", alt: "#ad9060", road: "#3c3e46", sky: ["#34306e", "#ff9a5a"], mount: "#5a4a6a", hill: "#a88a5c", horizon: "city", leaf: "#5a7a3a", trees: ["palm"], night: 0.12, sun: 0.5, props: [["camel", 2]], lms: ["mosque", "ferrariworld", "yashotel", "etihad"] },
+  { country: "QATAR", venue: "Doha", flag: "qa", desert: true, grass: "#8a7650", alt: "#7f6c48", road: "#2c2e36", sky: ["#060a22", "#223463"], mount: "#1a2144", hill: "#6a5a3c", horizon: "city", leaf: "#4a6a3a", trees: ["palm"], night: 0.2, props: [["camel", 2]], lms: ["lusail", "aspire"] },
+  { country: "ABU DHABI", venue: "Abu Dhabi", flag: "ae", desert: true, grass: "#b89a68", alt: "#ad9060", road: "#3c3e46", sky: ["#34306e", "#ff9a5a"], mount: "#5a4a6a", hill: "#a88a5c", horizon: "city", leaf: "#5a7a3a", trees: ["palm"], night: 0.12, sun: 0.5, props: [["camel", 2]], lms: ["mosque", "themepark", "yashotel", "etihad"] },
 ];
-STAGES.forEach(st => {
+ROUTE.forEach(st => {
   st.g = hx(st.grass); st.ga = hx(st.alt); st.rd = hx(st.road); st.s0 = hx(st.sky[0]); st.s1 = hx(st.sky[1]);
   st.mc = hx(st.mount); st.hc = hx(st.hill); st.lf = hx(st.leaf);
   st.night = st.night || 0; st.rain = st.rain || 0; st.petals = st.petals || 0;
@@ -163,17 +163,16 @@ STAGES.forEach(st => {
   st.tint = st.tint || [0, 0, 0, 0];
   st.crowd = st.crowd || [...new Set(Object.values({ a: "#fff", b: "#ffd23f", c: "#e10600", d: "#2b5bd7" }))];
 });
-const ROUTE = STAGES.filter(st => !st.off);
 ROUTE.forEach((st, i) => { st.n = i + 1; st.seed = i * 17 + 3; });
 const INFO = {
-  "Melbourne": "Opera House - Harbour Bridge", "Shanghai": "Pearl Tower - Shanghai Tower", "Suzuka": "Pagoda - Ferris wheel - Mt Fuji",
+  "Sydney": "Opera House - Harbour Bridge", "Shanghai": "Pearl Tower - Shanghai Tower", "Tokyo": "Pagoda - Ferris wheel - Mt Fuji",
   "Miami": "Art-deco hotel - Freedom Tower", "Montreal": "Biosphere - Olympic Tower", "Monte Carlo": "Casino - Prince's Palace",
-  "Barcelona": "Sagrada Familia - Torre Glories", "Spielberg": "Village church - Fortress - Alps", "Silverstone": "Big Ben - Tower Bridge - London Eye",
-  "Spa": "Atomium - Belfry", "Budapest": "Parliament - Chain Bridge", "Zandvoort": "Windmill - Canal houses",
-  "Monza": "Colosseum - Tower of Pisa", "Madrid": "Puerta de Alcala - KIO Towers", "Baku": "Flame Towers - Maiden Tower - Heydar Center",
-  "Marina Bay": "Marina Bay Sands - Supertrees - Merlion", "Austin": "Texas Capitol - UT Tower", "Mexico City": "Angel of Independence - Pyramid",
-  "Sao Paulo": "Christ the Redeemer - Sugarloaf - Cable bridge", "Las Vegas": "Sphere - Luxor - Stratosphere - Eiffel", "Lusail": "Lusail Stadium - Aspire Tower",
-  "Yas Marina": "Grand Mosque - Ferrari World - Etihad Towers",
+  "Barcelona": "Sagrada Familia - Torre Glories", "Salzburg": "Village church - Fortress - Alps", "London": "Big Ben - Tower Bridge - London Eye",
+  "Brussels": "Atomium - Belfry", "Budapest": "Parliament - Chain Bridge", "Amsterdam": "Windmill - Canal houses",
+  "Rome": "Colosseum - Tower of Pisa", "Madrid": "Puerta de Alcala - KIO Towers", "Baku": "Flame Towers - Maiden Tower - Heydar Center",
+  "Singapore": "Marina Bay Sands - Supertrees - Merlion", "Austin": "Texas Capitol - UT Tower", "Mexico City": "Angel of Independence - Pyramid",
+  "Sao Paulo": "Christ the Redeemer - Sugarloaf - Cable bridge", "Las Vegas": "Sphere - Luxor - Stratosphere - Eiffel", "Doha": "Lusail Stadium - Aspire Tower",
+  "Abu Dhabi": "Grand Mosque - Theme park - Etihad Towers",
 };
 ROUTE.forEach(st => { st.info = INFO[st.venue] || ""; });
 
@@ -188,11 +187,11 @@ const DIFFS = {
 };
 const DEMO_AI = { think: 5, look: 230, miss: 0, cooldown: 8, greedy: false, speed: 2.8 };
 
-// camera views: the top-down one is "third person"; the other two are projected 3D road views
+// camera views: the first is top-down; the other two are projected 3D road views
 const CAMS = [
-  { name: "Third Person", desc: "Overhead view of the road" },
-  { name: "Second Person", desc: "Chase cam, right behind the car", f: 240, back: 230, h: 218, hor: 150, kx: 0.55 },
-  { name: "First Person", desc: "Through the driver's eyes", f: 300, back: 8, h: 30, hor: 215, kx: 0.55 },
+  { name: "Overhead", desc: "Top-down view of the road" },
+  { name: "Chase", desc: "Right behind the car", f: 240, back: 230, h: 218, hor: 150, kx: 0.55 },
+  { name: "Cockpit", desc: "Through the driver's eyes", f: 300, back: 8, h: 30, hor: 215, kx: 0.55 },
 ];
 
 // ---------- saved progress ----------
@@ -466,7 +465,7 @@ const songDB = {
 
 // ---------- state ----------
 
-let state = "menu"; // "menu" | "difficulty" | "garage" | "options" | "playing" | "paused" | "camera" | "over"
+let state = "menu"; // "menu" | "tutorial" | "difficulty" | "garage" | "options" | "jump" | "playing" | "paused" | "camera" | "over"
 let mode = "single"; // "single" | "vs" | "multi"
 let difficulty = "medium";
 let racers, enemies, pickups, particles, scenery, roadItems, wx;
@@ -475,7 +474,14 @@ let pal, stageIdx = 0, stageFrac = 0, stA = null, stB = null, stBlend = 0, rainI
 let grid = null, startObj = null; // grid = the start-lights sequence, startObj = the start line + gantry (they scroll away once you're racing)
 let sel = 0, overAt = 0, garageIdx = 0, jumpIdx = 0, runStage = 0, startDist = 0, toast = null, padG = [0, 0], padB = [0, 0], hasPad = false, hasTouch = false;
 const held = new Set();
-const touch = { gas: false, brake: false };
+const touch = { gas: false, brake: false, gasId: null, brakeId: null }; // ids = which finger is on which pedal
+let steerHint = !store.get("steerHint", false), steerTaps = 0; // the first touch race shows where to tap to steer
+// big thumb pads for touch screens: brake bottom-left, gas bottom-right, above the speedo and the pause button
+function pedalRects() {
+  const w = 74, h = 92, y = H - 64 - h;
+  return { brake: { x: 8, y, w, h }, gas: { x: W - 8 - w, y, w, h } };
+}
+const inRect = (p, r, pad = 8) => p.x >= r.x - pad && p.x <= r.x + r.w + pad && p.y >= r.y - pad && p.y <= r.y + r.h + pad;
 
 const newGrid = done => ({ t: 0, lit: 0, hold: -1, done, goFrame: done ? -1000 : -1 });
 const aiGo = () => grid.done && frame >= grid.goFrame + AI_REACT;
@@ -512,7 +518,8 @@ function initDemo() {
   seedTraffic();
 }
 
-function rivalTeam() { return TEAMS[equipped === 10 ? 8 : 10]; }
+// the rival drives the top team (Aurora); if you're in Aurora or the similar purple Nightjar, it brings the hot pink Stratos
+function rivalTeam() { return TEAMS[equipped === 10 || equipped === 1 ? 8 : 10]; }
 
 // jump the world to the start of a given country (used by Jump Start and for the menu preview)
 function jumpTo(i, frac = 0) {
@@ -570,7 +577,7 @@ songInput.addEventListener("change", async () => {
 });
 
 const MAIN_MENU = [
-  { label: "Single Player", go: () => startGame("single") },
+  { label: "Single Player", go: () => store.get("tutorialSeen", false) ? startGame("single") : (tipIdx = 0, openMenu("tutorial")) }, // first time: three quick tips
   { label: "VS Computer", go: () => openMenu("difficulty", 1) },
   { label: "Multiplayer", go: () => startGame("multi") },
   { label: "Jump Start", go: () => { jumpIdx = 0; jumpTo(0, 0.3); openMenu("jump"); } },
@@ -601,16 +608,44 @@ const GARAGE_MENU = [
   { label: () => owned.includes(garageIdx) ? (garageIdx === equipped ? "Equipped" : "Equip") : `Buy - ${TEAMS[garageIdx].cost} coins`, go: garageAction },
   { label: "Back", go: () => openMenu("menu", 4) },
 ];
+function cycleCamera(dir) { cam = (cam + CAMS.length + dir) % CAMS.length; store.set("camera", cam); }
 const PAUSE_MENU = [
   { label: "Resume", go: () => { state = "playing"; } },
+  { label: () => `Camera: ${CAMS[cam].name}`, go: () => cycleCamera(1) }, // the paused race behind previews it
   { label: "Quit to Menu", go: toMenu },
 ];
 const CAMERA_MENU = [
   ...CAMS.map((c, i) => ({ label: c.name, go: () => { cam = i; store.set("camera", cam); state = "playing"; } })),
   { label: "Resume", go: () => { state = "playing"; } },
 ];
+// first-run tips, shown once before the first Single Player race
+let tipIdx = 0;
+const TIPS = [
+  { title: "CHANGE LANES", lines: ["Press Left / Right to switch lanes", "and dodge the traffic"], touch: ["Tap the left or right side", "of the screen to switch lanes"], icon: () => {
+    ctx.fillStyle = "#3a3c42"; ctx.fillRect(-66, -42, 132, 84);
+    ctx.fillStyle = "#eee"; for (const x of [-22, 22]) for (let y = -40; y < 42; y += 18) ctx.fillRect(x - 1, y, 2, 9);
+    ctx.save(); ctx.scale(0.55, 0.55); drawCar(TEAMS[equipped]); ctx.restore();
+    ctx.fillStyle = "#ffd23f"; for (const s of [-1, 1]) poly([[s * 74, -14], [s * 74, 14], [s * 94, 0]]);
+  } },
+  { title: "LAUNCH START", lines: ["At the lights, hold BRAKE + GAS to rev.", "Let go of BRAKE on green for a launch!"], icon: () => {
+    for (const [y, col] of [[-16, "#ff2a2a"], [18, "#39ff6a"]]) for (let i = 0; i < 5; i++) {
+      ctx.fillStyle = "#111"; ctx.beginPath(); ctx.arc(-56 + i * 28, y, 12, 0, TAU); ctx.fill();
+      ctx.fillStyle = col; ctx.beginPath(); ctx.arc(-56 + i * 28, y, 8, 0, TAU); ctx.fill();
+    }
+  } },
+  { title: "NITRO & COINS", lines: ["Grab blue canisters for a nitro boost,", "and coins to buy new cars in the Garage"], icon: () => {
+    drawNitroIcon(-36, 0, 22, clock); drawCoin(36, 0, 18, Math.cos(clock / 8));
+  } },
+];
+const TUTORIAL_MENU = [
+  { label: () => tipIdx < TIPS.length - 1 ? "Next" : "Let's race!", go: () => nextTip() },
+  { label: "Skip", go: () => endTutorial() },
+];
+function nextTip() { if (tipIdx >= TIPS.length - 1) endTutorial(); else { tipIdx++; sel = 0; } }
+function endTutorial() { store.set("tutorialSeen", true); startGame("single"); }
+
 const OVER_MENU = [
-  { label: "Play Again", go: () => startGame(mode, difficulty, runStage) },
+  { label: "RETRY", big: true, go: () => startGame(mode, difficulty, runStage) }, // same mode, level and starting city; R / A / tap
   { label: "Menu", go: toMenu },
 ];
 
@@ -623,15 +658,23 @@ function currentMenu() {
     case "options": return { items: OPTIONS_MENU, top: 138, h: 34, gap: 8 };
     case "difficulty": return { items: DIFF_MENU, top: 200, h: 40, gap: 10 };
     case "garage": return { items: GARAGE_MENU, top: 362, h: 40, gap: 8 };
-    case "paused": return { items: PAUSE_MENU, top: 250, h: 44, gap: 14 };
+    case "paused": return { items: PAUSE_MENU, top: 262, h: 44, gap: 14 };
     case "camera": return { items: CAMERA_MENU, top: 205, h: 44, gap: 10 };
-    case "over": return { items: OVER_MENU, top: 340, h: 44, gap: 14 };
+    case "tutorial": return { items: TUTORIAL_MENU, top: 330, h: 44, gap: 10 };
+    case "over": return { items: OVER_MENU, top: 328, h: 44, gap: 14 };
   }
   return null;
 }
 
+const menuOY = () => (H - 480) / 2; // how far menus are pushed down to sit in the middle of a tall screen
+
+const btnH = (menu, i) => menu.h + (menu.items[i].big ? 18 : 0); // a "big" button is taller and wider than the rest
+
 function btnRect(menu, i) {
-  return { x: (W - BTN_W) / 2, y: menu.top + i * (menu.h + menu.gap), w: BTN_W, h: menu.h };
+  let y = menu.top;
+  for (let k = 0; k < i; k++) y += btnH(menu, k) + menu.gap;
+  const w = menu.items[i].big ? 260 : BTN_W;
+  return { x: (W - w) / 2, y, w, h: btnH(menu, i) };
 }
 
 function menuIndexAt(px, py) {
@@ -663,11 +706,17 @@ function menuAction(a) {
     jumpIdx = (jumpIdx + ROUTE.length + (a === "left" ? -1 : 1)) % ROUTE.length;
     jumpTo(jumpIdx, 0.3);
     sound.tone(520, 520, 0.05);
+  } else if (state === "tutorial" && (a === "left" || a === "right")) { // flick between the tip cards
+    if (a === "right") nextTip(); else { tipIdx = Math.max(0, tipIdx - 1); sel = 0; }
+  } else if (state === "paused" && sel === 1 && (a === "left" || a === "right")) { // flick through the cameras
+    cycleCamera(a === "left" ? -1 : 1);
+    sound.tone(520, 520, 0.05);
   } else if (a === "up") { sel = (sel + n - 1) % n; sound.tone(520, 520, 0.04, "square", 0.03); }
   else if (a === "down") { sel = (sel + 1) % n; sound.tone(520, 520, 0.04, "square", 0.03); }
   else if (a === "confirm") activate(sel);
   else if (a === "back") {
     if (state === "paused" || state === "camera") state = "playing";
+    else if (state === "tutorial") endTutorial();
     else if (state === "difficulty") openMenu("menu", 1);
     else if (state === "jump") { initDemo(); openMenu("menu", 3); }
     else if (state === "garage") openMenu("menu", 4);
@@ -721,7 +770,7 @@ function pickProp(st, nearOnly) {
 
 // half-widths of everything that can stand beside the road, so each can be placed with its nearest edge clear of the kerb
 const PROP_HALF = { lanternpole: 20, paifang: 48, bamboo: 14, torii: 44, stonelantern: 10, neonsign: 24, flamingo: 10, lifeguard: 16, mapleleaf: 16, yacht: 42, mosaic: 28, chalet: 32, cow: 20, phonebox: 10, bus: 34, sheep: 12, canalhouse: 18, sunflowers: 28, hayroll: 14, tulips: 38, villa: 30, vineyard: 36, osborne: 32, stonearch: 28, orchid: 14, pumpjack: 30, agave: 18, papel: 42, colorhouses: 40, camel: 30 };
-const LM_HALF = { opera: 104, bridge: 112, pearl: 44, shtower: 30, pagoda: 58, ferriswheel: 70, artdeco: 46, freedomtower: 34, biosphere: 54, olympictower: 66, casino: 80, palace: 96, sagrada: 104, torreglories: 22, church: 60, fortress: 100, bigben: 70, towerbridge: 104, londoneye: 78, atomium: 68, belfry: 26, parliament: 118, chainbridge: 108, dutchmill: 70, canalhouses: 90, colosseum: 84, pisa: 82, alcala: 66, kiotowers: 56, flame: 56, maiden: 100, heydar: 96, mbs: 116, supertrees: 84, merlion: 60, flyer: 76, capitol: 96, uttower: 30, angel: 42, pyramid: 68, christ: 108, sugarloaf: 132, ponte: 110, sphere: 72, luxor: 106, stratosphere: 26, eiffel: 44, welcome: 40, lusail: 98, aspire: 28, mosque: 124, ferrariworld: 110, yashotel: 106, etihad: 62 };
+const LM_HALF = { opera: 104, bridge: 112, pearl: 44, shtower: 30, pagoda: 58, ferriswheel: 70, artdeco: 46, freedomtower: 34, biosphere: 54, olympictower: 66, casino: 80, palace: 96, sagrada: 104, torreglories: 22, church: 60, fortress: 100, bigben: 70, towerbridge: 104, londoneye: 78, atomium: 68, belfry: 26, parliament: 118, chainbridge: 108, dutchmill: 70, canalhouses: 90, colosseum: 84, pisa: 82, alcala: 66, kiotowers: 56, flame: 56, maiden: 100, heydar: 96, mbs: 116, supertrees: 84, merlion: 60, flyer: 76, capitol: 96, uttower: 30, angel: 42, pyramid: 68, christ: 108, sugarloaf: 132, ponte: 110, sphere: 72, luxor: 106, stratosphere: 26, eiffel: 44, welcome: 40, lusail: 98, aspire: 28, mosque: 124, themepark: 110, yashotel: 106, etihad: 62 };
 function sceneHalf(kind, key, r) {
   switch (kind) {
     case "lm": return LM_HALF[key] || 110;
@@ -974,6 +1023,7 @@ function updateDemo() {
 
 function collect(r, k) {
   if (k.type === "nitro") {
+    if (!(r.nitro > 0)) r.cruise = r.v; // the speed you'd be doing without it; a second can mid-burn just extends it
     r.nitro = NITRO_FRAMES;
     burst(k.x, k.y, ["#5fd4ff", "#ffffff", "#2a7bff"], 18, 4);
     if (r.id === 0) sound.nitroStart();
@@ -1012,6 +1062,7 @@ function endRound() {
 
 function updatePlaying() {
   frame++;
+  if (steerHint && hasTouch && grid.done && (steerTaps >= 2 || frame > grid.goFrame + 360)) { steerHint = false; store.set("steerHint", true); } // got the idea
   const top = Math.max(...racers.map(r => r.passed));
   const vmin = Math.min(1 + tier * 0.15, 4.4); // the pace rises every 10 cars passed (up to 264 km/h): you can't dawdle forever
   if (Math.floor(top / 10) > tier) tier = Math.floor(top / 10);
@@ -1040,11 +1091,13 @@ function updatePlaying() {
     const since = frame - grid.goFrame, boost = r.nitro > 0;
     if (r.ai && since < AI_REACT) { r.v = 0; continue; } // the CPU reacts 0.100s after green, every time
     if (boost) {
-      r.nitro--; r.v += 0.1; r.braking = false;
+      r.nitro--; r.braking = false;
+      r.cruise += accelAt(r.cruise); // flat-out throttle keeps counting underneath the boost
+      r.v = Math.min(r.v + 0.1, r.cruise + NITRO_PUSH);
       if (r.nitro === 0 && r.id === 0) sound.nitroEnd();
     } else if (r.ai) {
       const target = clamp(r.ai.speed + tier * 0.12, vmin, VMAX);
-      r.v += clamp(target - r.v, -0.04, r.ai.accel || 0.03);
+      r.v += clamp(target - r.v, -0.04, Math.min(r.ai.accel || 0.03, accelAt(r.v))); // same car, same physics
       r.braking = target < r.v - 0.02;
     } else {
       const pd = pedals(r);
@@ -1057,12 +1110,15 @@ function updatePlaying() {
           if (r.id === 0 && !r.falseStart) say(`Reaction ${(since / 60).toFixed(3)}s${mode === "vs" ? "   CPU 0.100s" : ""}`);
         }
       }
-      r.v += t > 0 ? 0.035 * t : 0.07 * t;
+      r.v += t > 0 ? accelAt(r.v) * t : 0.05 * t; // brakes ~5g, like the real thing
       r.braking = t < -0.05;
     }
-    if (!boost && r.v > VMAX) r.v = Math.max(VMAX, r.v - 0.06); // nitro wears off: ease back down
-    if (!r.rolling && r.v >= vmin) r.rolling = true;            // the pace floor only applies once you're up to speed
-    r.v = clamp(r.v, r.rolling ? vmin : 0, boost ? NITRO_MAX : Math.max(VMAX, r.v));
+    if (!boost && r.cruise !== undefined) { // nitro wears off: ease back down to where the throttle alone would have got you
+      if (r.v > r.cruise + 0.06) r.v -= 0.06;
+      else r.cruise = undefined; // back to normal: the throttle's in charge again
+    }
+    if (!r.rolling && r.v >= vmin) r.rolling = true; // the pace floor only applies once you're up to speed
+    r.v = Math.max(r.v, r.rolling ? vmin : 0);       // no top speed: keep your foot down and it keeps climbing
   }
   const live = racers.filter(r => r.alive);
   if (live.length) speed = Math.max(...live.map(r => r.v)); // the camera follows the fastest car
@@ -1178,7 +1234,7 @@ function update() {
   sound.engineTick(state === "playing", effV(racers[0]), racers[0].nitro > 0);
   if (state === "playing" && racers[0].rev > 0.9 && Math.random() < 0.12) sound.burst(0.05, 0.4, "lowpass", 900, 260); // rev-limiter pops
   sound.envTick(state === "playing", Math.max(rainI, wet), 0, 0);
-  music.tick(state === "menu" || state === "difficulty" || state === "garage" || state === "options" || state === "jump");
+  music.tick(state === "menu" || state === "tutorial" || state === "difficulty" || state === "garage" || state === "options" || state === "jump");
 }
 
 // ---------- tile textures (pre-rendered once per resolution) ----------
@@ -1222,15 +1278,28 @@ function rescaleWorld(oldL, oldR) {
   for (const o of scenery || []) o.x = o.x < oldL + (oldR - oldL) / 2 ? o.x * ratio : ROAD_R + (o.x - oldR) * ratio;
 }
 
+// The screen got taller or shorter: the world stays pinned to the bottom edge, so the new space at the top is more road ahead
+function reheightWorld(dH) {
+  for (const o of [...(enemies || []), ...(pickups || []), ...(racers || []), ...(roadItems || []), ...(scenery || []), ...(particles || []), ...(wx || [])]) {
+    o.y += dH; if (o.ty !== undefined) o.ty += dH;
+  }
+  if (startObj) startObj.y += dH;
+  camRefY += dH;
+}
+
 function fit() { // fill the whole window; render at the real on-screen pixel size so everything stays sharp
   if (typeof window === "undefined") return;
-  const newW = clamp(Math.round(H * window.innerWidth / window.innerHeight), 340, 1100);
+  const aspect = window.innerWidth / window.innerHeight;
+  let newW = Math.round(480 * aspect), newH = 480;
+  if (newW < 340) { newW = 340; newH = clamp(Math.round(340 / aspect), 480, 820); } // portrait phone: keep the road's width, grow taller
+  newW = Math.min(newW, 1100);
   if (newW !== W) { const oL = ROAD_L, oR = ROAD_R; W = newW; ROAD_L = (W - ROAD_W) / 2; ROAD_R = ROAD_L + ROAD_W; rescaleWorld(oL, oR); }
+  if (newH !== H) { const dH = newH - H; H = newH; reheightWorld(dH); }
   let cssH = window.innerHeight, cssW = cssH * W / H;
   if (cssW > window.innerWidth) { cssW = window.innerWidth; cssH = cssW * H / W; }
   canvas.style.width = cssW + "px"; canvas.style.height = cssH + "px";
   const res = clamp((window.devicePixelRatio || 1) * cssH / H, 1, 3);
-  if (Math.abs(res - RES) < 0.01 && roadPat && canvas.width === Math.round(W * res)) return;
+  if (Math.abs(res - RES) < 0.01 && roadPat && canvas.width === Math.round(W * res) && canvas.height === Math.round(H * res)) return;
   RES = res;
   canvas.width = Math.round(W * RES);
   canvas.height = Math.round(H * RES);
@@ -1264,8 +1333,8 @@ function tyre(x, y, w, h) {
   ctx.fillStyle = "rgba(255,255,255,0.07)"; ctx.fillRect(x + 1, y + 1, w - 2, 2.5);
 }
 
-// A top-down F1 car centred on the origin, nose pointing up (about 76 units long, 52 wide).
-function drawF1(L, o = {}) {
+// A top-down open-wheel race car centred on the origin, nose pointing up (about 76 units long, 52 wide).
+function drawCar(L, o = {}) {
   const dark = "#17181c";
   ctx.fillStyle = "rgba(0,0,0,0.28)"; roundRect(-17, -27, 40, 66, 8); ctx.fill(); // ground shadow
   ctx.strokeStyle = "#2b2d33"; ctx.lineWidth = 1.6; ctx.beginPath();
@@ -1303,7 +1372,7 @@ function drawF1(L, o = {}) {
   ctx.strokeStyle = "#2c2e35"; ctx.lineWidth = 1.7; ctx.beginPath();
   ctx.moveTo(0, -13); ctx.lineTo(-4.6, -6); ctx.lineTo(-4, 2); ctx.moveTo(0, -13); ctx.lineTo(4.6, -6); ctx.lineTo(4, 2); ctx.stroke();
   ctx.fillStyle = dark; roundRect(-20, 29, 40, 5.5, 1.5); ctx.fill();
-  if (o.drs) { ctx.fillStyle = "#3d3f46"; ctx.fillRect(-19, 35.6, 38, 1.2); ctx.fillStyle = "rgba(57,255,20,0.55)"; ctx.fillRect(-19, 34.4, 38, 1.1); }
+  if (o.slip) { ctx.fillStyle = "#3d3f46"; ctx.fillRect(-19, 35.6, 38, 1.2); ctx.fillStyle = "rgba(57,255,20,0.55)"; ctx.fillRect(-19, 34.4, 38, 1.1); }
   else { ctx.fillStyle = L.a; ctx.fillRect(-19, 34.5, 38, 3); }
   ctx.fillStyle = L.p; ctx.fillRect(-21, 28, 2.6, 11); ctx.fillRect(18.4, 28, 2.6, 11);
   if (o.brake) {
@@ -1323,7 +1392,7 @@ function drawF1(L, o = {}) {
 }
 
 // The same car seen from behind, for the chase and driver views. Origin = bottom centre (where the tyres meet the road).
-function drawF1Rear(L, o = {}) {
+function drawCarRear(L, o = {}) {
   const dark = "#17181c";
   ctx.fillStyle = "rgba(0,0,0,0.32)"; ctx.beginPath(); ctx.ellipse(0, -1, 31, 6, 0, 0, TAU); ctx.fill();
   for (const x of [-27, 15]) { // rear tyres
@@ -1344,7 +1413,7 @@ function drawF1Rear(L, o = {}) {
   ctx.strokeStyle = "#2c2e35"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, -40, 7.5, Math.PI * 1.05, Math.PI * 1.95); ctx.stroke(); // halo
   ctx.fillStyle = dark; ctx.fillRect(-1.6, -25, 3.2, 11);          // wing pillar
   ctx.fillStyle = dark; roundRect(-20, -31, 40, 6, 1.5); ctx.fill(); // rear wing
-  if (o.drs) { ctx.fillStyle = L.a; ctx.fillRect(-19, -40, 38, 3.4); ctx.fillStyle = "rgba(57,255,20,0.5)"; ctx.fillRect(-19, -36.6, 38, 1.6); }
+  if (o.slip) { ctx.fillStyle = L.a; ctx.fillRect(-19, -40, 38, 3.4); ctx.fillStyle = "rgba(57,255,20,0.5)"; ctx.fillRect(-19, -36.6, 38, 1.6); }
   else { ctx.fillStyle = L.a; ctx.fillRect(-19, -37, 38, 5.5); }
   ctx.fillStyle = L.p; ctx.fillRect(-22, -39, 2.6, 17); ctx.fillRect(19.4, -39, 2.6, 17);
   ctx.fillStyle = L.s; ctx.fillRect(-22, -39, 2.6, 4); ctx.fillRect(19.4, -39, 2.6, 4);
@@ -1384,7 +1453,7 @@ function drawNitroIcon(x, y, r, t) {
 function drawEnemy(e) {
   ctx.save();
   ctx.translate(e.x, e.y);
-  drawF1(e.livery);
+  drawCar(e.livery);
   ctx.restore();
 }
 
@@ -1393,7 +1462,7 @@ function drawRacer(r) {
   if (!r.alive) ctx.globalAlpha = 0.55;
   ctx.translate(r.x, r.y);
   ctx.rotate(r.tilt);
-  drawF1(r.team, { brake: r.alive && r.braking, drs: r.alive && r.v >= 4.6, nitro: r.alive && r.nitro > 0 });
+  drawCar(r.team, { brake: r.alive && r.braking, slip: r.alive && r.v >= 4.6, nitro: r.alive && r.nitro > 0 });
   ctx.restore();
 }
 
@@ -1482,7 +1551,7 @@ function drawRoadItem(it) { // puddles
   ctx.beginPath(); ctx.ellipse(it.x, it.y, it.rx * rip, it.ry * rip, 0, 0, TAU); ctx.stroke();
 }
 
-// ---------- drawing: top-down world ("third person") ----------
+// ---------- drawing: top-down world (overhead camera) ----------
 
 function drawGround() {
   ctx.fillStyle = rgb(pal.grass); ctx.fillRect(-20, -20, W + 40, H + 40);
@@ -1594,7 +1663,7 @@ function drawTopDown() {
   for (const s of scenery) if (!s.far && s.y > -50 && s.kind === "tree") drawScenery(s);
 }
 
-// ---------- drawing: 3D views ("second person" chase cam and "first person" cockpit) ----------
+// ---------- drawing: 3D views (chase cam and cockpit) ----------
 
 function seeded(i) { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
 
@@ -1935,7 +2004,7 @@ const LMS = {
     }
     ctx.fillStyle = "#d4af37"; ctx.fillRect(-1, -158, 2, 26); for (let k = 0; k < 4; k++) ell(0, -140 - k * 5, 4, 1.2);
   },
-  ferriswheel: () => { shadowAt(60); wheel(56, "#d9dde4", i => ["#e8505b", "#f4c542", "#4aa3df", "#6cc070"][i % 4], "#9aa3ad", 18); }, // Suzuka's famous Ferris wheel
+  ferriswheel: () => { shadowAt(60); wheel(56, "#d9dde4", i => ["#e8505b", "#f4c542", "#4aa3df", "#6cc070"][i % 4], "#9aa3ad", 18); }, // a big funfair Ferris wheel
   // ----- USA: Miami -----
   artdeco: () => { // South Beach art-deco hotel
     shadowAt(70); box(-40, 0, 80, 54, "#f2b8c6"); box(-40, -54, 80, 8, "#7fd6d0"); box(-30, -62, 60, 16, "#f6e4b8"); ctx.fillStyle = "#fff"; ctx.fillRect(-5, -118, 10, 56);
@@ -2252,11 +2321,10 @@ const LMS = {
     for (const x of [-104, 104, -78, 78]) { box(x - 5, 0, 10, x > 90 || x < -90 ? 118 : 96, w); box(x - 7, x > 90 || x < -90 ? -118 : -96, 14, 5, sh); dome(x, x > 90 || x < -90 ? -123 : -101, 6, w); ctx.fillStyle = "#d4af37"; ctx.fillRect(x - 0.7, x > 90 || x < -90 ? -141 : -119, 1.4, 12); }
     if (lit() > 0.2) glow(0, -70, 100, "255,236,190", 0.4 * lit());
   },
-  ferrariworld: () => { // Ferrari World's red roof and Formula Rossa
-    shadowAt(200); ctx.fillStyle = "#c8102e"; ctx.beginPath(); ctx.moveTo(-104, 0); ctx.quadraticCurveTo(-94, -74, -20, -58); ctx.quadraticCurveTo(40, -46, 72, -76); ctx.quadraticCurveTo(102, -62, 106, 0); ctx.closePath(); ctx.fill();
+  themepark: () => { // a wavy-roofed indoor theme park with a roller-coaster tower
+    shadowAt(200); ctx.fillStyle = "#1f8fa8"; ctx.beginPath(); ctx.moveTo(-104, 0); ctx.quadraticCurveTo(-94, -74, -20, -58); ctx.quadraticCurveTo(40, -46, 72, -76); ctx.quadraticCurveTo(102, -62, 106, 0); ctx.closePath(); ctx.fill();
     ctx.strokeStyle = "rgba(255,255,255,0.35)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-90, -4); ctx.quadraticCurveTo(-60, -52, -10, -46); ctx.moveTo(-70, -4); ctx.quadraticCurveTo(-40, -40, 0, -36); ctx.stroke();
-    ctx.fillStyle = "#ffd800"; ell(-2, -48, 22, 13); ctx.fillStyle = "#17181c"; ctx.fillRect(-5, -56, 6, 12); ctx.fillRect(-9, -50, 14, 3);
-    ctx.strokeStyle = "#e8e8ee"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(14, -62); ctx.lineTo(56, -158); ctx.stroke(); ctx.fillStyle = "#8f1226"; ctx.fillRect(52, -158, 5, 96); glow(0, -50, 130, "255,40,60", 0.15 + 0.4 * lit());
+    ctx.strokeStyle = "#e8e8ee"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(14, -62); ctx.lineTo(56, -158); ctx.stroke(); ctx.fillStyle = "#f2a23a"; ctx.fillRect(52, -158, 5, 96); glow(0, -50, 130, "60,200,230", 0.15 + 0.4 * lit());
   },
   yashotel: () => { // Yas Viceroy and its glowing grid shell
     water(104, 7); box(-72, 0, 56, 72, "#cfd3e0"); box(16, 0, 56, 58, "#cfd3e0"); windows(-72, 0, 56, 72, 5, 7, 6); windows(16, 0, 56, 58, 5, 6, 8);
@@ -2338,10 +2406,10 @@ function drawSprites3D(C) {
   const list = [];
   for (const s of scenery) { const p = toScreen(C, s.x3, s.y); if (p && p.sc > (s.kind === "lm" ? 0.1 : 0.17) && p.sx > -240 && p.sx < W + 240) list.push({ d: p.d, p, fn: () => drawScenery3D(s) }); } // tiny, far objects aren't worth drawing
   for (const k of pickups) { const p = toScreen(C, k.x, k.y); if (p) list.push({ d: p.d, p, coin: k }); }
-  for (const e of enemies) { const p = toScreen(C, e.x, e.y, CAR_H / 2); if (p) list.push({ d: p.d, p, fn: () => drawF1Rear(e.livery) }); }
+  for (const e of enemies) { const p = toScreen(C, e.x, e.y, CAR_H / 2); if (p) list.push({ d: p.d, p, fn: () => drawCarRear(e.livery) }); }
   for (const r of racers) {
     const p = toScreen(C, r.x, r.y, CAR_H / 2);
-    if (p) list.push({ d: p.d, p, fn: () => drawF1Rear(r.team, { brake: r.alive && r.braking, drs: r.alive && r.v >= 4.6, nitro: r.alive && r.nitro > 0 }), tilt: r.tilt, dead: !r.alive });
+    if (p) list.push({ d: p.d, p, fn: () => drawCarRear(r.team, { brake: r.alive && r.braking, slip: r.alive && r.v >= 4.6, nitro: r.alive && r.nitro > 0 }), tilt: r.tilt, dead: !r.alive });
   }
   for (const it of roadItems) { const p = toScreen(C, it.x, it.y); if (p) list.push({ d: p.d + 0.5, p, item: it }); }
   if (startObj) { const p = toScreen(C, W / 2, startObj.y); if (p) list.push({ d: p.d, p, fn: drawGantry3D }); }
@@ -2398,7 +2466,7 @@ function drawHaze(C) { // fades the far road into the sky so cars and trees neve
 }
 
 function draw3D(C) {
-  const p0 = racers[0], vib = (state === "playing" ? (p0.v / VMAX) * 0.6 : 0) + nitroFx * 1.8;
+  const p0 = racers[0], vib = (state === "playing" ? Math.min(p0.v / VMAX, 1.3) * 0.6 : 0) + nitroFx * 1.8;
   ctx.save();
   ctx.translate(W / 2, H * 0.62);
   ctx.rotate(-(p0.alive ? clamp(p0.tilt, -0.45, 0.45) : 0) * 0.12); // the horizon rolls a touch as you change lanes (never once you've crashed)
@@ -2435,7 +2503,7 @@ function drawMirror(x, y, w, h, side) {
   list.sort((a, b) => b.dd - a.dd); // farthest first
   for (const c of list) {
     const s = 1 / (1 + Math.max(c.dd, -40) / 90), cy = hor + (bot - hor) * s, cx = vx + ((c.x - W / 2) / (ROAD_W / 2)) * hw * s;
-    ctx.save(); ctx.translate(cx, cy); ctx.scale(s * 0.9, s * 0.9); drawF1Rear(c.L); ctx.restore();
+    ctx.save(); ctx.translate(cx, cy); ctx.scale(s * 0.9, s * 0.9); drawCarRear(c.L); ctx.restore();
   }
   const gl = ctx.createLinearGradient(x, y, x + w, y + h); gl.addColorStop(0, "rgba(255,255,255,0.24)"); gl.addColorStop(0.45, "rgba(255,255,255,0)");
   ctx.fillStyle = gl; ctx.fillRect(x, y, w, h); ctx.fillStyle = "rgba(120,170,255,0.07)"; ctx.fillRect(x, y, w, h);
@@ -2444,8 +2512,8 @@ function drawMirror(x, y, w, h, side) {
 }
 
 function drawCockpit(worldW) {
-  const W = 400, ox = (worldW - 400) / 2; // the cockpit is drawn in a 400-wide frame, centred on wide screens
-  ctx.save(); ctx.translate(ox, 0);
+  const W = 400, ox = (worldW - 400) / 2, dy = H - 480; // the cockpit is drawn in a 400x480 frame, centred on wide screens and pinned to the bottom on tall ones
+  ctx.save(); ctx.translate(ox, dy);
   const r = racers[0], L = r.team, sw = r.alive ? Math.sin(r.tilt * 2) * 0.35 : 0;
   const carbon = ctx.createLinearGradient(0, 0, W, 0);
   carbon.addColorStop(0, "#0c0c0f"); carbon.addColorStop(0.5, "#23242a"); carbon.addColorStop(1, "#0c0c0f");
@@ -2461,9 +2529,11 @@ function drawCockpit(worldW) {
   const gn = ctx.createLinearGradient(W / 2 - 60, 0, W / 2 + 60, 0); // nose cone running up toward the horizon
   gn.addColorStop(0, shade(L.p, -0.35)); gn.addColorStop(0.5, shade(L.p, 0.2)); gn.addColorStop(1, shade(L.p, -0.35));
   ctx.fillStyle = gn; ctx.beginPath(); ctx.moveTo(W / 2 - 13, 330); ctx.lineTo(W / 2 + 13, 330); ctx.lineTo(W / 2 + 62, 462); ctx.lineTo(W / 2 - 62, 462); ctx.closePath(); ctx.fill();
-  ctx.fillStyle = "#0c0c0f"; for (const [fx, fw] of [[-ox - 4, ox + 8], [396, ox + 8]]) { ctx.fillRect(fx, 470, fw, 22); ctx.fillRect(fx, -2, fw, 22); } // bands run out to the screen edges
+  ctx.fillStyle = "#0c0c0f"; for (const [fx, fw] of [[-ox - 4, ox + 8], [396, ox + 8]]) { ctx.fillRect(fx, 470, fw, 22); ctx.fillRect(fx, -2 - dy, fw, 22); } // bands run out to the screen edges
   ctx.fillStyle = L.s; ctx.beginPath(); ctx.moveTo(W / 2 - 3, 330); ctx.lineTo(W / 2 + 3, 330); ctx.lineTo(W / 2 + 9, 462); ctx.lineTo(W / 2 - 9, 462); ctx.closePath(); ctx.fill();
+  ctx.save(); ctx.translate(0, -dy); // the top of the opening stays at the top of the screen
   ctx.fillStyle = carbon; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(W, 0); ctx.lineTo(W, 20); ctx.quadraticCurveTo(W / 2, 46, 0, 20); ctx.closePath(); ctx.fill(); // top of the opening
+  ctx.restore();
   ctx.save(); ctx.translate(W / 2, 424); ctx.rotate(sw); // steering wheel (turns with the car) with its display
   roundRect(-78, -2, 156, 56, 14); ctx.fillStyle = "#15161a"; ctx.fill(); ctx.strokeStyle = "#3a3c44"; ctx.lineWidth = 2; ctx.stroke();
   roundRect(-38, 4, 76, 38, 5); ctx.fillStyle = "#050607"; ctx.fill();
@@ -2476,14 +2546,15 @@ function drawCockpit(worldW) {
   ctx.fillStyle = L.helmet; roundRect(-84, 30, 20, 26, 8); ctx.fill(); roundRect(64, 30, 20, 26, 8); ctx.fill(); // gloved hands
   ctx.restore();
   ctx.restore();
-  drawMirror(16, 252, 100, 64, -1); drawMirror(worldW - 116, 252, 100, 64, 1); // side mirrors
+  drawMirror(16, 252 + dy, 100, 64, -1); drawMirror(worldW - 116, 252 + dy, 100, 64, 1); // side mirrors
 }
 
 function drawWorld() {
   const v = view3D();
   ctx.save();
   if (shake > 0.5) ctx.translate(rnd(-shake, shake), rnd(-shake, shake));
-  if (v === 0) drawTopDown(); else draw3D(CAMS[v]);
+  // on a tall screen the chase cam's horizon drops by half the extra height; the cockpit's drops all the way so the dash stays at the bottom
+  if (v === 0) drawTopDown(); else draw3D({ ...CAMS[v], hor: CAMS[v].hor + (H - 480) * (v === 2 ? 1 : 0.5) });
   drawWeather();
   if (v === 2) drawCockpit(W);
   ctx.restore();
@@ -2561,12 +2632,22 @@ function drawButtons() {
     ctx.strokeStyle = i === sel ? "#fff" : "rgba(255,255,255,0.4)";
     ctx.stroke();
     ctx.fillStyle = "#fff";
-    ctx.font = "bold 19px sans-serif";
+    ctx.font = item.big ? "bold 26px sans-serif" : "bold 19px sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(typeof item.label === "function" ? item.label() : item.label, W / 2, r.y + r.h / 2 + 1);
     ctx.textBaseline = "alphabetic";
   });
+}
+
+function drawTutorial() {
+  const tip = TIPS[tipIdx], pw = Math.min(W - 32, 340), px = (W - pw) / 2;
+  roundRect(px, 60, pw, 252, 16); ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.25)"; ctx.lineWidth = 2; ctx.stroke();
+  textAt(`TIP ${tipIdx + 1} / ${TIPS.length}`, W / 2, 86, 12, "center", "#ffd23f");
+  textAt(tip.title, W / 2, 116, 24);
+  ctx.save(); ctx.translate(W / 2, 186); tip.icon(); ctx.restore();
+  (hasTouch && tip.touch ? tip.touch : tip.lines).forEach((s, i) => textAt(s, W / 2, 264 + i * 20, 13, "center", "#ddd"));
 }
 
 function drawJump() {
@@ -2578,7 +2659,7 @@ function drawJump() {
   ctx.strokeStyle = "rgba(255,255,255,0.55)"; ctx.lineWidth = 2; ctx.strokeRect(W / 2 - 52, 122, 104, 68);
   textAt("<", 12, 170, 44, "left"); textAt(">", W - 12, 170, 44, "right");
   text(st.country, 232, st.country.length > 12 ? 24 : 28);
-  text(`ROUND ${st.n}  -  ${st.venue.toUpperCase()}`, 256, 13, "center", "#ffd23f");
+  text(roundLabel(st), 256, 13, "center", "#ffd23f");
   text(st.info, 282, 12, "center", "#fff");
   [st.g, st.rd, st.s0, st.s1, st.lf].forEach((c, i) => { ctx.fillStyle = rgb(c); ctx.strokeStyle = "#000"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(W / 2 - 36 + i * 18, 312, 6, 0, TAU); ctx.fill(); ctx.stroke(); });
 }
@@ -2590,7 +2671,7 @@ function drawGarage() {
   ctx.save();
   ctx.translate(W / 2, 200);
   ctx.scale(2.3, 2.3);
-  drawF1(t, { drs: false });
+  drawCar(t, { slip: false });
   ctx.restore();
   textAt("<", 12, 214, 44, "left");
   textAt(">", W - 12, 214, 44, "right");
@@ -2618,10 +2699,11 @@ function drawGauge(r) {
   textAt(String(Math.round(r.v * 60)), cx, cy - 12, 15);
   textAt("km/h", cx, cy - 1, 9, "center", "#ccc");
   textAt(`G${gearOf(r.v)}`, cx + R + 10, cy - 6, 14, "left");
-  if (r.v >= 4.6) textAt("DRS", cx + R + 10, cy - 22, 11, "left", "#39ff14");
+  if (r.v >= 4.6) textAt("SLIPSTREAM", cx + R + 10, cy - 22, 11, "left", "#39ff14");
 }
 
-function drawStageBar() { // which Grand Prix you're in, and how far through it
+const roundLabel = st => st.venue.toUpperCase() === st.country ? `ROUND ${st.n}` : `ROUND ${st.n}  -  ${st.venue.toUpperCase()}`; // no 'ABU DHABI - ABU DHABI'
+function drawStageBar() { // which city you're in, and how far through it
   const st = ROUTE[stageIdx], x0 = 130, w = 140, y = H - 14;
   ctx.font = "bold 12px sans-serif";
   const tw = ctx.measureText(st.country).width, fw = 18, fx = W / 2 - (tw + fw + 6) / 2;
@@ -2642,7 +2724,7 @@ function drawBanner() { // a small card that slides in from the left edge and le
   ctx.save(); ctx.translate(8, 11); drawFlag(st.flag, 32, 22); ctx.restore();
   ctx.font = "bold 12px sans-serif";
   textAt(st.country, 48, 19, st.country.length > 12 ? 11 : 12, "left", "#fff");
-  textAt(`ROUND ${st.n}  -  ${st.venue.toUpperCase()}`, 48, 34, 9, "left", "#ffd23f");
+  textAt(roundLabel(st), 48, 34, 9, "left", "#ffd23f");
   ctx.restore();
 }
 
@@ -2654,6 +2736,19 @@ function drawCameraIcon() {
   ctx.fillStyle = "#222"; ctx.beginPath(); ctx.arc(0, 1, 3.6, 0, TAU); ctx.fill();
   ctx.fillStyle = "rgba(255,255,255,0.7)"; ctx.beginPath(); ctx.arc(-1, 0, 1, 0, TAU); ctx.fill();
   ctx.restore();
+}
+
+// First touch race only: light up the two halves of the screen so it's obvious where to tap to change lanes
+function drawSteerHint() {
+  const top = 160, bot = pedalRects().gas.y - 14, mid = (top + bot) / 2, pulse = 0.5 + 0.5 * Math.sin(clock / 9);
+  for (const side of [-1, 1]) {
+    const x = side < 0 ? 0 : W / 2, cx = side < 0 ? W * 0.25 : W * 0.75;
+    ctx.fillStyle = `rgba(255,255,255,${0.06 + 0.06 * pulse})`; ctx.fillRect(x + 6, top, W / 2 - 12, bot - top);
+    ctx.strokeStyle = "rgba(255,255,255,0.35)"; ctx.lineWidth = 2; ctx.setLineDash([8, 6]); ctx.strokeRect(x + 6, top, W / 2 - 12, bot - top); ctx.setLineDash([]);
+    ctx.fillStyle = `rgba(255,255,255,${0.6 + 0.4 * pulse})`; poly([[cx - side * 16, mid - 22], [cx - side * 16, mid + 22], [cx + side * 20, mid]]); // arrow pointing outwards
+    textAt("TAP", cx, mid + 48, 18);
+    textAt(side < 0 ? "to move left" : "to move right", cx, mid + 66, 12, "center", "#ddd");
+  }
 }
 
 function drawHud() {
@@ -2679,7 +2774,10 @@ function drawHud() {
   if (state === "playing" && (!grid.done || frame < grid.goFrame + 120)) { // what to do, tucked low so it never covers the road
     const f = grid.done ? clamp((grid.goFrame + 120 - frame) / 30, 0, 1) : 1;
     ctx.globalAlpha = f;
-    if (grid.done) text(mode === "multi" ? "P1: Arrows    P2: W A S D" : "Left/Right steer   Up/Down speed", H - 78, 13);
+    if (hasTouch && mode !== "multi") { // short enough to sit between the two pedals on a phone
+      if (grid.done) text("Tap a side to steer", H - 78, 13);
+      else { text("Hold BRAKE + GAS to rev", H - 94, 12); text("Let go of BRAKE on green", H - 78, 12); }
+    } else if (grid.done) text(mode === "multi" ? "P1: Arrows    P2: W A S D" : "Left/Right steer   Up/Down speed", H - 78, 13);
     else {
       text(mode === "multi" ? "Rev: P1 Up+Down, P2 W+S" : "Rev: hold brake + throttle (Down+Up, or LT+RT)", H - 94, 12);
       text("Let go of the brake the moment the lights go green", H - 78, 12);
@@ -2689,10 +2787,16 @@ function drawHud() {
   if (banner && state === "playing") drawBanner();
   drawCameraIcon();
   if (hasTouch) { // touch pedals, only shown once the screen has actually been touched
-    for (const [cx, cy, on, label, col] of [[W - 26, H - 96, touch.gas, "+", "#39d353"], [W - 26, H - 60, touch.brake, "-", "#ff4d4d"]]) {
-      ctx.fillStyle = on ? col : "rgba(0,0,0,0.5)"; ctx.beginPath(); ctx.arc(cx, cy, 15, 0, TAU); ctx.fill();
-      ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.stroke();
-      textAt(label, cx, cy + 6, 20);
+    if (steerHint && state === "playing") drawSteerHint();
+    const pr = pedalRects();
+    for (const [r, on, label, col] of [[pr.brake, touch.brake, "BRAKE", "#ff4d4d"], [pr.gas, touch.gas, "GAS", "#39d353"]]) {
+      ctx.globalAlpha = on ? 0.9 : 0.55;
+      ctx.fillStyle = on ? col : "rgba(0,0,0,0.6)"; roundRect(r.x, r.y, r.w, r.h, 14); ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = col; ctx.lineWidth = 2.5; roundRect(r.x, r.y, r.w, r.h, 14); ctx.stroke();
+      const cx = r.x + r.w / 2, cy = r.y + r.h / 2 - 8, up = label === "GAS"; // an arrow pointing the way the speed goes
+      ctx.fillStyle = on ? "#fff" : col; poly([[cx, cy + (up ? -14 : 14)], [cx + 14, cy + (up ? 8 : -8)], [cx - 14, cy + (up ? 8 : -8)]]);
+      textAt(label, cx, r.y + r.h - 12, 13);
     }
   }
   ctx.fillStyle = "rgba(0,0,0,0.5)";
@@ -2709,19 +2813,23 @@ function draw() {
 
   if (state === "playing" || state === "paused" || state === "camera") drawHud();
 
-  if (state === "menu" || state === "difficulty" || state === "garage" || state === "options" || state === "jump") {
+  const moy = menuOY(); // menus and overlays are laid out for a 480-high screen: centre them on taller ones
+  ctx.save(); ctx.translate(0, moy);
+
+  if (state === "menu" || state === "tutorial" || state === "difficulty" || state === "garage" || state === "options" || state === "jump") {
     ctx.fillStyle = "rgba(15,15,20,0.66)"; // fade the highway behind the title
-    ctx.fillRect(0, 0, W, H);
+    ctx.fillRect(0, -moy, W, H);
     if (state === "jump") drawJump();
+    else if (state === "tutorial") drawTutorial();
     else if (state === "garage") drawGarage();
     else if (state === "options") {
       text("OPTIONS", 86, 32);
       text(`Now playing: ${music.playing ? music.name : "-"}`, 118, 13, "center", "#ccc");
     } else {
-      text("EXTREME RACER", 112, 38);
+      text("EXTREME RACER", 112, Math.min(38, (W - 24) / 9.4)); // shrinks to fit a narrow phone
       if (state === "difficulty") text("VS Computer: pick a level", 175, 18);
       else {
-        text("F1 HIGHWAY SURVIVAL", 142, 15, "center", "#ff5a5a");
+        text("WORLD TOUR", 142, 15, "center", "#ff5a5a");
         text(`Best ${best}   Coins ${wallet}`, 166, 14, "center", "#ffd23f");
       }
     }
@@ -2731,17 +2839,18 @@ function draw() {
     ctx.textAlign = "center";
     const musicNote = music.on && sound.on ? (music.playing ? `Now playing: ${music.name}   (N = next)` : "Press any key to start the music") : "";
     if (state === "menu" && musicNote) ctx.fillText(musicNote, W / 2, 448);
-    ctx.fillText(state === "garage" ? "Left / Right to browse, Enter to pick" : state === "jump" ? "Left / Right to choose a country, Enter to start" : `Up / Down + Enter, or tap an option${hasPad ? "  |  Controller ready" : ""}`, W / 2, 470);
+    ctx.fillText(state === "tutorial" ? (hasTouch ? "Tap Next, or Skip to go straight in" : "Enter = next   Esc = skip") : state === "garage" ? "Left / Right to browse, Enter to pick" : state === "jump" ? "Left / Right to choose a country, Enter to start" : `Up / Down + Enter, or tap an option${hasPad ? "  |  Controller ready" : ""}`, W / 2, 470);
   }
 
   if (state === "paused") {
-    ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.fillRect(0, -moy, W, H);
     text("PAUSED", 200, 40);
+    text(sel === 1 ? "Left / Right or tap to change the camera" : CAMS[cam].desc, 235, 14, "center", "#ccc");
     drawButtons();
   }
 
   if (state === "camera") {
-    ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(0, -moy, W, H);
     text("CAMERA", 140, 36);
     text(CAMS[sel] ? CAMS[sel].desc : "Back to the race", 175, 14, "center", "#ccc");
     drawButtons();
@@ -2749,7 +2858,7 @@ function draw() {
 
   if (state === "over") {
     ctx.fillStyle = "rgba(0,0,0,0.5)";
-    ctx.fillRect(0, 0, W, H);
+    ctx.fillRect(0, -moy, W, H);
     const reached = `Reached ${ROUTE[stageIdx].country}  -  ${runKm()} km`, rc = "#ffd23f";
     text(result, 130, 38);
     if (mode === "single") {
@@ -2764,6 +2873,7 @@ function draw() {
       text(reached, 240, 14, "center", rc);
     }
     drawButtons();
+    if (!hasTouch) text(hasPad ? "R or A to retry" : "R to retry", 470, 12, "center", "#bbb");
   }
 
   if (toast) { // brief notices: controller connected, songs added...
@@ -2775,6 +2885,7 @@ function draw() {
     textAt(toast.text, W / 2, 414, 13);
     ctx.globalAlpha = 1;
   }
+  ctx.restore();
 }
 
 // Fixed 60 Hz simulation so the game runs the same speed on any monitor.
@@ -2799,6 +2910,7 @@ document.addEventListener("keydown", e => {
   sound.ensure();
   if (c === "KeyM") { sound.toggle(); return; }
   if (c === "KeyF") { toggleFullscreen(); return; }
+  if (state === "over" && c === "KeyR") { if (!e.repeat) activate(0); return; } // instant retry (activate ignores it for 0.6s after a crash)
 
   if (state === "playing") {
     if (e.repeat) return;
@@ -2814,7 +2926,7 @@ document.addEventListener("keydown", e => {
     return;
   }
   if (state === "camera" && c === "KeyC") { state = "playing"; return; }
-  if ((state === "garage" || state === "jump") && e.repeat && (c === "ArrowLeft" || c === "ArrowRight" || c === "KeyA" || c === "KeyD")) return;
+  if ((state === "garage" || state === "jump" || state === "paused" || state === "tutorial") && e.repeat && (c === "ArrowLeft" || c === "ArrowRight" || c === "KeyA" || c === "KeyD")) return;
   if (MENU_KEYS[c]) menuAction(MENU_KEYS[c]);
 });
 
@@ -2832,7 +2944,7 @@ function canvasPoint(e) {
 
 canvas.addEventListener("pointermove", e => {
   const p = canvasPoint(e);
-  const i = menuIndexAt(p.x, p.y);
+  const i = menuIndexAt(p.x, p.y - menuOY());
   if (i >= 0) sel = i;
 });
 
@@ -2841,18 +2953,23 @@ canvas.addEventListener("pointerdown", e => {
   sound.ensure();
   if (e.pointerType === "touch") hasTouch = true;
   if (state === "playing") {
+    const pr = pedalRects();
     if (Math.hypot(p.x - 24, p.y - 24) < 20) openCamera();
-    else if (hasTouch && Math.hypot(p.x - (W - 26), p.y - (H - 96)) < 20) touch.gas = true;
-    else if (hasTouch && Math.hypot(p.x - (W - 26), p.y - (H - 60)) < 20) touch.brake = true;
     else if (Math.hypot(p.x - (W - 24), p.y - (H - 24)) < 22) pause();
-    else steer(racers[0], p.x < W / 2 ? -1 : 1);
+    else if (hasTouch && inRect(p, pr.gas)) { touch.gas = true; touch.gasId = e.pointerId; }
+    else if (hasTouch && inRect(p, pr.brake)) { touch.brake = true; touch.brakeId = e.pointerId; }
+    else { steer(racers[0], p.x < W / 2 ? -1 : 1); if (grid.done) steerTaps++; }
     return;
   }
+  p.y -= menuOY(); // menu screens are centred on tall screens
   const i = menuIndexAt(p.x, p.y);
   if (i >= 0) { sel = i; activate(i); }
   else if ((state === "garage" || state === "jump") && p.y > 110 && p.y < 300) menuAction(p.x < W / 2 ? "left" : "right");
 });
-const releasePedals = () => { touch.gas = touch.brake = false; };
+const releasePedals = e => { // only the finger that pressed a pedal lets it go, so steering taps don't cut the throttle
+  if (e.pointerId === touch.gasId || e.pointerType !== "touch") { touch.gas = false; touch.gasId = null; }
+  if (e.pointerId === touch.brakeId || e.pointerType !== "touch") { touch.brake = false; touch.brakeId = null; }
+};
 canvas.addEventListener("pointerup", releasePedals);
 canvas.addEventListener("pointercancel", releasePedals);
 canvas.addEventListener("pointerleave", releasePedals);
