@@ -55,8 +55,8 @@ export function createNight(scene) {
           if (n >= CAP) break;
           dummy.rotation.set(0, 0, 0);
           dummy.position.set(l.side * (RH - 4.5), 0.07, l.z); dummy.scale.set(15, 1, 15); dummy.updateMatrix(); pools.setMatrixAt(n, dummy.matrix);
-          dummy.position.set(l.x - l.side * 1.6, 7.4, l.z); dummy.scale.setScalar(1); dummy.updateMatrix(); heads.setMatrixAt(n, dummy.matrix);
-          dummy.position.set(l.x - l.side * 1.6, 7.4, l.z); dummy.scale.set(6, 6, 6); dummy.updateMatrix(); halos.setMatrixAt(n, dummy.matrix);
+          dummy.position.set(l.hx, 8.8, l.z); dummy.scale.setScalar(1); dummy.updateMatrix(); heads.setMatrixAt(n, dummy.matrix);
+          dummy.position.set(l.hx, 8.8, l.z); dummy.scale.set(7, 7, 7); dummy.updateMatrix(); halos.setMatrixAt(n, dummy.matrix);
           n++;
         }
         pools.count = heads.count = halos.count = n;

@@ -8,8 +8,9 @@ import { SCALE, simX, simZ, roadHalf, arrToHex, setCol } from "./mapping.js";
 import * as M from "./models.js";
 import { createWorld } from "./world.js";
 import { createCameraRig } from "./cameras.js";
-import { Instancer, chooseModel, ensure, hasChoice, leafMat, leafDarkMat, grassTopMat, windowMats, setCrowd } from "./scenery.js";
-import { hasModel } from "./assets.js";
+import { leafMat, leafDarkMat, grassTopMat } from "./scenery.js";
+import { createCity } from "./city/city.js";
+import { profileOf } from "./city/profiles.js";
 import { loadSkies } from "./env.js";
 import { glows } from "./landmarks.js";
 import { createWeather } from "./weather.js";
@@ -33,19 +34,21 @@ export function createRenderer3D(canvas2d, glCanvas) {
   const renderer = new THREE.WebGLRenderer({ canvas: glCanvas, antialias: false, powerPreference: "high-performance" }); // anti-aliasing comes from the post pipeline
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.info.autoReset = false; // the composer renders several times per frame: reset once per frame ourselves so the totals mean "this frame"
   const scene = new THREE.Scene();
   const world = createWorld(scene);
   const rig = createCameraRig(scene);
   const camera = rig.camera;
   const weather = createWeather(scene, camera);
-  const nightFx = createNight(scene), lampList = [];
+  const nightFx = createNight(scene);
+  const city = createCity(scene); // the buildings, ground and water around the road
   const post = createPost(renderer, scene, camera);
   const fx = createFX(scene);
   const reflect = createReflection(renderer, scene, camera, world.groundMeshes, world.reflectMats); // wet-road reflections (Ultra)
   const photo = createPhoto();
   let showroom = null;
   const GRADE = { Miami: { sat: 1.2, tint: [1.05, 0.97, 1.03] }, Shanghai: { sat: 0.85, tint: [0.95, 1, 1.06] }, London: { sat: 0.8 }, Brussels: { sat: 0.78 }, "Sao Paulo": { sat: 0.92 }, "Las Vegas": { sat: 1.2, contrast: 1.14 }, Singapore: { sat: 1.15, contrast: 1.1 }, Doha: { sat: 1.1, tint: [1.05, 1, 0.92] }, "Abu Dhabi": { sat: 1.15, tint: [1.08, 0.98, 0.9] }, Tokyo: { sat: 1.1, tint: [1.02, 0.99, 1.03] }, Austin: { tint: [1.06, 1, 0.93] }, "Mexico City": { sat: 1.12 }, Barcelona: { tint: [1.04, 1, 0.95] }, Salzburg: { sat: 1.06, tint: [0.97, 1, 1.03] }, Baku: { sat: 1.1, tint: [1.04, 0.98, 0.98] } };
-  let nearPulse = 0, seenPop = null;
+  let nearPulse = 0, seenPop = null, tunnelK = 0;
 
   // ---------- graphics quality ----------
   const isPhone = matchMedia("(pointer: coarse)").matches && Math.min(screen.width, screen.height) < 800;
@@ -101,23 +104,8 @@ export function createRenderer3D(canvas2d, glCanvas) {
     e => e.kind === "truck" ? M.makeTruck(e.len, e.col) : e.kind === "works" ? M.makeWorks(e.len) : M.makeTrafficCar(e.col));
   const pickupsT = makeTracker(k => "pickup:" + k.type, k => k.type === "coin" ? M.makeCoin() : k.type === "nitro" ? M.makeNitro() : M.makeShield(), null, e => e.x,
     (k, r) => { if (k.taken) fx.pickup(r.cx, r.cz, k.type); }); // a sparkle where a pickup was collected
-  const instancer = new Instancer(scene, 220);
-  const farX = s => (s.far ? s.x3 : s.x); // far scenery sits at x3, near scenery at x
-  const sceneryT = makeTracker(          // scenery with no real model (landmarks, props): built from simple shapes
-    s => `s:${s.kind}:${s.style || s.key || ""}:${Math.round(s.r)}:${Math.round(s.bh || 0)}:${s.bcol || ""}:${s.side}`,
-    s => M.makeScenery(s, arrToHex(pal.leaf)), null, farX);
-  const barrierInfo = hasModel("barrierWall") ? ensure(instancer, { name: "barrierWall" }) : null; // the roadside barrier row
-  const barriers = barrierInfo ? { key: barrierInfo.key, k: 8 / barrierInfo.w } : null;
-  const instT = makeTracker(null, null, null, farX); // scenery drawn from real models through the instancer
   const puddlesT = makeTracker(() => "puddle", () => weather.puddleBuild());
-  const decisions = new WeakMap();
-  function decision(s) {
-    let d = decisions.get(s);
-    if (d === undefined) { const c = chooseModel(s); d = hasChoice(c) ? { c, info: ensure(instancer, c) } : null; decisions.set(s, d); }
-    return d;
-  }
-
-  let scrollPrev = 0, scrollCur = 0;
+  let distPrev = 0, distCur = 0; // how far along the route the car is (sim units), before and after the latest tick
   const marks = { start: null, finish: null }; // start gantry and finish arch: { obj, pz, cz }
   function trackMark(name, src, finish) {
     const m = marks[name];
@@ -131,13 +119,10 @@ export function createRenderer3D(canvas2d, glCanvas) {
     racersT.tick(racers);
     enemiesT.tick(enemies);
     pickupsT.tick(pickups);
-    const withModel = [], without = [];
-    for (const s of scenery) (decision(s) ? withModel : without).push(s);
-    instT.tick(withModel); sceneryT.tick(without);
     puddlesT.tick(roadItems);
     trackMark("start", startObj, false);
     trackMark("finish", finishObj, true);
-    scrollPrev = scrollCur; scrollCur = scrollPos;
+    distPrev = distCur; distCur = dist;
   }
 
   // ---------- sizing: match the 2D canvas, which fit() sizes to the window ----------
@@ -169,7 +154,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
 
   function render(alpha) {
     const now = performance.now(), ms = now - last, dt = Math.min(0.1, ms / 1000); last = now; time += dt;
-    fps += (1000 / Math.max(1, ms) - fps) * 0.08;
+    fps += (1000 / Math.max(1, ms) - fps) * 0.08; renderer.info.reset();
     if (auto.frame(ms, state === "playing")) applyQuality();
     resize();
     if (state === "garage") { renderShowroom(dt); return; }
@@ -221,26 +206,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
       o.rotation.y = time * 2.4 + (k.x || 0);
       if (k.type !== "coin") o.position.y = Math.sin(time * 3) * 0.25;
     }
-    for (const [, rec] of sceneryT.recs) { rec.obj.position.set(rec.cx, 0, lerp(rec.pz, rec.cz, alpha)); const sp = rec.obj.userData.spin; if (sp) sp.rotation.z += dt * 0.8; } // scenery never moves sideways; windmill sails turn
     for (const [it, rec] of puddlesT.recs) { rec.obj.position.set(rec.cx, 0.045, lerp(rec.pz, rec.cz, alpha)); rec.obj.scale.set(it.rx * SCALE * 1.4, 1, it.ry * SCALE * 1.8); }
-    instancer.begin();
-    const cull = -100 * Q.dist - 8; // draw distance: scenery further than this isn't drawn
-    for (const [s, rec] of instT.recs) { // model-based scenery: one matrix each, then the GPU draws every copy at once
-      const zz = lerp(rec.pz, rec.cz, alpha); if (zz < cull) continue;
-      const { c, info } = decisions.get(s), k = c.height ? c.height / info.h : c.width / info.w;
-      qTmp.setFromAxisAngle(yAxis, c.yaw || 0); pTmp.set(rec.cx, 0, zz); sTmp.setScalar(k);
-      instancer.push(info.key, mTmp.compose(pTmp, qTmp, sTmp));
-    }
-    // low barriers along both edges of the road: a repeating row that streams past with the scroll (also instanced)
-    if (barriers) {
-      const seg = 8, off = (lerp(scrollPrev, scrollCur, alpha) * SCALE) % (seg * 2), n = Math.min(40, Math.ceil(40 * Q.dist) + 2);
-      for (let i = 0; i < n; i++) for (const side of [-1, 1]) {
-        const z = 60 - ((i * seg - off + seg * 40) % (seg * 40));
-        qTmp.setFromAxisAngle(yAxis, Math.PI / 2); pTmp.set(side * (roadHalf() + 2.8), 0, z); sTmp.setScalar(barriers.k);
-        instancer.push(barriers.key, mTmp.compose(pTmp, qTmp, sTmp));
-      }
-    }
-    instancer.end();
     // everything leafy follows the city's colour, and the cars' lights come up at night
     setCol(leafMat.color, pal.leaf[0], pal.leaf[1], pal.leaf[2]); setCol(leafDarkMat.color, pal.leaf[0], pal.leaf[1], pal.leaf[2], 0.72); setCol(grassTopMat.color, pal.leaf[0], pal.leaf[1], pal.leaf[2], 1.12);
     M.lightMats.head.emissiveIntensity = 0.4 + 4 * night; M.lightMats.tail.emissiveIntensity = 0.8 + 2 * night;
@@ -268,17 +234,18 @@ export function createRenderer3D(canvas2d, glCanvas) {
     cin.grid01 = Math.min(1, grid.t / (5 * GRID_STEP + 25)); cin.crashT = crashClock; cin.finishT = time - finishAt; cin.photo = photo;
     rig.update(mode, target, dt, cin);
     focus.x = target.x; focus.z = target.z; focus.camPos = camera.position; // (reused every frame: nothing is allocated while racing)
-    world.update(pal, rainI, lerp(scrollPrev, scrollCur, alpha) * SCALE, focus, stA, stB, stBlend, wet);
+    const D = lerp(distPrev, distCur, alpha) * SCALE; // how far along the route the car is (world units)
+    world.update(pal, rainI, D, focus, stA, stB, stBlend, wet);
+    city.setSignStyle(profileOf(stA.venue).sign); city.update(D, dt, night, pal, scene.fog.color, stA, camera.position.z);
+    // inside a tunnel the sun and sky light are blocked out (the tunnel lights take over)
+    tunnelK += ((city.inTunnel(D - camera.position.z) ? 1 : 0) - tunnelK) * Math.min(1, dt * 6);
+    if (tunnelK > 0.01) { scene.environmentIntensity *= 1 - 0.8 * tunnelK; world.sun.intensity *= 1 - tunnelK; }
     scene.fog.near *= Q.dist; scene.fog.far *= Q.dist;
     if (!Q.ibl) { scene.environment = null; world.fill.color.copy(scene.fog.color).multiplyScalar(1.5); world.fill.groundColor.copy(world.fill.color).multiplyScalar(0.45); world.fill.intensity = 2.3 - 1.5 * night; } // Low: no image-based lighting, so a plain sky-coloured ambient light instead
     else { world.fill.color.setRGB(0.56, 0.65, 1); world.fill.groundColor.setRGB(0.2, 0.25, 0.33); world.fill.intensity = 0.4 * night; } // (a little moonlight fill on the cars at night)
     const flash = weather.update(time, fxDt, camera.position, rainI, wind, pal.petals, mode, Q.rain);
     if (flash > 0) { scene.environmentIntensity += flash * 3; world.sun.intensity += flash * 4; } // lightning lights up the whole scene for a moment
-    for (const w of windowMats) w.emissiveIntensity = 2.4 * night; // lit windows in the skyline
-    setCrowd(stA.crowd); // the grandstand crowd wears this city's colours
-    let nl = 0;
-    if (night > 0.04) for (const [s, rec] of instT.recs) if (s.kind === "lamp") { const l = lampList[nl++] || (lampList[nl - 1] = { x: 0, z: 0, side: 1 }); l.x = rec.cx; l.z = lerp(rec.pz, rec.cz, alpha); l.side = s.side; }
-    nightFx.update(night, lampList, nl, p0.alive && rec0 ? (playerLight.x = camTarget.x, playerLight.z = camTarget.z, playerLight.yaw = -camTarget.tilt, playerLight) : null);
+    nightFx.update(night, city.lamps, city.lampCount, p0.alive && rec0 ? (playerLight.x = camTarget.x, playerLight.z = camTarget.z, playerLight.yaw = -camTarget.tilt, playerLight) : null);
     const du = world.dome.material.uniforms; du.hazeAmt.value = night * 0.3; du.haze.value.setRGB(Math.pow(stA.s1[0] / 255, 2.2) * 0.5, Math.pow(stA.s1[1] / 255, 2.2) * 0.5, Math.pow(stA.s1[2] / 255, 2.2) * 0.5); // the glow of the city on the horizon
 
     // ---- finish line: fireworks and confetti in the city's flag colours ----

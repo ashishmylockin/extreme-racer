@@ -8,7 +8,7 @@ const add = (parent, mesh, order) => { mesh.renderOrder = order; parent.add(mesh
 
 let rigDraw = () => {}; // set up inside createCameraRig
 export function createCameraRig(scene) {
-  const camera = new THREE.PerspectiveCamera(60, 16 / 9, 0.1, 600);
+  const camera = new THREE.PerspectiveCamera(60, 16 / 9, 0.3, 2800);
   scene.add(camera);
 
   // ---- cockpit furniture, parented to the camera so it always sits in front of the driver's eyes ----

@@ -5,7 +5,7 @@ import { roadHalf, arrToHex, setCol } from "./mapping.js";
 import { LOOK, CITY_TOD, skyOf, createSkyDome, sunSpot } from "./env.js";
 
 const ROAD_TILE = 16, KERB_TILE = 4.8, GRASS_TILE = 24; // world units of road covered by one repeat of each texture
-const LEN = 340, Z_START = 60;                          // the road runs from Z = +60 (behind the car) to Z = -280
+const LEN = 1700, Z_START = 80;                         // the road runs from Z = +80 (behind the car) to Z = -1620, out to the horizon
 
 function canvasTex(w, h, draw, repeat = true) {
   const c = document.createElement("canvas"); c.width = w; c.height = h;
@@ -51,16 +51,14 @@ export function createWorld(scene) {
   const grassTex = canvasTex(4, 64, (g, w, h) => { g.fillStyle = "#ffffff"; g.fillRect(0, 0, w, h / 2); g.fillStyle = "#e6e6e6"; g.fillRect(0, h / 2, w, h / 2); });
   grassTex.repeat.set(1, LEN / GRASS_TILE); grassTex.magFilter = THREE.NearestFilter;
   const grassMat = new THREE.MeshStandardMaterial({ map: grassTex, color: 0x5fae4a, roughness: 1 });
-  const GRASS_W = 300;
-  for (const s of [-1, 1]) { const m = new THREE.Mesh(new THREE.PlaneGeometry(GRASS_W, LEN).rotateX(-Math.PI / 2), grassMat); m.position.set(s * (RH + 1.4 + GRASS_W / 2), 0, Z_START - LEN / 2); m.receiveShadow = true; scene.add(m); }
-  const farGround = new THREE.Mesh(new THREE.CircleGeometry(900, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x5fae4a, fog: true })); // a huge disc that follows the camera, so there is ground to the horizon in every direction
+  const farGround = new THREE.Mesh(new THREE.CircleGeometry(2600, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x5fae4a, fog: true })); // a huge disc that follows the camera, so there is ground to the horizon in every direction
   farGround.position.set(0, -0.05, -100); scene.add(farGround);
 
   // --- sky, fog, lights ---
   const dome = createSkyDome(); scene.add(dome);
   scene.fog = new THREE.Fog(0xbfe3fa, 40, 125);
   const sun = new THREE.DirectionalLight(0xfff2dd, 2.2); sun.position.set(-40, 70, 30); scene.add(sun); scene.add(sun.target);
-  Object.assign(sun.shadow.camera, { left: -48, right: 48, top: 62, bottom: -62, near: 1, far: 260 }); sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.06; sun.shadow.radius = 3; // the shadow box follows the player
+  Object.assign(sun.shadow.camera, { left: -70, right: 70, top: 80, bottom: -80, near: 10, far: 900 }); sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.06; sun.shadow.radius = 3; // the shadow box follows the player
   const fill = new THREE.HemisphereLight(0x8fa6ff, 0x334055, 0.0); scene.add(fill); // a touch of ambient when the sky image is missing
 
   const spotCache = new Map();
@@ -110,7 +108,7 @@ export function createWorld(scene) {
       scene.environmentIntensity = envI;
       const az = mA.az + (mB.az - mA.az) * b, el = mA.el + (mB.el - mA.el) * b;
       dir.set(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el));
-      sun.position.set(focus.x + dir.x * 80, dir.y * 80, focus.z + dir.z * 80); sun.target.position.set(focus.x, 0, focus.z);
+      sun.position.set(focus.x + dir.x * 330, dir.y * 330, focus.z + dir.z * 330); sun.target.position.set(focus.x, 0, focus.z);
       sun.color.copy(cA.set(mA.look.color)).lerp(cB.set(mB.look.color), b);
       sun.intensity = (mA.look.sun + (mB.look.sun - mA.look.sun) * b) * (1 - 0.85 * rain);
 
@@ -118,7 +116,7 @@ export function createWorld(scene) {
       const hA = mA.sky.horizon, hB = mB.sky.horizon;
       fogCol.setRGB(aces(hA.r + (hB.r - hA.r) * b), aces(hA.g + (hB.g - hA.g) * b), aces(hA.b + (hB.b - hA.b) * b));
       fogCol.multiplyScalar(1 - 0.6 * night); scene.fog.color.copy(fogCol); // (at night the city glow on the horizon is kept subtle)
-      scene.fog.near = 45 - 20 * rain; scene.fog.far = 135 - 45 * rain - 20 * night;
+      scene.fog.near = 260 - 210 * rain - 100 * night; scene.fog.far = 1700 - 950 * rain - 450 * night; // light haze: the skyline stays visible by day
     },
   };
 }

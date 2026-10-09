@@ -36,3 +36,6 @@ else {
   } catch (e) { disable3D(e); }
   hideLoading();
 }
+
+// testing: ?stats prints draw calls, triangles and frame rate to the console every few seconds
+if (new URLSearchParams(location.search).has("stats")) setInterval(() => { const r = window.R3D; if (r) { const i = r.renderer.info; console.log(`STATS calls=${i.render.calls} tris=${i.render.triangles} geos=${i.memory.geometries} textures=${i.memory.textures} fps=${Math.round(r.fps)} quality=${r.quality.level}`); } }, 2500);

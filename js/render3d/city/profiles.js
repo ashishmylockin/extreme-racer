@@ -1,0 +1,63 @@
+// How each city looks: what kind of streets it has, how tall its buildings are, what the ground and water are like.
+// The builder (city.js) only reads this table, so changing a city's character means editing a line here.
+//
+// zones   how likely each kind of neighbourhood is (they change every ~300 world units as you drive):
+//           downtown (tall towers), urban (mid-rise streets), residential (houses and trees), park (trees and grass),
+//           country (farms, fields), harbour (water on one side), desert (sand and sparse buildings)
+// arch    the facade colours (see PALETTES)       height   how tall buildings are compared with a normal city
+// water   { side: "L" | "R" | "B", color }: which side the sea / river / harbour is on
+// sign    "paint" (shop signs by day) or "neon" (glowing signs)      tunnel  a tunnel every N world units (0 = none)
+// hill    a sloping hillside on one side (Monaco)                   skyline  extra height for the far towers
+
+export const PALETTES = {
+  pastel:   ["#ead3ae", "#f2bfa6", "#cfdcea", "#f4e6bf", "#eadccb", "#f3cbc4"],
+  brick:    ["#a65f48", "#b86e54", "#94503f", "#b09a82", "#7a5f50", "#c4a98f"],
+  glass:    ["#8fb2d1", "#9dc0d8", "#7fa4c4", "#b3cfe0", "#6f93b3", "#c4d8e6"],
+  concrete: ["#b2b5ba", "#9da1a7", "#c4c7cb", "#8b8f95", "#d1ccc2", "#a9aeab"],
+  sand:     ["#e6cfa6", "#dcc08f", "#f1e0be", "#cdb083", "#f3e7cf", "#c4a77c"],
+  white:    ["#f4f4f0", "#e8eaec", "#e0ded6", "#f8f6f1", "#d3d7dc", "#ece7da"],
+  neon:     ["#4a4e62", "#565b72", "#41455a", "#626880", "#4d5168", "#6b7189"],
+  colonial: ["#e6c383", "#df967a", "#abcdb2", "#ecd8a6", "#cfb0c2", "#98bad4"],
+  warm:     ["#deab85", "#cc8466", "#ebcca4", "#c07a5a", "#dcbd96", "#b27456"],
+};
+
+const P = (arch, zones, extra = {}) => ({ arch, zones, height: 1, sign: "paint", water: null, tunnel: 0, hill: null, skyline: 1, ...extra });
+
+export const PROFILES = {
+  Sydney:        P("pastel",   { urban: 0.3, downtown: 0.2, harbour: 0.35, park: 0.15 }, { water: { side: "R", color: "#2f86b8" } }),
+  Shanghai:      P("glass",    { downtown: 0.55, urban: 0.35, park: 0.1 }, { height: 1.35, sign: "neon", water: { side: "L", color: "#6d8b7c" }, skyline: 1.4 }),
+  Tokyo:         P("concrete", { downtown: 0.35, urban: 0.5, park: 0.15 }, { sign: "neon", height: 1.05 }),
+  Miami:         P("pastel",   { urban: 0.35, residential: 0.2, harbour: 0.35, downtown: 0.1 }, { sign: "neon", water: { side: "R", color: "#32b8c8" } }),
+  Montreal:      P("brick",    { urban: 0.45, downtown: 0.25, park: 0.2, residential: 0.1 }, { water: { side: "L", color: "#4a7ba2" } }),
+  "Monte Carlo": P("pastel",   { urban: 0.5, harbour: 0.3, residential: 0.2 }, { water: { side: "R", color: "#2a92c8" }, tunnel: 700, hill: "L", height: 0.75 }),
+  Barcelona:     P("warm",     { urban: 0.5, downtown: 0.15, park: 0.1, harbour: 0.25 }, { water: { side: "R", color: "#2f87b4" }, height: 0.85 }),
+  Salzburg:      P("white",    { residential: 0.35, country: 0.35, urban: 0.3 }, { height: 0.6 }),
+  London:        P("brick",    { urban: 0.45, downtown: 0.2, park: 0.2, residential: 0.15 }, { water: { side: "L", color: "#5b6b62" }, height: 0.9 }),
+  Brussels:      P("brick",    { urban: 0.5, residential: 0.25, park: 0.15, downtown: 0.1 }, { height: 0.85 }),
+  Budapest:      P("colonial", { urban: 0.5, downtown: 0.1, harbour: 0.25, park: 0.15 }, { water: { side: "R", color: "#4f7a96" }, height: 0.8 }),
+  Amsterdam:     P("brick",    { urban: 0.45, residential: 0.25, park: 0.15, country: 0.15 }, { water: { side: "L", color: "#4b7c8c" }, height: 0.65 }),
+  Rome:          P("warm",     { urban: 0.5, residential: 0.2, park: 0.2, downtown: 0.1 }, { height: 0.75 }),
+  Madrid:        P("warm",     { urban: 0.5, downtown: 0.3, park: 0.2 }, { height: 0.95 }),
+  Baku:          P("sand",     { urban: 0.35, downtown: 0.3, harbour: 0.2, desert: 0.15 }, { water: { side: "R", color: "#2c7fa6" }, height: 1.1 }),
+  Singapore:     P("glass",    { downtown: 0.5, urban: 0.2, harbour: 0.3 }, { sign: "neon", water: { side: "R", color: "#1b5a86" }, height: 1.3, skyline: 1.3 }),
+  Austin:        P("concrete", { urban: 0.4, downtown: 0.2, country: 0.25, residential: 0.15 }, { height: 0.85 }),
+  "Mexico City": P("colonial", { urban: 0.5, downtown: 0.15, residential: 0.2, country: 0.15 }, { height: 0.8 }),
+  "Sao Paulo":   P("concrete", { downtown: 0.5, urban: 0.4, park: 0.1 }, { height: 1.25, skyline: 1.3 }),
+  "Las Vegas":   P("neon",     { downtown: 0.5, urban: 0.2, desert: 0.3 }, { sign: "neon", height: 1.2 }),
+  Doha:          P("sand",     { downtown: 0.35, urban: 0.2, harbour: 0.2, desert: 0.25 }, { water: { side: "L", color: "#1f6f94" }, height: 1.15, skyline: 1.2 }),
+  "Abu Dhabi":   P("sand",     { downtown: 0.3, urban: 0.15, harbour: 0.25, desert: 0.3 }, { water: { side: "R", color: "#2b8aa8" }, height: 1.1 }),
+};
+export const profileOf = venue => PROFILES[venue] || PROFILES.Sydney;
+
+// How each neighbourhood type shapes the street front (F), the city blocks (B) and the ground.
+//   fh / bh   building height range (floors) in the street front / blocks      fw  frontage width range (along the road)
+//   occ       how many block lots are filled (0..1)       tree  how many trees       ground  what the ground between blocks is
+export const ZONES = {
+  downtown:    { fh: [10, 26], bh: [14, 46], fw: [14, 26], occ: 0.88, tree: 0.15, ground: "city",  shops: 1 },
+  urban:       { fh: [5, 13],  bh: [6, 22],  fw: [11, 22], occ: 0.78, tree: 0.3,  ground: "city",  shops: 1 },
+  residential: { fh: [2, 4],   bh: [2, 4],   fw: [10, 16], occ: 0.6,  tree: 0.9,  ground: "grass", shops: 0, houses: 1 },
+  park:        { fh: [0, 0],   bh: [3, 9],   fw: [10, 16], occ: 0.1,  tree: 1.8,  ground: "grass", shops: 0 },
+  country:     { fh: [0, 0],   bh: [1, 3],   fw: [10, 16], occ: 0.06, tree: 0.7,  ground: "field", shops: 0, farm: 1 },
+  harbour:     { fh: [4, 10],  bh: [5, 18],  fw: [12, 22], occ: 0.7,  tree: 0.2,  ground: "city",  shops: 1 },
+  desert:      { fh: [1, 5],   bh: [2, 10],  fw: [12, 20], occ: 0.25, tree: 0.15, ground: "sand",  shops: 0 },
+};
