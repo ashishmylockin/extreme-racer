@@ -512,7 +512,8 @@ const songDB = {
 // ---------- state ----------
 
 let state = "title"; // "title" | "menu" | "tutorial" | "difficulty" | "garage" | "options" | "map" | "playing" | "paused" | "camera" | "over" ...
-const leaveTitle = () => { state = "menu"; sel = 0; sound.ensure(); sound.tone(440, 880, 0.12); }; // any key / click / tap / button
+const leaveTitle = () => { openMenu("menu"); sound.ensure(); sound.tone(440, 880, 0.12); }; // any key / click / tap / button
+let menuCar = 0, menuIntroT = -999, swipe = null; // the main menu carousel: eased position, when it opened (cards fly in), a swipe in progress
 let mode = "single"; // "single" | "vs" | "multi"
 let difficulty = "medium";
 let racers, enemies, pickups, particles, scenery, roadItems, wx;
@@ -678,7 +679,7 @@ function startGame(m, d, stage = 0) {
   sound.ensure();
 }
 
-function openMenu(s, index = 0) { state = s; sel = index; }
+function openMenu(s, index = 0) { if (s === "menu" && state !== "menu") { menuIntroT = clock; menuCar = index; } state = s; sel = index; }
 function toMenu() { saveStats(); initDemo(); openMenu("menu"); }
 function pause() { if (state === "playing") { openMenu("paused"); touch.gas = touch.brake = false; saveStats(); } }
 function openCamera() { if (state === "playing") { openMenu("camera", cam); touch.gas = touch.brake = false; } }
@@ -920,6 +921,7 @@ function btnRect(menu, i) {
 }
 
 function menuIndexAt(px, py) {
+  if (state === "menu") { const hit = menuCards().slice().reverse().find(c => px >= c.x && px <= c.x + c.w && py >= c.y && py <= c.y + c.h); return hit ? hit.i : -1; } // nearest card first
   const menu = currentMenu();
   if (!menu) return -1;
   return menu.items.findIndex((_, i) => {
@@ -957,6 +959,9 @@ function menuAction(a) {
   } else if (state === "paused" && sel === 1 && (a === "left" || a === "right")) { // flick through the cameras
     cycleCamera(a === "left" ? -1 : 1);
     sound.tone(520, 520, 0.05);
+  } else if (state === "menu" && ["left", "right", "up", "down"].includes(a)) { // the carousel: step along, stop at the ends
+    const to = clamp(sel + (a === "left" || a === "up" ? -1 : 1), 0, n - 1);
+    if (to !== sel) { sel = to; sound.tone(620, 760, 0.05, "triangle", 0.04); }
   } else if (a === "up") { sel = (sel + n - 1) % n; sound.tone(520, 520, 0.04, "square", 0.03); }
   else if (a === "down") { sel = (sel + 1) % n; sound.tone(520, 520, 0.04, "square", 0.03); }
   else if (a === "confirm") activate(sel);
@@ -1121,6 +1126,7 @@ function updateFx() {
   if (banner && ++banner.t > 200) banner = null;
   if (toast && ++toast.t > 150) toast = null;
   if (!toast && toastQ.length) toast = { text: toastQ.shift(), t: 0 };
+  menuCar += (sel - menuCar) * 0.16;
   if (statsDirty && clock % 600 === 0) saveStats();
   kickFx *= 0.93;
   for (const p of pops) p.t++;
@@ -3378,6 +3384,131 @@ function drawControls() { // every way to play, on one page
   }
 }
 
+// ---- main menu carousel: cards side by side, each with a live little preview of what it is ----
+const CARD_INFO = [ // per MAIN_MENU entry: colour, tagline, badge, preview
+  { col: "#ff7a1a", tag: "22 cities, stars and missions", badge: () => `${totalStars()} / ${ROUTE.length * 3} stars`, art: "tour" },
+  { col: "#ffd23f", tag: "One race, the same for everyone today", badge: () => daily.streak ? `${daily.streak}-day streak` : "Play today", art: "daily" },
+  { col: "#3dff6e", tag: "How far can you go?", badge: () => `Best ${best}`, art: "endless" },
+  { col: "#ff4d4d", tag: "Race the CPU, Easy to Impossible", badge: () => "4 levels", art: "vs" },
+  { col: "#b06bff", tag: "Two players, one keyboard", badge: () => "P1 vs P2", art: "multi" },
+  { col: "#5fd4ff", tag: "Cars, liveries and upgrades", badge: () => `${wallet} coins`, art: "garage" },
+  { col: "#ffb347", tag: "Your records and awards", badge: () => `${achieved.length} / ${ACHIEVEMENTS.length} awards`, art: "stats" },
+  { col: "#aab4c0", tag: "Sound, graphics and controls", badge: () => `v${VERSION}`, art: "settings" },
+];
+function menuCards() { // where each card is right now (centre card biggest; drawn far-to-near)
+  const cw = Math.min(196, W * 0.56), ch = 266, top = 132, step = cw * 0.8 + 10, out = [];
+  MAIN_MENU.forEach((_, i) => {
+    const d = i - menuCar, ad = Math.abs(d);
+    if (ad > 3.2) return;
+    const s = 1 - Math.min(ad, 2) * 0.17, intro = clamp((clock - menuIntroT - i * 3) / 22, 0, 1), fly = (1 - intro) * (1 - intro);
+    const w = cw * s, h = ch * s, bob = i === sel ? Math.sin(clock / 18) * 3 - 5 : 0;
+    out.push({ i, d, s, x: W / 2 + d * step - w / 2, y: top + (ch - h) / 2 + bob + fly * 260, w, h, a: clamp(1 - ad * 0.28, 0.25, 1) * intro });
+  });
+  return out.sort((a, b) => Math.abs(b.d) - Math.abs(a.d));
+}
+function drawCarousel() {
+  for (const c of menuCards()) {
+    const info = CARD_INFO[c.i], on = c.i === sel, item = MAIN_MENU[c.i];
+    ctx.save(); ctx.globalAlpha = c.a;
+    if (on) { ctx.shadowColor = info.col; ctx.shadowBlur = 22 + 8 * Math.sin(clock / 10); }
+    roundRect(c.x, c.y, c.w, c.h, 16);
+    const bg = ctx.createLinearGradient(0, c.y, 0, c.y + c.h); bg.addColorStop(0, shade(info.col, -0.55)); bg.addColorStop(1, "#0d0e13");
+    ctx.fillStyle = bg; ctx.fill(); ctx.shadowBlur = 0;
+    ctx.lineWidth = on ? 3 : 1.5; ctx.strokeStyle = on ? info.col : "rgba(255,255,255,0.18)"; ctx.stroke();
+    // the preview window
+    const px = c.x + 10 * c.s, py = c.y + 10 * c.s, pw = c.w - 20 * c.s, ph = c.h * 0.56;
+    ctx.save(); roundRect(px, py, pw, ph, 10); ctx.clip();
+    ctx.fillStyle = "#07080c"; ctx.fillRect(px, py, pw, ph);
+    ctx.translate(px + pw / 2, py + ph / 2); ctx.scale(c.s, c.s);
+    drawCardArt(info.art, pw / c.s, ph / c.s, info.col);
+    ctx.restore();
+    if (on) { // a sheen that sweeps across the selected card
+      ctx.save(); roundRect(c.x, c.y, c.w, c.h, 16); ctx.clip();
+      const sx = c.x + ((clock * 4) % (c.w * 3)) - c.w, g = ctx.createLinearGradient(sx, 0, sx + 60, 0);
+      g.addColorStop(0, "rgba(255,255,255,0)"); g.addColorStop(0.5, "rgba(255,255,255,0.13)"); g.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = g; ctx.fillRect(c.x, c.y, c.w, c.h); ctx.restore();
+    }
+    const ty = py + ph;
+    ctx.save(); roundRect(c.x + 2, c.y, c.w - 4, c.h, 16); ctx.clip(); // side cards are narrower: keep their text inside
+    textAt(typeof item.label === "function" ? item.label() : item.label, c.x + c.w / 2, ty + 28 * c.s, 19 * c.s, "center", "#fff");
+    ctx.font = `${Math.round(11.5 * c.s)}px sans-serif`;
+    textAt(info.tag, c.x + c.w / 2, ty + 50 * c.s, 11 * c.s, "center", "#c8ced8");
+    const bt = info.badge(); ctx.font = `bold ${Math.round(11 * c.s)}px sans-serif`; const bw = ctx.measureText(bt).width + 18 * c.s;
+    roundRect(c.x + c.w / 2 - bw / 2, ty + 62 * c.s, bw, 20 * c.s, 10 * c.s); ctx.fillStyle = shade(info.col, -0.35); ctx.fill();
+    textAt(bt, c.x + c.w / 2, ty + 76 * c.s, 11 * c.s, "center", "#fff");
+    ctx.restore();
+    ctx.restore();
+  }
+  ctx.globalAlpha = 0.55 + 0.45 * Math.sin(clock / 9); // pulsing arrows at the sides
+  if (sel > 0) textAt("<", 14 - Math.sin(clock / 9) * 3, 272, 34, "left", "#fff");
+  if (sel < MAIN_MENU.length - 1) textAt(">", W - 14 + Math.sin(clock / 9) * 3, 272, 34, "right", "#fff");
+  ctx.globalAlpha = 1;
+}
+function drawGear(x, y, r, teeth, rot, col) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.fillStyle = col; ctx.beginPath();
+  for (let i = 0; i < teeth * 2; i++) { const a = (i / (teeth * 2)) * TAU, rr = i % 2 ? r * 0.78 : r; ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); ctx.lineTo(Math.cos(a + TAU / teeth / 2) * rr, Math.sin(a + TAU / teeth / 2) * rr); }
+  ctx.closePath(); ctx.fill(); ctx.fillStyle = "#07080c"; ctx.beginPath(); ctx.arc(0, 0, r * 0.35, 0, TAU); ctx.fill(); ctx.restore();
+}
+function drawCardArt(art, w, h, col) { // centred on (0, 0) inside a w x h window
+  const t = clock;
+  if (art === "tour") { // city flags streaming past, a route line and your car
+    ctx.fillStyle = "#0f2a44"; ctx.fillRect(-w / 2, -h / 2, w, h);
+    ctx.strokeStyle = "rgba(255,255,255,0.08)"; ctx.lineWidth = 1; for (let k = -3; k <= 3; k++) { ctx.beginPath(); ctx.ellipse(0, 0, w * 0.45, h * 0.42 * Math.abs(Math.cos(t / 90 + k * 0.45)) + 1, 0, 0, TAU); ctx.stroke(); }
+    for (let k = 0; k < 7; k++) {
+      const span = 46 * 7, raw = k * 46 - t * 0.9, x = ((raw % span) + span) % span - 46 * 3.5, y = Math.sin(k * 1.7 + t / 40) * 18 - 14;
+      const lap = Math.floor(-raw / span), n = ROUTE.length; // each time a flag wraps round it becomes the next city along
+      ctx.save(); ctx.translate(x - 13, y - 8); drawFlag(ROUTE[(((k + lap * 7) % n) + n) % n].flag, 26, 16); ctx.restore();
+    }
+    ctx.strokeStyle = col; ctx.lineWidth = 3; ctx.setLineDash([6, 6]); ctx.lineDashOffset = -t; ctx.beginPath(); ctx.moveTo(-w / 2, h * 0.28); ctx.quadraticCurveTo(0, h * 0.05, w / 2, h * 0.3); ctx.stroke(); ctx.setLineDash([]);
+    ctx.save(); ctx.translate(0, h * 0.18); ctx.rotate(Math.PI / 2); ctx.scale(0.42, 0.42); drawCar(TEAMS[equipped]); ctx.restore();
+  } else if (art === "daily") { // a calendar page with today's date and city
+    const d = new Date();
+    ctx.fillStyle = "#1d1206"; ctx.fillRect(-w / 2, -h / 2, w, h);
+    ctx.save(); ctx.rotate(Math.sin(t / 30) * 0.04);
+    roundRect(-46, -50, 92, 98, 8); ctx.fillStyle = "#f4f1ea"; ctx.fill();
+    ctx.fillStyle = col; ctx.fillRect(-46, -50, 92, 24); textAt(d.toLocaleString("en", { month: "short" }).toUpperCase(), 0, -32, 13, "center", "#1d1206");
+    textAt(String(d.getDate()), 0, 18, 40, "center", "#1d1206");
+    ctx.save(); ctx.translate(-14, 26); drawFlag(ROUTE[dailyCity()].flag, 28, 17); ctx.restore();
+    ctx.restore();
+    for (let k = 0; k < 6; k++) { const a = t / 25 + k; glow(Math.cos(a) * w * 0.4, Math.sin(a * 1.3) * h * 0.38, 8, "255,210,63", 0.6); }
+  } else if (art === "endless") { // a road rushing towards you forever
+    const hor = -h * 0.3; ctx.fillStyle = "#0a1a10"; ctx.fillRect(-w / 2, -h / 2, w, h);
+    const sky = ctx.createLinearGradient(0, -h / 2, 0, hor); sky.addColorStop(0, "#09131d"); sky.addColorStop(1, "#1f4d33"); ctx.fillStyle = sky; ctx.fillRect(-w / 2, -h / 2, w, hor + h / 2);
+    ctx.fillStyle = "#2a2c33"; ctx.beginPath(); ctx.moveTo(-4, hor); ctx.lineTo(4, hor); ctx.lineTo(w * 0.55, h / 2); ctx.lineTo(-w * 0.55, h / 2); ctx.closePath(); ctx.fill();
+    for (let k = 0; k < 9; k++) { const z = ((k / 9 + t / 70) % 1), y = hor + (h / 2 - hor) * z * z, ww = 1 + z * 5, hh = 2 + z * 14; ctx.fillStyle = col; ctx.fillRect(-ww / 2, y, ww, hh); }
+    glow(0, hor, 40, "61,255,110", 0.5);
+  } else if (art === "vs") { // you and the CPU, neck and neck
+    ctx.fillStyle = "#1e0b0b"; ctx.fillRect(-w / 2, -h / 2, w, h);
+    for (let k = 0; k < 6; k++) { ctx.fillStyle = "rgba(255,255,255,0.15)"; ctx.fillRect(-2, ((k * 30 + t * 3) % 180) - h / 2, 4, 14); }
+    const lead = Math.sin(t / 35) * 14;
+    ctx.save(); ctx.translate(-30, 6 - lead); ctx.scale(0.55, 0.55); drawCar(TEAMS[equipped]); ctx.restore();
+    ctx.save(); ctx.translate(30, 6 + lead); ctx.scale(0.55, 0.55); drawCar(rivalTeam()); ctx.restore();
+    textAt("VS", 0, -h / 2 + 30, 24, "center", col);
+  } else if (art === "multi") { // P1 and P2 with their keys
+    ctx.fillStyle = "#150b20"; ctx.fillRect(-w / 2, -h / 2, w, h);
+    ctx.fillStyle = "rgba(255,255,255,0.12)"; ctx.fillRect(-1, -h / 2, 2, h);
+    for (const [s, team, lab, keys] of [[-1, TEAMS[equipped], "P1", "arrows"], [1, rivalTeam(), "P2", "WASD"]]) {
+      ctx.save(); ctx.translate(s * w * 0.24, 4 + Math.sin(t / 20 + s) * 4); ctx.scale(0.5, 0.5); drawCar(team); ctx.restore();
+      textAt(lab, s * w * 0.24, -h / 2 + 22, 15, "center", col); textAt(keys, s * w * 0.24, h / 2 - 10, 11, "center", "#ccc");
+    }
+  } else if (art === "garage") { // your car on a turntable
+    ctx.fillStyle = "#06141c"; ctx.fillRect(-w / 2, -h / 2, w, h);
+    const g = ctx.createRadialGradient(0, 0, 4, 0, 0, h * 0.55); g.addColorStop(0, "rgba(95,212,255,0.35)"); g.addColorStop(1, "rgba(95,212,255,0)"); ctx.fillStyle = g; ctx.fillRect(-w / 2, -h / 2, w, h);
+    ctx.strokeStyle = "rgba(95,212,255,0.4)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, h * 0.42, 0, TAU); ctx.stroke();
+    ctx.save(); ctx.rotate(t / 60); ctx.scale(0.75, 0.75); drawCar(TEAMS[equipped]); ctx.restore();
+  } else if (art === "stats") { // a trophy over rising bars
+    ctx.fillStyle = "#1c1206"; ctx.fillRect(-w / 2, -h / 2, w, h);
+    for (let k = 0; k < 5; k++) { const bh = (0.3 + 0.7 * Math.abs(Math.sin(t / 50 + k))) * h * 0.4; ctx.fillStyle = shade(col, -0.2 + k * 0.08); ctx.fillRect(-w * 0.4 + k * w * 0.17, h / 2 - bh, w * 0.12, bh); }
+    ctx.save(); ctx.translate(0, -h * 0.08); ctx.scale(1.6, 1.6); ctx.fillStyle = "#ffd23f";
+    ctx.beginPath(); ctx.moveTo(-14, -18); ctx.lineTo(14, -18); ctx.lineTo(10, 2); ctx.quadraticCurveTo(0, 8, -10, 2); ctx.closePath(); ctx.fill(); ctx.fillRect(-2.5, 4, 5, 8); ctx.fillRect(-9, 12, 18, 4);
+    ctx.restore();
+    for (let k = 0; k < 4; k++) { const a = t / 20 + k * 1.6, x = Math.cos(a) * 34, y = -h * 0.12 + Math.sin(a) * 20; glow(x, y, 7 + 3 * Math.sin(t / 7 + k), "255,240,180", 0.8); }
+  } else { // settings: gears turning together
+    ctx.fillStyle = "#101318"; ctx.fillRect(-w / 2, -h / 2, w, h);
+    drawGear(-18, 6, 34, 10, t / 40, "#7d8794"); drawGear(32, -24, 22, 7, -t / 40 * (10 / 7) + 0.2, "#aab4c0"); drawGear(34, 34, 16, 6, -t / 40 * (10 / 6), "#5f6873");
+  }
+}
+
 function drawConfetti(oy) { // tumbling paper rectangles (oy undoes the menu centring: confetti fills the whole screen)
   for (const c of confetti) {
     ctx.save(); ctx.translate(c.x, c.y + oy); ctx.rotate(c.rot); ctx.scale(1, Math.abs(Math.cos(c.ph * 1.3)) + 0.15);
@@ -3643,17 +3774,16 @@ function draw() {
     } else if (state === "credits") { drawCredits();
     } else if (state === "songs" || state === "controls") { // drawn after the buttons, below
     } else {
-      drawLogo(W / 2, 84, Math.min(0.58, (W - 30) / 330)); // the title screen's logo, smaller
-      if (state === "difficulty") text("VS Computer: pick a level", 175, 18);
+      if (state === "difficulty") { drawLogo(W / 2, 84, Math.min(0.58, (W - 30) / 330)); text("VS Computer: pick a level", 175, 18); }
       else {
-        text("WORLD TOUR", 142, 15, "center", "#ff5a5a");
-        const line = `Best ${best}   Coins ${wallet}   `, tail = `${totalStars()} / ${ROUTE.length * 3}`; // plus the World Tour star total
-        ctx.font = "bold 14px sans-serif";
+        drawLogo(W / 2, 58, Math.min(0.45, (W - 30) / 330)); // smaller up top: the cards get the room
+        const line = `Coins ${wallet}     `, tail = `${totalStars()} / ${ROUTE.length * 3}`;
+        ctx.font = "bold 13px sans-serif";
         const w1 = ctx.measureText(line).width, w2 = ctx.measureText(tail).width, x0 = W / 2 - (w1 + 16 + w2) / 2;
-        textAt(line, x0, 166, 14, "left", "#ffd23f"); drawStar(x0 + w1 + 6, 161, 6, true); textAt(tail, x0 + w1 + 16, 166, 14, "left", "#ffd23f");
+        textAt(line, x0, 112, 13, "left", "#ffd23f"); drawStar(x0 + w1 + 6, 107, 6, true); textAt(tail, x0 + w1 + 16, 112, 13, "left", "#ffd23f");
       }
     }
-    drawButtons();
+    if (state === "menu") drawCarousel(); else drawButtons();
     if (state === "upgrades") drawUpgradeRows();
     if (state === "options") drawSliders();
     if (state === "songs") { text("SONGS", 96, 30); text(`Now playing: ${music.playing ? music.name : "-"}`, 128, 12, "center", "#ccc"); }
@@ -3662,8 +3792,8 @@ function draw() {
     ctx.font = "13px sans-serif";
     ctx.textAlign = "center";
     const musicNote = music.on && sound.on ? (music.playing ? `Now playing: ${music.name}   (N = next)` : "Press any key to start the music") : "";
-    if (state === "menu" && musicNote) ctx.fillText(musicNote, W / 2, 452);
-    ctx.fillText(state === "brief" || state === "stats" || state === "controls" || state === "credits" ? "" /* buttons sit there */ : state === "upgrades" ? (hasTouch ? "Tap an upgrade to buy its next level" : "Up / Down to choose, Enter to upgrade") : state === "tutorial" ? (hasTouch ? "Tap Next, or Skip to go straight in" : "Enter = next   Esc = skip") : state === "garage" ? "Left / Right to browse, Enter to pick" : state === "map" ? "" /* the map has its own Back button there */ : `Up / Down + Enter, or tap an option${hasPad ? "  |  Controller ready" : ""}`, W / 2, 470);
+    if (state === "menu" && musicNote) ctx.fillText(musicNote, W / 2, 448);
+    ctx.fillText(state === "menu" ? (hasTouch ? "Swipe or tap a card" : "Left / Right to choose, Enter to go") : state === "brief" || state === "stats" || state === "controls" || state === "credits" ? "" /* buttons sit there */ : state === "upgrades" ? (hasTouch ? "Tap an upgrade to buy its next level" : "Up / Down to choose, Enter to upgrade") : state === "tutorial" ? (hasTouch ? "Tap Next, or Skip to go straight in" : "Enter = next   Esc = skip") : state === "garage" ? "Left / Right to browse, Enter to pick" : state === "map" ? "" /* the map has its own Back button there */ : `Up / Down + Enter, or tap an option${hasPad ? "  |  Controller ready" : ""}`, W / 2, 470);
   }
 
   if (state === "paused") {
@@ -3811,6 +3941,7 @@ function canvasPoint(e) {
 
 canvas.addEventListener("pointermove", e => {
   const p = canvasPoint(e);
+  if (state === "menu") return; // hovering doesn't slide the carousel around
   const i = menuIndexAt(p.x, p.y - menuOY());
   if (i >= 0) sel = i;
 });
@@ -3831,6 +3962,7 @@ canvas.addEventListener("pointerdown", e => {
     return;
   }
   p.y -= menuOY(); // menu screens are centred on tall screens
+  if (state === "menu") { swipe = { x: p.x, y: p.y, id: e.pointerId }; return; } // decided on release: a swipe slides, a tap picks
   const i = menuIndexAt(p.x, p.y);
   if (i >= 0 && state === "options" && OPTIONS_MENU[i].slider) { sel = i; const b = sliderBar(btnRect(currentMenu(), i)); setSlider(OPTIONS_MENU[i].slider, (p.x - b.x) / b.w); }
   else if (i >= 0) { sel = i; activate(i); }
@@ -3841,7 +3973,16 @@ const releasePedals = e => { // only the finger that pressed a pedal lets it go,
   if (e.pointerId === touch.gasId || e.pointerType !== "touch") { touch.gas = false; touch.gasId = null; }
   if (e.pointerId === touch.brakeId || e.pointerType !== "touch") { touch.brake = false; touch.brakeId = null; }
 };
-canvas.addEventListener("pointerup", releasePedals);
+canvas.addEventListener("pointerup", e => {
+  releasePedals(e);
+  if (state !== "menu" || !swipe || swipe.id !== e.pointerId) { swipe = null; return; }
+  const p = canvasPoint(e); p.y -= menuOY();
+  const dx = p.x - swipe.x; swipe = null;
+  if (Math.abs(dx) > 36) { menuAction(dx < 0 ? "right" : "left"); return; } // swipe left = next card
+  const i = menuIndexAt(p.x, p.y);
+  if (i < 0) return;
+  if (i === sel) activate(i); else { sel = i; sound.tone(620, 760, 0.05, "triangle", 0.04); } // tap a side card to bring it over, the centre one to go
+});
 canvas.addEventListener("pointercancel", releasePedals);
 canvas.addEventListener("pointerleave", releasePedals);
 
