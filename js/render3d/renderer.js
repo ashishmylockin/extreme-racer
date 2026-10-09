@@ -270,7 +270,8 @@ export function createRenderer3D(canvas2d, glCanvas) {
     focus.x = target.x; focus.z = target.z; focus.camPos = camera.position; // (reused every frame: nothing is allocated while racing)
     world.update(pal, rainI, lerp(scrollPrev, scrollCur, alpha) * SCALE, focus, stA, stB, stBlend, wet);
     scene.fog.near *= Q.dist; scene.fog.far *= Q.dist;
-    if (!Q.ibl) { scene.environment = null; world.fill.intensity = 1.1; } else world.fill.intensity = 0.4 * night; // (a little moonlight fill on the cars at night)
+    if (!Q.ibl) { scene.environment = null; world.fill.color.copy(scene.fog.color).multiplyScalar(1.5); world.fill.groundColor.copy(world.fill.color).multiplyScalar(0.45); world.fill.intensity = 2.3 - 1.5 * night; } // Low: no image-based lighting, so a plain sky-coloured ambient light instead
+    else { world.fill.color.setRGB(0.56, 0.65, 1); world.fill.groundColor.setRGB(0.2, 0.25, 0.33); world.fill.intensity = 0.4 * night; } // (a little moonlight fill on the cars at night)
     const flash = weather.update(time, fxDt, camera.position, rainI, wind, pal.petals, mode, Q.rain);
     if (flash > 0) { scene.environmentIntensity += flash * 3; world.sun.intensity += flash * 4; } // lightning lights up the whole scene for a moment
     for (const w of windowMats) w.emissiveIntensity = 2.4 * night; // lit windows in the skyline
