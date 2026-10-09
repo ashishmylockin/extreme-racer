@@ -73,11 +73,11 @@ itch.io also wants a **cover image (630 × 500)**: crop the title screen or a ch
 > - **World Tour:** 22 cities, 3 stars and 3 missions each, and a head-to-head Grand Final
 > - **Daily Challenge:** the same city and traffic for everyone each day; keep your streak going
 > - **Endless, VS Computer and 2-player split controls**
-> - **Near misses build combos**, nitro is yours to fire, and shields save you once
+> - **Near misses build combos**, nitro canisters fire you forward, and shields save you once
 > - **Garage:** 11 teams to unlock and upgrades for handling, nitro, magnet and shield
 > - Three cameras: overhead, chase and cockpit
 > - Plays on keyboard, controller and touch screens
 >
-> **Controls:** Left / Right to change lanes, Up / Down for gas and brake, Space or Shift for nitro, C to change camera, P to pause. On a phone: tap a side to steer, and use the GAS, BRAKE and NITRO buttons.
+> **Controls:** Left / Right to change lanes, Up / Down for gas and brake (hold gas on the grid for a flying start), C to change camera, P to pause. Drive through blue canisters for nitro. On a phone: tap a side to steer, and use the GAS and BRAKE buttons.
 >
 > Made by Ashish. All teams, cars and liveries are fictional.
