@@ -89,8 +89,29 @@ export function ensure(instancer, choice) {
   const wrap = new THREE.Group(); wrap.add(model); model.position.set(-centre.x, -tmpBox.min.y, -centre.z);
   const parts = partsOf(wrap);
   if (choice.sponsor) for (const p of parts) if (p.material.map) p.material = sponsorMaterial(choice.sponsor); // the billboard's picture
+  if (/^building-|^low-detail/.test(choice.name)) lightWindows(parts);
   instancer.register(key, parts);
   info = { key, w: size.x, h: size.y }; registered.set(key, info);
   return info;
 }
 export const hasChoice = c => c && hasModel(c.name);
+
+// ---------- night: lit windows on the city buildings ----------
+// The building texture is a palette of colour swatches; the blue "glass" swatches are the windows. Copy only those onto a black
+// canvas and use it as the emissive map, so at night just the windows glow (the renderer sets windowMats' intensity from the darkness).
+export const windowMats = [];
+let windowTex = null;
+export function lightWindows(parts) {
+  for (const p of parts) {
+    const mat = p.material, img = mat && mat.map && mat.map.image;
+    if (!img || mat.userData.windowsLit) continue;
+    if (!windowTex) {
+      const c = document.createElement("canvas"); c.width = img.width; c.height = img.height; const g = c.getContext("2d");
+      g.fillStyle = "#000"; g.fillRect(0, 0, c.width, c.height);
+      const s = c.width / 512; g.drawImage(img, 256 * s, 128 * s, 128 * s, 128 * s, 256 * s, 128 * s, 128 * s, 128 * s); // the two blue swatches
+      windowTex = new THREE.CanvasTexture(c); windowTex.flipY = mat.map.flipY; windowTex.colorSpace = THREE.SRGBColorSpace;
+    }
+    mat.emissiveMap = windowTex; mat.emissive = new THREE.Color(0xffd9a0); mat.emissiveIntensity = 0; mat.userData.windowsLit = true; mat.needsUpdate = true;
+    windowMats.push(mat);
+  }
+}

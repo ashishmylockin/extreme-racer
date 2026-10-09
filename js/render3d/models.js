@@ -3,6 +3,8 @@
 import * as THREE from "three";
 import { SCALE } from "./mapping.js";
 import { hasModel, cloneModel, fitModel } from "./assets.js";
+import { makeLandmark, hasLandmark } from "./landmarks.js";
+import { makeProp, hasProp } from "./props.js";
 
 const geoCache = new Map();
 const matCache = new Map();
@@ -136,6 +138,8 @@ export function makeGantry(finish, roadHalf) {
 // ---- scenery (simple placeholders; the real set comes in Steps 3 and 4) ----
 const hashKey = s => { let h = 0; for (const c of String(s)) h = (h * 31 + c.charCodeAt(0)) | 0; return Math.abs(h); };
 export function makeScenery(s, leafHex) {
+  if (s.kind === "lm" && hasLandmark(s.key)) return makeLandmark(s.key, s.half * SCALE * 0.95);
+  if (s.kind === "prop" && hasProp(s.key)) return makeProp(s.key);
   const k = s.kind, r = s.r * SCALE, grp = new THREE.Group();
   if (k === "tree") {
     const style = s.style;

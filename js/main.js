@@ -1,6 +1,8 @@
 // Fixed 60 Hz simulation so the game runs the same speed on any monitor.
 const STEP = 1000 / 60;
 let lastTime = 0, acc = 0;
+const devTicks = new URLSearchParams(location.search).get("ticks"); // ?ticks=N (testing): run exactly N sim ticks once loading is done, then freeze
+let ticksLeft = devTicks === null ? Infinity : +devTicks;
 // If a device can't keep up with the full effects (frames averaging over ~22 ms for 3 s of racing), turn on Reduce effects once
 let perfAvg = 16.7, perfT = 0, perfDone = store.get("perfGuard", false);
 function perfGuard(dt) {
@@ -21,10 +23,11 @@ function tick3D() { try { R3D.tick(); } catch (e) { disable3D(e); } }
 function render3D(alpha) { try { R3D.render(alpha); } catch (e) { disable3D(e); } }
 
 function loop(now) {
+  if (window.R3D_PENDING) { lastTime = now; requestAnimationFrame(loop); return; } // still loading the 3D assets: hold the game
   perfGuard(now - lastTime);
   acc += Math.min(100, now - lastTime) * (slowT > 0 && state === "playing" ? 0.35 : 1); // big combos: a moment of slow motion
   lastTime = now;
-  while (acc >= STEP) { update(); if (window.R3D) tick3D(); acc -= STEP; }
+  while (acc >= STEP) { if (ticksLeft > 0) { update(); ticksLeft--; if (window.R3D) tick3D(); } acc -= STEP; }
   draw();
   if (window.R3D) render3D(acc / STEP); // acc / STEP = how far we are between two sim ticks (smooth motion on fast screens)
   requestAnimationFrame(loop);

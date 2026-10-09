@@ -17,6 +17,7 @@
 <script type="importmap">
 { "imports": { "three": "./lib/three/three.module.min.js", "three/addons/": "./lib/three/addons/" } }
 </script>
+<script>window.R3D_PENDING = !new URLSearchParams(location.search).has("2d"); /* the game waits (on its title screen) until the 3D models are loaded or given up on */</script>
 <!-- The game code is split into plain script files that run in this order and share one scope. -->
 <script src="js/data/config.js"></script>
 <script src="js/data/helpers.js"></script>

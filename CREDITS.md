@@ -14,3 +14,8 @@ Everything below is free for commercial use. Nothing here uses real car brands, 
 CC0 means no credit is required, but Kenney deserves one: thank you, [kenney.nl](https://kenney.nl).
 
 Game code, menus, music and sound effects: made by Ashish. All teams, liveries and names in the game are fictional.
+
+## Skies (assets/hdri/)
+
+All from [Poly Haven](https://polyhaven.com), CC0 1.0 (https://polyhaven.com/license):
+Kiara 1 (Dawn) - `morning.hdr`, Kloofendal 48d Partly Cloudy (Pure Sky) - `midday.hdr`, Venice Sunset - `sunset.hdr`, Satara Night (No Lamps) - `night.hdr`, Overcast Soil (Pure Sky) - `overcast.hdr`. 1k versions.

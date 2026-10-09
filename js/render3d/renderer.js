@@ -10,6 +10,11 @@ import { createWorld } from "./world.js";
 import { createCameraRig } from "./cameras.js";
 import { Instancer, chooseModel, ensure, hasChoice, leafMat, leafDarkMat, grassTopMat } from "./scenery.js";
 import { hasModel } from "./assets.js";
+import { loadSkies } from "./env.js";
+import { glows } from "./landmarks.js";
+import { createWeather } from "./weather.js";
+import { createNight } from "./night.js";
+import { windowMats } from "./scenery.js";
 
 const RACE_STATES = new Set(["playing", "over", "cleared", "paused", "camera"]);
 const MODES = ["overhead", "chase", "cockpit"];
@@ -23,6 +28,8 @@ export function createRenderer3D(canvas2d, glCanvas) {
   const world = createWorld(scene);
   const rig = createCameraRig(scene);
   const camera = rig.camera;
+  const weather = createWeather(scene, camera);
+  const nightFx = createNight(scene), lampList = [];
 
   // ---------- pools: finished objects are hidden and reused instead of rebuilt ----------
   const pools = new Map();
@@ -60,6 +67,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
   const barrierInfo = hasModel("barrierWall") ? ensure(instancer, { name: "barrierWall" }) : null; // the roadside barrier row
   const barriers = barrierInfo ? { key: barrierInfo.key, k: 8 / barrierInfo.w } : null;
   const instT = makeTracker(null, null, null, farX); // scenery drawn from real models through the instancer
+  const puddlesT = makeTracker(() => "puddle", () => weather.puddleBuild());
   const decisions = new WeakMap();
   function decision(s) {
     let d = decisions.get(s);
@@ -84,6 +92,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
     const withModel = [], without = [];
     for (const s of scenery) (decision(s) ? withModel : without).push(s);
     instT.tick(withModel); sceneryT.tick(without);
+    puddlesT.tick(roadItems);
     trackMark("start", startObj, false);
     trackMark("finish", finishObj, true);
     scrollPrev = scrollCur; scrollCur = scrollPos;
@@ -120,6 +129,8 @@ export function createRenderer3D(canvas2d, glCanvas) {
       for (const w of ud.wheels) w.rotation.x -= spin;
       for (const f of ud.front) f.rotation.y = -Math.max(-0.5, Math.min(0.5, tilt * 1.4));
       ud.brake.material.emissiveIntensity = r.braking ? 3 : 0.15;
+      if (!ud.beam) { ud.beam = nightFx.makeBeam(); o.add(ud.beam); }
+      ud.beam.visible = pal.dark > 0.012 && r.alive;
       if (ud.rain) ud.rain.material.emissiveIntensity = rainI > 0.25 ? 2 + Math.sin(time * 9) * 1.5 : 0; // the flashing rain light
       if (ud.setCockpit) ud.setCockpit(mode === "cockpit" && r === racers[0]); else ud.helmet.visible = !(mode === "cockpit" && r === racers[0]);
       o.visible = r.ghost > 0 && r.ghost < 1000 ? (frame >> 1) % 2 === 0 : true; // flashes after a bump
@@ -136,7 +147,8 @@ export function createRenderer3D(canvas2d, glCanvas) {
       o.rotation.y = time * 2.4 + (k.x || 0);
       if (k.type !== "coin") o.position.y = Math.sin(time * 3) * 0.25;
     }
-    for (const [, rec] of sceneryT.recs) rec.obj.position.set(rec.cx, 0, lerp(rec.pz, rec.cz, alpha)); // scenery never moves sideways
+    for (const [, rec] of sceneryT.recs) { rec.obj.position.set(rec.cx, 0, lerp(rec.pz, rec.cz, alpha)); const sp = rec.obj.userData.spin; if (sp) sp.rotation.z += dt * 0.8; } // scenery never moves sideways; windmill sails turn
+    for (const [it, rec] of puddlesT.recs) { rec.obj.position.set(rec.cx, 0.045, lerp(rec.pz, rec.cz, alpha)); rec.obj.scale.set(it.rx * SCALE * 1.4, 1, it.ry * SCALE * 1.8); }
     instancer.begin();
     for (const [s, rec] of instT.recs) { // model-based scenery: one matrix each, then the GPU draws every copy at once
       const { c, info } = decisions.get(s), k = c.height ? c.height / info.h : c.width / info.w;
@@ -157,6 +169,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
     const night = Math.min(1, pal.dark * 4);
     leafMat.color.setHex(arrToHex(pal.leaf)); leafDarkMat.color.setHex(arrToHex(pal.leaf.map(v => v * 0.72))); grassTopMat.color.setHex(arrToHex(pal.leaf.map(v => Math.min(255, v * 1.12))));
     M.lightMats.head.emissiveIntensity = 0.4 + 4 * night; M.lightMats.tail.emissiveIntensity = 0.8 + 2 * night;
+    for (const g of glows) g.mat.emissiveIntensity = g.base * (0.12 + 1.5 * night); // neon, lit windows and landmark lights come up at night
     for (const name of ["start", "finish"]) {
       const m = marks[name]; if (!m) continue;
       m.obj.position.set(0, 0, lerp(m.pz, m.cz, alpha));
@@ -175,7 +188,14 @@ export function createRenderer3D(canvas2d, glCanvas) {
     const target = frozen || camTarget;
 
     rig.update(mode, target, dt, { kick: kickFx, shake: settings.shake ? shake : 0, time, gear: gearOf(p0.v), lit: Math.round(rpmOf(effV(p0)) * 10) });
-    world.update(pal, rainI, lerp(scrollPrev, scrollCur, alpha) * SCALE, { x: target.x, z: target.z, camPos: camera.position });
+    world.update(pal, rainI, lerp(scrollPrev, scrollCur, alpha) * SCALE, { x: target.x, z: target.z, camPos: camera.position }, stA, stB, stBlend, wet);
+    const flash = weather.update(time, dt, camera.position, rainI, wind, pal.petals, mode, 1);
+    if (flash > 0) { scene.environmentIntensity += flash * 3; world.sun.intensity += flash * 4; } // lightning lights up the whole scene for a moment
+    for (const w of windowMats) w.emissiveIntensity = 2.4 * night; // lit windows in the skyline
+    lampList.length = 0;
+    for (const [s, rec] of instT.recs) if (s.kind === "lamp") lampList.push({ x: rec.cx, z: lerp(rec.pz, rec.cz, alpha), side: s.side });
+    nightFx.update(night, lampList, p0.alive && rec0 ? { x: camTarget.x, z: camTarget.z, yaw: -camTarget.tilt, alive: true } : null);
+    const du = world.dome.material.uniforms; du.hazeAmt.value = night * 0.3; du.haze.value.setRGB(...stA.s1.map(v => Math.pow(v / 255, 2.2) * 0.5)); // the glow of the city on the horizon
 
     // mirrors first (cockpit view only), without the cockpit in them
     if (mode === "cockpit") {
@@ -186,6 +206,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
     renderer.render(scene, camera);
   }
   R.render = render;
+  R.init = onProgress => loadSkies(renderer, onProgress); // loads the HDRI skies; call once before the first render
 
   // where a racer is on the 2D canvas right now (for the "CLOSE!" popups beside the car)
   const v3 = new THREE.Vector3();
