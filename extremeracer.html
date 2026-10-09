@@ -477,6 +477,30 @@ let grid = null, startObj = null; // grid = the start-lights sequence, startObj 
 let level = null, finishObj = null, levelTime = 0; // World Tour: the city being raced ({ idx, d0, len }) and its finish line
 let tourCleared = store.get("tourCleared", 0); // how many cities of the tour are done, in order
 let cityStars = store.get("stars", []); // best stars (0-3) per city
+
+// ---- Daily Challenge: one city and one traffic pattern from today's date, the same for everyone ----
+// Gameplay randomness (traffic, pickups) goes through grand(): Math.random normally, a seeded generator in the Daily.
+function mulberry32(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+let grand = Math.random;
+const grnd = (a, b) => a + grand() * (b - a), gpick = a => a[Math.floor(grand() * a.length)];
+const dayKey = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+function hashStr(s) { let h = 2166136261; for (const c of s) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
+const dailySeed = () => hashStr("extreme-racer " + dayKey());
+const dailyCity = () => dailySeed() % ROUTE.length;
+let daily = store.get("daily", { day: "", best: 0, streak: 0, last: "" }); // today's best score, and days in a row played
+const dailyBest = () => daily.day === dayKey() ? daily.best : 0;
+function markDailyPlayed() {
+  const today = dayKey(), y = new Date(); y.setDate(y.getDate() - 1);
+  if (daily.last === today) return;
+  daily.streak = daily.last === dayKey(y) ? daily.streak + 1 : 1; daily.last = today;
+  store.set("daily", daily);
+}
+function saveDailyScore(s) {
+  if (daily.day !== dayKey()) { daily.day = dayKey(); daily.best = 0; }
+  level.newBest = s > daily.best;
+  if (level.newBest) daily.best = s;
+  store.set("daily", daily);
+}
 let starAnim = null, uiFx = []; // CITY COMPLETE: stars popping in one by one, and their sparkle (screen-space particles)
 // score needed for [2, 3] stars in each city, from how many cars it has (measured: ~77 + 0.85 per city):
 // 2 stars = passing them all at ~240 km/h plus some coins; 3 stars = passing at 300+ km/h and chaining some near misses
@@ -522,7 +546,7 @@ function makeRacer(i, opts) {
 function initWorld() {
   enemies = []; pickups = []; particles = []; scenery = []; roadItems = []; wx = [];
   frame = 0; clock = 0; speed = 2; scroll = 2; scrollPos = 0; dist = 0; sceneAcc = 0; spawnAcc = 0; pickupAcc = 600;
-  grid = newGrid(true); startObj = null; level = null; finishObj = null; starAnim = null; uiFx = [];
+  grid = newGrid(true); startObj = null; level = null; finishObj = null; starAnim = null; uiFx = []; grand = Math.random;
   shake = 0; sprayFog = 0; pops = []; slowT = 0; kickFx = 0; sprayCar = null; tier = 0; newBest = false; banner = null; lastStage = 0; wet = 0; lastGear = 0; result = ""; camOff = 0;
   updateStage();
   camRefY = H - 100; nitroFx = 0;
@@ -551,19 +575,20 @@ function startGame(m, d, stage = 0) {
   if (d) difficulty = d;
   initWorld();
   runStage = stage;
-  if (m === "tour") level = { idx: stage, d0: 0, len: LEVEL_LEN };
+  if (m === "daily") { grand = mulberry32(dailySeed()); markDailyPlayed(); } // today's pattern, from the top every time
+  if (m === "tour" || m === "daily") level = { idx: stage, d0: 0, len: LEVEL_LEN, daily: m === "daily" };
   if (stage) jumpTo(stage);
   startDist = dist;
   if (level) { level.d0 = dist; updateStage(); }
   lastStage = stageIdx;
-  racers = [makeRacer(0, { label: m === "single" || m === "tour" ? "" : m === "vs" ? "YOU" : "P1", team: TEAMS[equipped] })];
+  racers = [makeRacer(0, { label: m === "single" || m === "tour" || m === "daily" ? "" : m === "vs" ? "YOU" : "P1", team: TEAMS[equipped] })];
   if (m === "vs") racers.push(makeRacer(1, { label: "CPU", team: rivalTeam(), ai: DIFFS[difficulty] }));
   if (m === "multi") racers.push(makeRacer(1, { label: "P2", team: rivalTeam() }));
-  if (level && stage === ROUTE.length - 1) { // Grand Final: first to the line wins
+  if (m === "tour" && stage === ROUTE.length - 1) { // Grand Final: first to the line wins
     level.final = true; racers[0].label = "YOU";
     racers.push(makeRacer(1, { label: "CPU", team: rivalTeam(), ai: FINAL_CPU }));
   }
-  if ((m === "single" || m === "tour") && Math.random() < 0.12 * upLvl("shield")) racers[0].shield = true; // Shield upgrade: sometimes you start protected
+  if ((m === "single" || m === "tour" || m === "daily") && Math.random() < 0.12 * upLvl("shield")) racers[0].shield = true; // Shield upgrade: sometimes you start protected
   grid = newGrid(false); startObj = { y: H - 100 - 50 }; // cars sit on the grid behind the start line, under the lights
   seedTraffic(-260);
   spawnPickup(-450, true); // one nitro canister up the road
@@ -627,6 +652,7 @@ songInput.addEventListener("change", async () => {
 
 const MAIN_MENU = [
   { label: "World Tour", go: () => openMap() }, // the map of all 22 cities
+  { label: "Daily Challenge", go: () => withTutorial(() => startGame("daily", null, dailyCity())) },
   { label: "Endless", go: () => withTutorial(() => startGame("single")) },
   { label: "VS Computer", go: () => openMenu("difficulty", 1) },
   { label: "Multiplayer", go: () => startGame("multi") },
@@ -640,14 +666,14 @@ const OPTIONS_MENU = [
   { label: () => `Add My Songs${music.userCount ? ` (${music.userCount})` : ""}`, go: () => songInput.click() },
   { label: () => `Fullscreen: ${document.fullscreenElement || document.webkitFullscreenElement ? "ON" : "OFF"}`, go: () => toggleFullscreen() },
   { label: "Clear My Songs", go: () => { music.clearUser(); songDB.clear().catch(() => {}); say("Songs cleared"); } },
-  { label: "Back", go: () => openMenu("menu", 5) },
+  { label: "Back", go: () => openMenu("menu", 6) },
 ];
 const DIFF_MENU = [
   { label: "Easy", go: () => startGame("vs", "easy") },
   { label: "Medium", go: () => startGame("vs", "medium") },
   { label: "Hard", go: () => startGame("vs", "hard") },
   { label: "Impossible", go: () => startGame("vs", "impossible") },
-  { label: "Back", go: () => openMenu("menu", 2) },
+  { label: "Back", go: () => openMenu("menu", 3) },
 ];
 // ---- World Tour map: 22 tiles in two columns; a city unlocks once the one before it is finished ----
 const MAP_COLS = 2, MAP_ROWS = Math.ceil(ROUTE.length / MAP_COLS);
@@ -701,7 +727,7 @@ function checkMissions(atFinish) {
 const GARAGE_MENU = [
   { label: () => owned.includes(garageIdx) ? (garageIdx === equipped ? "Equipped" : "Equip") : `Buy - ${TEAMS[garageIdx].cost} coins`, go: garageAction },
   { label: "Upgrades", go: () => openMenu("upgrades") },
-  { label: "Back", go: () => openMenu("menu", 4) },
+  { label: "Back", go: () => openMenu("menu", 5) },
 ];
 function cycleCamera(dir) { cam = (cam + CAMS.length + dir) % CAMS.length; store.set("camera", cam); }
 const PAUSE_MENU = [
@@ -745,6 +771,10 @@ const UPGRADE_MENU = [
   ...UPGRADES.map(u => ({ label: "", w: 330, h: 60, go: () => buyUpgrade(u) })), // rows are drawn by drawUpgrades
   { label: "Back", go: () => openMenu("garage", 1) },
 ];
+const DAILY_MENU = [
+  { label: "RETRY", big: true, go: () => startGame("daily", null, dailyCity()) },
+  { label: "Menu", go: toMenu },
+];
 const lastCity = () => level && level.idx >= ROUTE.length - 1;
 const CLEARED_MENU = [
   { label: () => lastCity() ? "MENU" : "NEXT CITY", big: true, go: () => lastCity() ? toMenu() : startGame("tour", null, level.idx + 1) },
@@ -771,7 +801,7 @@ function currentMenu() {
     case "paused": return { items: PAUSE_MENU, top: 262, h: 44, gap: 14 };
     case "camera": return { items: CAMERA_MENU, top: 205, h: 44, gap: 10 };
     case "tutorial": return { items: TUTORIAL_MENU, top: 330, h: 44, gap: 10 };
-    case "cleared": return { items: CLEARED_MENU, top: 306, h: 38, gap: 8 };
+    case "cleared": return { items: level && level.daily ? DAILY_MENU : CLEARED_MENU, top: 306, h: 38, gap: 8 };
     case "over": return { items: OVER_MENU, top: 328, h: 44, gap: 14 };
   }
   return null;
@@ -830,12 +860,12 @@ function menuAction(a) {
   else if (a === "back") {
     if (state === "paused" || state === "camera") state = "playing";
     else if (state === "tutorial") endTutorial();
-    else if (state === "difficulty") openMenu("menu", 2);
+    else if (state === "difficulty") openMenu("menu", 3);
     else if (state === "map") { initDemo(); openMenu("menu", 0); }
     else if (state === "brief") { openMenu("map"); sel = -1; }
-    else if (state === "garage") openMenu("menu", 4);
+    else if (state === "garage") openMenu("menu", 5);
     else if (state === "upgrades") openMenu("garage", 1);
-    else if (state === "options") openMenu("menu", 5);
+    else if (state === "options") openMenu("menu", 6);
     else if (state === "over" || state === "cleared") toMenu();
   }
 }
@@ -1066,28 +1096,28 @@ function wouldWall(lane, y, len, skip) { // something in all three lanes within 
 }
 
 function spawnEnemyAt(y) {
-  const k = trafficKinds(), roll = Math.random();
+  const k = trafficKinds(), roll = grand();
   let kind = "car";
   if (k.works && roll < 0.05 && !enemies.some(o => o.kind === "works")) kind = "works";
   else if (k.truck && roll < 0.17) kind = "truck";
   else if (k.changer && roll < 0.35) kind = "changer";
   const len = kind === "truck" ? TRUCK_LEN : kind === "works" ? WORKS_LEN : CAR_H, yc = y - (len - CAR_H) / 2; // long things stretch on up the road
   for (let tries = 0; tries < 4; tries++) {
-    const lane = Math.floor(Math.random() * LANES);
+    const lane = Math.floor(grand() * LANES);
     if (laneBusy(lane, yc, len, 70) || wouldWall(lane, yc, len)) continue; // spot taken, or it would wall off the road
-    enemies.push({ kind, lane, x: laneX(lane), y: yc, len, col: pick(ROAD_COLS), passed: {}, miss: {} });
+    enemies.push({ kind, lane, x: laneX(lane), y: yc, len, col: gpick(ROAD_COLS), side: grand() < 0.5 ? -1 : 1, passed: {}, miss: {} }); // side: which way a lane-changer prefers to go
     return;
   }
 }
 const spawnEnemy = () => spawnEnemyAt(-AHEAD);
 // Against an Impossible CPU, keep cars far enough apart that a clean line always exists (otherwise nobody could survive the walls the spawner can create)
 const trafficGap = () => racers.some(r => r.ai === DIFFS.impossible) ? 210 : 100;
-function seedTraffic(y0 = -60) { const lo = trafficGap() > 100 ? 220 : 150; let y = y0; while ((y -= rnd(lo, lo + 110)) > -AHEAD + 40) spawnEnemyAt(y); } // the road is already busy when you arrive
+function seedTraffic(y0 = -60) { const lo = trafficGap() > 100 ? 220 : 150; let y = y0; while ((y -= grnd(lo, lo + 110)) > -AHEAD + 40) spawnEnemyAt(y); } // the road is already busy when you arrive
 
 function spawnPickup(y = -AHEAD, forceNitro = false) {
-  const lane = Math.floor(Math.random() * LANES);
+  const lane = Math.floor(grand() * LANES);
   if (laneBusy(lane, y, 20, 150)) return; // never in a closed lane or under a car
-  if (forceNitro || Math.random() < 0.3) pickups.push({ type: !forceNitro && Math.random() < 0.25 ? "shield" : "nitro", lane, x: laneX(lane), y }); // a rare shield instead of nitro
+  if (forceNitro || grand() < 0.3) pickups.push({ type: !forceNitro && grand() < 0.25 ? "shield" : "nitro", lane, x: laneX(lane), y }); // a rare shield instead of nitro
   else for (let i = 0; i < 4; i++) pickups.push({ type: "coin", lane, x: laneX(lane), y: y - i * 45 });
 }
 
@@ -1248,6 +1278,7 @@ function endRound(beaten = false) {
   const [a, b] = racers;
   if (mode === "single") result = "Crash!";
   else if (mode === "tour") { if (!beaten) result = "City failed!"; }
+  else if (mode === "daily") { result = "Crashed!"; saveDailyScore(a.score); }
   else {
     const w = a.alive ? a : b.alive ? b : a.score === b.score ? null : a.score > b.score ? a : b;
     result = !w ? "Draw!" : mode === "vs" ? (w === a ? "You win!" : "CPU wins!") : `${w.label} wins!`;
@@ -1335,7 +1366,7 @@ function updatePlaying() {
     const gap = level ? tourParams(level.idx).gap : Math.max(trafficGap(), SPAWN_PX - Math.floor(top / 3) * 4);
     if (spawnAcc >= gap) { spawnAcc -= gap; spawnEnemy(); }
     pickupAcc -= speed;
-    if (pickupAcc <= 0) { spawnPickup(); pickupAcc = rnd(520, 960); }
+    if (pickupAcc <= 0) { spawnPickup(); pickupAcc = grnd(520, 960); }
   }
 
   const spray = sprayColor(), rp = rainPlay(), p0 = racers[0];
@@ -1387,7 +1418,7 @@ function updatePlaying() {
     e.y += speed;
     if (e.kind === "changer" && !e.moved) { // blink for a second, then move over (only into a clear lane)
       const ahead = racers[0].y - e.y, ok = l => l >= 0 && l < LANES && !laneBusy(l, e.y, CAR_H, 60, e) && !wouldWall(l, e.y, CAR_H, e);
-      if (!e.blink && ahead > 0 && ahead < 450) { const opts = [e.lane - 1, e.lane + 1].filter(ok); if (opts.length) { e.to = pick(opts); e.blink = 60; } else e.moved = true; }
+      if (!e.blink && ahead > 0 && ahead < 450) { const opts = [e.lane - 1, e.lane + 1].filter(ok); if (opts.length) { e.to = opts.includes(e.lane + e.side) ? e.lane + e.side : opts[0]; e.blink = 60; } else e.moved = true; }
       else if (e.blink && --e.blink === 0) { if (ok(e.to)) e.lane = e.to; e.moved = true; }
     }
     e.x += (laneX(e.lane) - e.x) * 0.06;
@@ -1427,7 +1458,7 @@ function updatePlaying() {
   else if (finishObj && level.final && racers[1].alive && finishObj.y >= racers[1].y - CAR_H / 2) { result = "CPU won the final!"; endRound(true); } // beaten to the line
   if (racers[0].alive) racers[0].topV = Math.max(racers[0].topV || 0, racers[0].v);
   if (state === "playing") checkMissions(false);
-  if (level && state === "playing") { // a little fanfare the moment a star target is beaten
+  if (level && !level.daily && state === "playing") { // a little fanfare the moment a star target is beaten
     const tg = starTargets(level.idx), now = 1 + (racers[0].score >= tg[0]) + (racers[0].score >= tg[1]);
     if (now > (level.starNow || 1)) { level.starNow = now; say(`${now}-star score reached!`); sound.tone(880, 1760, 0.18, "triangle", 0.07); }
   }
@@ -1448,6 +1479,7 @@ function finishLevel() {
   touch.gas = touch.brake = false;
   levelTime = (frame - grid.goFrame) / 60;
   level.bonus = Math.max(0, Math.round((SPEED_PAR - levelTime) * 4)); racers[0].score += level.bonus; // the quicker the finish, the bigger the bonus
+  if (level.daily) { saveDailyScore(racers[0].score); sound.silence(); sound.jingle(level.idx); burst(racers[0].x, racers[0].y - 40, ["#ffd23f", "#ffffff", "#3dff6e", "#5fd4ff"], 50, 6); return; } // no stars, unlocks or missions in the Daily
   const firstClear = level.idx + 1 > tourCleared;
   if (firstClear) { tourCleared = level.idx + 1; store.set("tourCleared", tourCleared); }
   const tg = starTargets(level.idx), got = 1 + (racers[0].score >= tg[0]) + (racers[0].score >= tg[1]);
@@ -3176,7 +3208,7 @@ function drawGauge(r) {
   if (r.v >= 4.6) textAt("SLIPSTREAM", cx + R + 10, cy - 22, 11, "left", "#39ff14");
 }
 
-const roundLabel = st => st.n === ROUTE.length ? `GRAND FINAL` : st.venue.toUpperCase() === st.country ? `ROUND ${st.n}` : `ROUND ${st.n}  -  ${st.venue.toUpperCase()}`; // no 'ABU DHABI - ABU DHABI'
+const roundLabel = st => level && level.daily && state !== "map" && state !== "brief" ? `DAILY CHALLENGE` : st.n === ROUTE.length ? `GRAND FINAL` : st.venue.toUpperCase() === st.country ? `ROUND ${st.n}` : `ROUND ${st.n}  -  ${st.venue.toUpperCase()}`; // no 'ABU DHABI - ABU DHABI'
 function drawStageBar() { // which city you're in, and how far through it
   const st = ROUTE[stageIdx], x0 = 130, w = 140, y = H - 14;
   ctx.font = "bold 12px sans-serif";
@@ -3234,6 +3266,16 @@ function drawStar(cx, cy, r, on) {
   ctx.lineWidth = 2; ctx.stroke();
 }
 
+// the Daily Challenge's card on the grid: today's city, best and streak
+function drawDailyCard() {
+  const st = ROUTE[level.idx], y = 168;
+  ctx.fillStyle = "rgba(0,0,0,0.6)"; roundRect(W / 2 - 120, y, 240, 100, 12); ctx.fill();
+  textAt("DAILY CHALLENGE", W / 2, y + 22, 14, "center", "#ffd23f");
+  textAt(`${st.venue}, ${st.country}`, W / 2, y + 45, 13);
+  textAt(`Today's best: ${dailyBest()}`, W / 2, y + 68, 13, "center", "#9be89b");
+  textAt(`Streak: ${daily.streak} day${daily.streak === 1 ? "" : "s"} in a row`, W / 2, y + 89, 12, "center", "#ffb347");
+}
+
 // before the lights go green in a tour city: what each star needs
 function drawTargets() {
   const tg = starTargets(level.idx), y = 168, rows = [[1, level.final ? "Beat the CPU to the line" : "Finish the city"], [2, `Score ${tg[0]}`], [3, `Score ${tg[1]}`]];
@@ -3247,10 +3289,11 @@ function drawTargets() {
 
 function drawHud() {
   const p0 = racers[0];
-  if (mode === "single" || mode === "tour") {
+  if (mode === "single" || mode === "tour" || mode === "daily") {
     text(p0.score, 56, 36);
     text(`Coins ${p0.coins}`, 30, 15, "left", "#ffd23f");
-    if (level) { // the next star to chase, right under the score
+    if (level && level.daily) { if (!grid.done) drawDailyCard(); else text(`Today's best ${dailyBest()}`, 78, 12, "center", "#9be89b"); }
+    else if (level) { // the next star to chase, right under the score
       const tg = starTargets(level.idx), next = p0.score < tg[0] ? [2, tg[0]] : p0.score < tg[1] ? [3, tg[1]] : null;
       if (next) { for (let k = 0; k < next[0]; k++) drawStar(W / 2 - 38 + k * 12, 75, 5, true); textAt(`${next[1]}`, W / 2 - 38 + next[0] * 12, 80, 12, "left", "#ffd23f"); }
       else { for (let k = 0; k < 3; k++) drawStar(W / 2 - 18 + k * 12, 75, 5, true); }
@@ -3390,7 +3433,17 @@ function draw() {
     drawButtons();
   }
 
-  if (state === "cleared") {
+  if (state === "cleared" && level.daily) { // the Daily: score, today's best, streak
+    ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(0, -moy, W, H);
+    const r = racers[0], s = Math.floor(levelTime);
+    text("DAILY COMPLETE", 118, Math.min(34, (W - 24) / 9.4), "center", "#ffd23f");
+    text(`${ROUTE[level.idx].venue}  -  ${dayKey()}`, 150, 14, "center", "#ddd");
+    text(`Score ${r.score}`, 192, 24);
+    text(`Time ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}   speed bonus +${level.bonus}`, 222, 13, "center", "#9be89b");
+    text(level.newBest ? "NEW BEST TODAY!" : `Today's best ${dailyBest()}`, 252, 16, "center", "#ffd23f");
+    text(`Streak: ${daily.streak} day${daily.streak === 1 ? "" : "s"}`, 278, 13, "center", "#ffb347");
+    drawButtons();
+  } else if (state === "cleared") {
     ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(0, -moy, W, H);
     const st = ROUTE[level.idx], r = racers[0], s = Math.floor(levelTime);
     text(lastCity() ? "TOUR CHAMPION!" : "CITY COMPLETE", 118, Math.min(34, (W - 24) / 9.4), "center", "#ffd23f");
@@ -3413,7 +3466,12 @@ function draw() {
     ctx.fillRect(0, -moy, W, H);
     const reached = `Reached ${ROUTE[stageIdx].country}  -  ${runKm()} km`, rc = "#ffd23f";
     text(result, 130, 38);
-    if (mode === "tour") {
+    if (mode === "daily") {
+      const r = racers[0];
+      text(`Score ${r.score}`, 170, 20);
+      text(level.newBest ? "NEW BEST TODAY!" : `Today's best ${dailyBest()}`, 200, 16, "center", "#ffd23f");
+      text(`Streak: ${daily.streak} day${daily.streak === 1 ? "" : "s"}   -   ${Math.round(stageFrac * 100)}% of ${ROUTE[level.idx].venue}`, 228, 13, "center", "#ffb347");
+    } else if (mode === "tour") {
       const r = racers[0];
       text(`Score ${r.score}   Cars ${r.passed}`, 170, 20);
       text(`Reached ${Math.round(stageFrac * 100)}% of ${ROUTE[level.idx].venue}`, 228, 16);
