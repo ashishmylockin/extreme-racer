@@ -23,7 +23,8 @@ const LANES = 3, LANE_W = ROAD_W / LANES, CAR_W = 36, CAR_H = 72;
 const SPAWN_PX = 220;      // distance between traffic spawns at the start (shrinks as you progress)
 const GRID_STEP = 55;      // frames between the five red start lights coming on (~0.9s each)
 const AI_REACT = 6;        // the CPU pulls away exactly 6 frames = 0.100s after the lights turn green
-const STAGE_LEN = 2400;    // distance travelled per city
+const STAGE_LEN = 2400;    // distance travelled per city in Endless
+const LEVEL_LEN = 20000;   // World Tour: one city is one level (~65s flat out at 300 km/h, ~90s driving carefully)
 const VMAX = 5.5;          // CPU top speed (x60 = km/h); the player has no cap
 const NITRO_MAX = VMAX * 1.3;  // where the speed dial needle tops out
 const NITRO_PUSH = 2.2;        // how far above your normal speed nitro can push you (~130 km/h)
@@ -472,6 +473,8 @@ let racers, enemies, pickups, particles, scenery, roadItems, wx;
 let frame, clock, speed, scroll, scrollPos, dist, sceneAcc, spawnAcc, pickupAcc, shake, tier, newBest, banner, lastStage, lastGear, result;
 let pal, stageIdx = 0, stageFrac = 0, stA = null, stB = null, stBlend = 0, rainI = 0, wind = 0, wet = 0, camOff = 0, camRefY = 0, nitroFx = 0;
 let grid = null, startObj = null; // grid = the start-lights sequence, startObj = the start line + gantry (they scroll away once you're racing)
+let level = null, finishObj = null, levelTime = 0; // World Tour: the city being raced ({ idx, d0, len }) and its finish line
+let tourCleared = store.get("tourCleared", 0); // how many cities of the tour are done, in order
 let sel = 0, overAt = 0, garageIdx = 0, jumpIdx = 0, runStage = 0, startDist = 0, toast = null, padG = [0, 0], padB = [0, 0], hasPad = false, hasTouch = false;
 const held = new Set();
 const touch = { gas: false, brake: false, gasId: null, brakeId: null }; // ids = which finger is on which pedal
@@ -488,7 +491,7 @@ const aiGo = () => grid.done && frame >= grid.goFrame + AI_REACT;
 function laneX(lane) { return ROAD_L + lane * LANE_W + LANE_W / 2; }
 function say(text) { toast = { text, t: 0 }; }
 const runKm = () => ((dist - startDist) * 0.012).toFixed(1); // distance covered this run (not counting where you jumped in)
-const view3D = () => (state === "playing" || state === "over" || state === "paused" || state === "camera") ? cam : 0;
+const view3D = () => (state === "playing" || state === "over" || state === "cleared" || state === "paused" || state === "camera") ? cam : 0;
 
 // ---------- world setup ----------
 
@@ -505,7 +508,7 @@ function makeRacer(i, opts) {
 function initWorld() {
   enemies = []; pickups = []; particles = []; scenery = []; roadItems = []; wx = [];
   frame = 0; clock = 0; speed = 2; scroll = 2; scrollPos = 0; dist = 0; sceneAcc = 0; spawnAcc = 0; pickupAcc = 600;
-  grid = newGrid(true); startObj = null;
+  grid = newGrid(true); startObj = null; level = null; finishObj = null;
   shake = 0; tier = 0; newBest = false; banner = null; lastStage = 0; wet = 0; lastGear = 0; result = ""; camOff = 0;
   updateStage();
   camRefY = H - 100; nitroFx = 0;
@@ -534,10 +537,12 @@ function startGame(m, d, stage = 0) {
   if (d) difficulty = d;
   initWorld();
   runStage = stage;
+  if (m === "tour") level = { idx: stage, d0: 0, len: LEVEL_LEN };
   if (stage) jumpTo(stage);
   startDist = dist;
+  if (level) { level.d0 = dist; updateStage(); }
   lastStage = stageIdx;
-  racers = [makeRacer(0, { label: m === "single" ? "" : m === "vs" ? "YOU" : "P1", team: TEAMS[equipped] })];
+  racers = [makeRacer(0, { label: m === "single" || m === "tour" ? "" : m === "vs" ? "YOU" : "P1", team: TEAMS[equipped] })];
   if (m === "vs") racers.push(makeRacer(1, { label: "CPU", team: rivalTeam(), ai: DIFFS[difficulty] }));
   if (m === "multi") racers.push(makeRacer(1, { label: "P2", team: rivalTeam() }));
   grid = newGrid(false); startObj = { y: H - 100 - 50 }; // cars sit on the grid behind the start line, under the lights
@@ -577,7 +582,8 @@ songInput.addEventListener("change", async () => {
 });
 
 const MAIN_MENU = [
-  { label: "Single Player", go: () => store.get("tutorialSeen", false) ? startGame("single") : (tipIdx = 0, openMenu("tutorial")) }, // first time: three quick tips
+  { label: "World Tour", go: () => withTutorial(() => startGame("tour", null, Math.min(tourCleared, ROUTE.length - 1))) }, // carries on at the next unfinished city
+  { label: "Endless", go: () => withTutorial(() => startGame("single")) },
   { label: "VS Computer", go: () => openMenu("difficulty", 1) },
   { label: "Multiplayer", go: () => startGame("multi") },
   { label: "Jump Start", go: () => { jumpIdx = 0; jumpTo(0, 0.3); openMenu("jump"); } },
@@ -591,22 +597,22 @@ const OPTIONS_MENU = [
   { label: () => `Add My Songs${music.userCount ? ` (${music.userCount})` : ""}`, go: () => songInput.click() },
   { label: () => `Fullscreen: ${document.fullscreenElement || document.webkitFullscreenElement ? "ON" : "OFF"}`, go: () => toggleFullscreen() },
   { label: "Clear My Songs", go: () => { music.clearUser(); songDB.clear().catch(() => {}); say("Songs cleared"); } },
-  { label: "Back", go: () => openMenu("menu", 5) },
+  { label: "Back", go: () => openMenu("menu", 6) },
 ];
 const DIFF_MENU = [
   { label: "Easy", go: () => startGame("vs", "easy") },
   { label: "Medium", go: () => startGame("vs", "medium") },
   { label: "Hard", go: () => startGame("vs", "hard") },
   { label: "Impossible", go: () => startGame("vs", "impossible") },
-  { label: "Back", go: () => openMenu("menu", 1) },
+  { label: "Back", go: () => openMenu("menu", 2) },
 ];
 const JUMP_MENU = [
   { label: "Start here", go: () => startGame("single", null, jumpIdx) },
-  { label: "Back", go: () => { initDemo(); openMenu("menu", 3); } },
+  { label: "Back", go: () => { initDemo(); openMenu("menu", 4); } },
 ];
 const GARAGE_MENU = [
   { label: () => owned.includes(garageIdx) ? (garageIdx === equipped ? "Equipped" : "Equip") : `Buy - ${TEAMS[garageIdx].cost} coins`, go: garageAction },
-  { label: "Back", go: () => openMenu("menu", 4) },
+  { label: "Back", go: () => openMenu("menu", 5) },
 ];
 function cycleCamera(dir) { cam = (cam + CAMS.length + dir) % CAMS.length; store.set("camera", cam); }
 const PAUSE_MENU = [
@@ -641,8 +647,17 @@ const TUTORIAL_MENU = [
   { label: () => tipIdx < TIPS.length - 1 ? "Next" : "Let's race!", go: () => nextTip() },
   { label: "Skip", go: () => endTutorial() },
 ];
+let afterTutorial = null; // the race to start once the tips are done
+function withTutorial(start) { if (store.get("tutorialSeen", false)) start(); else { afterTutorial = start; tipIdx = 0; openMenu("tutorial"); } }
 function nextTip() { if (tipIdx >= TIPS.length - 1) endTutorial(); else { tipIdx++; sel = 0; } }
-function endTutorial() { store.set("tutorialSeen", true); startGame("single"); }
+function endTutorial() { store.set("tutorialSeen", true); (afterTutorial || (() => startGame("single")))(); afterTutorial = null; }
+
+const lastCity = () => level && level.idx >= ROUTE.length - 1;
+const CLEARED_MENU = [
+  { label: () => lastCity() ? "MENU" : "NEXT CITY", big: true, go: () => lastCity() ? toMenu() : startGame("tour", null, level.idx + 1) },
+  { label: "Replay City", go: () => startGame("tour", null, level.idx) },
+  { label: "Menu", go: toMenu },
+];
 
 const OVER_MENU = [
   { label: "RETRY", big: true, go: () => startGame(mode, difficulty, runStage) }, // same mode, level and starting city; R / A / tap
@@ -653,7 +668,7 @@ const BTN_W = 210;
 
 function currentMenu() {
   switch (state) {
-    case "menu": return { items: MAIN_MENU, top: 180, h: 33, gap: 8 };
+    case "menu": return { items: MAIN_MENU, top: 178, h: 30, gap: 6 };
     case "jump": return { items: JUMP_MENU, top: 362, h: 40, gap: 8 };
     case "options": return { items: OPTIONS_MENU, top: 138, h: 34, gap: 8 };
     case "difficulty": return { items: DIFF_MENU, top: 200, h: 40, gap: 10 };
@@ -661,6 +676,7 @@ function currentMenu() {
     case "paused": return { items: PAUSE_MENU, top: 262, h: 44, gap: 14 };
     case "camera": return { items: CAMERA_MENU, top: 205, h: 44, gap: 10 };
     case "tutorial": return { items: TUTORIAL_MENU, top: 330, h: 44, gap: 10 };
+    case "cleared": return { items: CLEARED_MENU, top: 300, h: 40, gap: 10 };
     case "over": return { items: OVER_MENU, top: 328, h: 44, gap: 14 };
   }
   return null;
@@ -717,22 +733,22 @@ function menuAction(a) {
   else if (a === "back") {
     if (state === "paused" || state === "camera") state = "playing";
     else if (state === "tutorial") endTutorial();
-    else if (state === "difficulty") openMenu("menu", 1);
-    else if (state === "jump") { initDemo(); openMenu("menu", 3); }
-    else if (state === "garage") openMenu("menu", 4);
-    else if (state === "options") openMenu("menu", 5);
-    else if (state === "over") toMenu();
+    else if (state === "difficulty") openMenu("menu", 2);
+    else if (state === "jump") { initDemo(); openMenu("menu", 4); }
+    else if (state === "garage") openMenu("menu", 5);
+    else if (state === "options") openMenu("menu", 6);
+    else if (state === "over" || state === "cleared") toMenu();
   }
 }
 
 // ---------- stages, scenery & weather ----------
 
 function updateStage() {
-  const y = dist / STAGE_LEN, whole = Math.floor(y);
+  const y = level ? level.idx + clamp((dist - level.d0) / level.len, 0, 0.999) : dist / STAGE_LEN, whole = Math.floor(y); // a tour level never drifts into the next city
   stageIdx = whole % ROUTE.length;
   stageFrac = y - whole;
   stA = ROUTE[stageIdx]; stB = ROUTE[(stageIdx + 1) % ROUTE.length];
-  const b = stBlend = smooth((stageFrac - 0.8) / 0.2), A = stA, B = stB; // the last fifth of a stage fades into the next country
+  const b = stBlend = level ? 0 : smooth((stageFrac - 0.8) / 0.2), A = stA, B = stB; // the last fifth of a stage fades into the next country
   pal = {
     grass: mix(A.g, B.g, b), grassAlt: mix(A.ga, B.ga, b), road: mix(A.rd, B.rd, b),
     sky0: mix(A.s0, B.s0, b), sky1: mix(A.s1, B.s1, b), mount: mix(A.mc, B.mc, b), hill: mix(A.hc, B.hc, b), leaf: mix(A.lf, B.lf, b),
@@ -857,6 +873,7 @@ function updateFx() {
   if (racers[0].alive) camOff += ((racers[0].x - W / 2) - camOff) * 0.12; // after a crash the 3D camera stays exactly where it was
   if (racers[0].alive) camRefY = racers[0].y; // the 3D camera stays put once you've crashed
   if (startObj) { startObj.y += scroll; if (startObj.y > camRefY + 500) startObj = null; }
+  if (finishObj) finishObj.y += scroll;
   nitroFx += ((racers[0].alive && racers[0].nitro > 0 ? 1 : 0) - nitroFx) * 0.12;
   if (nitroFx > 0.3) shake = Math.max(shake, 1.6 * nitroFx);
   if (banner && ++banner.t > 200) banner = null;
@@ -1050,6 +1067,7 @@ function endRound() {
   touch.gas = touch.brake = false;
   const [a, b] = racers;
   if (mode === "single") result = "Crash!";
+  else if (mode === "tour") result = "City failed!";
   else {
     const w = a.alive ? a : b.alive ? b : a.score === b.score ? null : a.score > b.score ? a : b;
     result = !w ? "Draw!" : mode === "vs" ? (w === a ? "You win!" : "CPU wins!") : `${w.label} wins!`;
@@ -1128,7 +1146,11 @@ function updatePlaying() {
   const g = gearOf(racers[0].v); // shift sounds follow the player's gear
   if (g !== lastGear) { if (lastGear && grid.done) sound.shift(g > lastGear); lastGear = g; }
 
-  if (grid.done) {
+  if (level && !finishObj) { // the finish line appears up the road so it crosses the car exactly at the end of the level
+    const left = level.d0 + level.len - dist;
+    if (left < AHEAD - 100) finishObj = { y: racers[0].y - left };
+  }
+  if (grid.done && !finishObj) { // nothing new spawns past the finish line
     spawnAcc += speed;
     const gap = Math.max(trafficGap(), SPAWN_PX - Math.floor(top / 3) * 4);
     if (spawnAcc >= gap) { spawnAcc -= gap; spawnEnemy(); }
@@ -1185,6 +1207,17 @@ function updatePlaying() {
   enemies = enemies.filter(e => e.y < H + CAR_H);
 
   if (racers.some(r => !r.alive)) endRound();
+  else if (finishObj && finishObj.y >= racers[0].y - CAR_H / 2) finishLevel(); // nose over the line
+}
+
+// Crossed the finish line of a World Tour city
+function finishLevel() {
+  state = "cleared"; overAt = performance.now(); sel = 0;
+  touch.gas = touch.brake = false;
+  levelTime = (frame - grid.goFrame) / 60;
+  if (level.idx + 1 > tourCleared) { tourCleared = level.idx + 1; store.set("tourCleared", tourCleared); }
+  sound.silence(); sound.jingle(level.idx);
+  burst(racers[0].x, racers[0].y - 40, ["#ffd23f", "#ffffff", "#3dff6e", "#5fd4ff"], 50, 6);
 }
 
 // ---------- controller ----------
@@ -1229,6 +1262,12 @@ function update() {
   if (state === "paused" || state === "camera") return;
   if (state === "playing") updatePlaying();
   else if (state === "over") { scroll = view3D() === 0 ? 1 : 0; stepRacers(); }
+  else if (state === "cleared") { // coast to a stop past the line
+    speed *= 0.97; scroll = speed; dist += speed;
+    for (const e of enemies) e.y += speed;
+    for (const r of racers) if (r.alive) r.v = speed;
+    stepRacers();
+  }
   else updateDemo();
   updateFx();
   sound.engineTick(state === "playing", effV(racers[0]), racers[0].nitro > 0);
@@ -1284,6 +1323,7 @@ function reheightWorld(dH) {
     o.y += dH; if (o.ty !== undefined) o.ty += dH;
   }
   if (startObj) startObj.y += dH;
+  if (finishObj) finishObj.y += dH;
   camRefY += dH;
 }
 
@@ -1614,22 +1654,23 @@ function lamp(x, y, r, st) {
   if (st) glow(x, y, r * 4, st === 1 ? "255,40,40" : "60,255,110", 0.55);
 }
 
-function drawStartLine() {
-  const y = startObj.y;
+function drawStartLine(y = startObj.y, boxes = true) { // also the finish line (no grid boxes there)
   for (let i = 0; i < 20; i++) for (let j = 0; j < 2; j++) { ctx.fillStyle = (i + j) % 2 ? "#111" : "#f4f4f4"; ctx.fillRect(ROAD_L + i * ROAD_W / 20, y + j * 6, ROAD_W / 20 + 0.5, 6); }
+  if (!boxes) return;
   ctx.strokeStyle = "rgba(255,255,255,0.85)"; ctx.lineWidth = 2; // the grid boxes
   for (const r of racers) { const cx = laneX(r.slot.lane), cy = y + 50 + r.slot.off; ctx.beginPath(); ctx.moveTo(cx - 24, cy - 40); ctx.lineTo(cx - 24, cy - 28); ctx.moveTo(cx + 24, cy - 40); ctx.lineTo(cx + 24, cy - 28); ctx.moveTo(cx - 24, cy + 38); ctx.lineTo(cx - 24, cy + 28); ctx.moveTo(cx + 24, cy + 38); ctx.lineTo(cx + 24, cy + 28); ctx.stroke(); }
 }
 
-function drawGantryTop() { // seen from above: a beam across the road, pillars on the verges, the lights in the middle
-  const y = startObj.y - 24, st = lightStates();
+function drawGantryTop(y0 = startObj.y, finish = false) { // seen from above: a beam across the road, pillars on the verges, the lights (or a FINISH board) in the middle
+  const y = y0 - 24, st = lightStates();
   ctx.fillStyle = "#26282e"; ctx.fillRect(ROAD_L - 16, y - 8, ROAD_W + 32, 16); ctx.fillStyle = "#3a3d46"; ctx.fillRect(ROAD_L - 16, y - 8, ROAD_W + 32, 3);
   ctx.fillStyle = "#15161a"; ctx.fillRect(ROAD_L - 24, y - 12, 14, 24); ctx.fillRect(ROAD_R + 10, y - 12, 14, 24);
   roundRect(W / 2 - 64, y - 11, 128, 22, 6); ctx.fillStyle = "#0d0e12"; ctx.fill();
-  st.forEach((s2, i) => lamp(W / 2 - 48 + i * 24, y, 7, s2));
+  if (finish) textAt("FINISH", W / 2, y + 6, 15, "center", "#ffd23f");
+  else st.forEach((s2, i) => lamp(W / 2 - 48 + i * 24, y, 7, s2));
 }
 
-function drawGantry3D() { // local units; the road is 2*88 wide on screen
+function drawGantry3D(finish = false) { // local units; the road is 2*88 wide on screen; the finish gantry has a FINISH board instead of lights
   const st = lightStates(), hw = 94;
   ctx.fillStyle = "rgba(0,0,0,0.25)"; ell(0, 0, hw + 14, 4);
   ctx.fillStyle = "#2a2c33"; ctx.fillRect(-hw - 8, -90, 10, 90); ctx.fillRect(hw - 2, -90, 10, 90);
@@ -1638,7 +1679,8 @@ function drawGantry3D() { // local units; the road is 2*88 wide on screen
   ctx.fillStyle = "#e10600"; ctx.fillRect(-hw + 2, -97, 44, 10); ctx.fillRect(hw - 46, -97, 44, 10);
   ctx.font = "bold 7px sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "#fff"; ctx.fillText("EXTREME", -hw + 24, -89.5); ctx.fillText("RACER", hw - 24, -89.5);
   roundRect(-42, -86, 84, 34, 6); ctx.fillStyle = "#0d0e12"; ctx.fill();
-  st.forEach((s2, i) => { lamp(-32 + i * 16, -77, 5.4, s2); lamp(-32 + i * 16, -62, 5.4, s2); });
+  if (finish) { ctx.font = "bold 15px sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "#ffd23f"; ctx.fillText("FINISH", 0, -63); }
+  else st.forEach((s2, i) => { lamp(-32 + i * 16, -77, 5.4, s2); lamp(-32 + i * 16, -62, 5.4, s2); });
 }
 
 function drawTopDown() {
@@ -1646,6 +1688,7 @@ function drawTopDown() {
   for (const s of scenery) if ((!s.far || s.kind === "lm" || s.kind === "prop") && s.y > -80 && s.kind !== "tree") drawScenery(s);
   drawRoad();
   if (startObj) drawStartLine();
+  if (finishObj) drawStartLine(finishObj.y, false);
   drawSpeedLines();
   for (const k of pickups) {
     if (k.y < -30) continue;
@@ -1654,6 +1697,7 @@ function drawTopDown() {
   for (const e of enemies) if (e.y > -CAR_H) drawEnemy(e);
   for (const r of racers) drawRacer(r);
   if (startObj) drawGantryTop();
+  if (finishObj) drawGantryTop(finishObj.y, true);
   for (const p of particles) {
     ctx.globalAlpha = clamp(p.life / p.max * 1.5, 0, 1);
     ctx.fillStyle = p.color;
@@ -1792,6 +1836,7 @@ function drawRoad3D(C) {
   const gA = rgb(pal.grassAlt), roadA = rgb(pal.road), roadB = rgb(mix(pal.road, [0, 0, 0], 0.07));
   ctx.fillStyle = rgb(pal.grass); ctx.fillRect(-20, C.hor, W + 40, H - C.hor + 20);
   const dl = startObj ? C.back + camRefY - startObj.y : -1e9; // where the start line is, in depth
+  const dlF = finishObj ? C.back + camRefY - finishObj.y : -1e9; // ...and the finish line
   for (let y = Math.ceil(C.hor) + 1; y < H + 2; y += 2) {
     const d = C.f * C.h / (y - C.hor), sc = C.f / d, zw = d + scrollPos;
     const cx = W / 2 - camOff * C.kx * sc, hw = 160 * C.kx * sc, rw = 10 * C.kx * sc;
@@ -1803,7 +1848,7 @@ function drawRoad3D(C) {
     const lw = Math.max(1, 3 * C.kx * sc);
     ctx.fillRect(cx - hw, y, lw, 2.6); ctx.fillRect(cx + hw - lw, y, lw, 2.6);
     if (zw % 40 < 22) { const dw = Math.max(1, 4 * C.kx * sc); for (let l = 1; l < LANES; l++) ctx.fillRect(cx - hw + l * (2 * hw / LANES) - dw / 2, y, dw, 2.6); }
-    if (Math.abs(d - dl) < 5) { const rb = d < dl ? 0 : 1; for (let i = 0; i < 12; i++) { ctx.fillStyle = (i + rb) % 2 ? "#111" : "#f4f4f4"; ctx.fillRect(cx - hw + i * 2 * hw / 12, y, 2 * hw / 12 + 0.6, 2.6); } }
+    for (const dd of [dl, dlF]) if (Math.abs(d - dd) < 5) { const rb = d < dd ? 0 : 1; for (let i = 0; i < 12; i++) { ctx.fillStyle = (i + rb) % 2 ? "#111" : "#f4f4f4"; ctx.fillRect(cx - hw + i * 2 * hw / 12, y, 2 * hw / 12 + 0.6, 2.6); } }
   }
 }
 
@@ -2412,7 +2457,8 @@ function drawSprites3D(C) {
     if (p) list.push({ d: p.d, p, fn: () => drawCarRear(r.team, { brake: r.alive && r.braking, slip: r.alive && r.v >= 4.6, nitro: r.alive && r.nitro > 0 }), tilt: r.tilt, dead: !r.alive });
   }
   for (const it of roadItems) { const p = toScreen(C, it.x, it.y); if (p) list.push({ d: p.d + 0.5, p, item: it }); }
-  if (startObj) { const p = toScreen(C, W / 2, startObj.y); if (p) list.push({ d: p.d, p, fn: drawGantry3D }); }
+  if (startObj) { const p = toScreen(C, W / 2, startObj.y); if (p) list.push({ d: p.d, p, fn: () => drawGantry3D() }); }
+  if (finishObj) { const p = toScreen(C, W / 2, finishObj.y); if (p) list.push({ d: p.d, p, fn: () => drawGantry3D(true) }); }
   list.sort((a, b) => b.d - a.d);
   for (const o of list) {
     const p = o.p, a = fade3D(C, p.d);
@@ -2753,7 +2799,7 @@ function drawSteerHint() {
 
 function drawHud() {
   const p0 = racers[0];
-  if (mode === "single") {
+  if (mode === "single" || mode === "tour") {
     text(p0.score, 56, 36);
     text(`Coins ${p0.coins}`, 30, 15, "left", "#ffd23f");
   } else {
@@ -2856,12 +2902,26 @@ function draw() {
     drawButtons();
   }
 
+  if (state === "cleared") {
+    ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(0, -moy, W, H);
+    const st = ROUTE[level.idx], r = racers[0], s = Math.floor(levelTime);
+    text(lastCity() ? "TOUR COMPLETE!" : "CITY COMPLETE", 118, Math.min(34, (W - 24) / 9.4), "center", "#ffd23f");
+    text(`${st.venue}, ${st.country}  -  ${st.n} / ${ROUTE.length}`, 150, 14, "center", "#ddd");
+    text(`Time ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`, 196, 20);
+    text(`Score ${r.score}   Cars ${r.passed}   Coins +${r.coins}`, 228, 15);
+    drawButtons();
+  }
+
   if (state === "over") {
     ctx.fillStyle = "rgba(0,0,0,0.5)";
     ctx.fillRect(0, -moy, W, H);
     const reached = `Reached ${ROUTE[stageIdx].country}  -  ${runKm()} km`, rc = "#ffd23f";
     text(result, 130, 38);
-    if (mode === "single") {
+    if (mode === "tour") {
+      const r = racers[0];
+      text(`Score ${r.score}   Cars ${r.passed}`, 170, 20);
+      text(`Reached ${Math.round(stageFrac * 100)}% of ${ROUTE[level.idx].venue}`, 228, 16);
+    } else if (mode === "single") {
       const r = racers[0];
       text(`Score ${r.score}   Best ${best}`, 170, 20);
       if (newBest) text("NEW BEST!", 198, 18, "center", "#ffd23f");
