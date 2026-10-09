@@ -890,7 +890,7 @@ function burst(x, y, colors, n, power) {
 // Rain and night change how a city plays, not just how it looks (London, Brussels, Sao Paulo / Singapore, Las Vegas, Doha)
 const rainPlay = () => clamp((((stA && stA.rain) || 0) - 0.2) / 0.2, 0, 1);
 const nightPlay = () => clamp((((stA && stA.night) || 0) - 0.13) / 0.07, 0, 1);
-const nightHide = e => nightPlay() * clamp((camRefY - e.y - 200) / 120, 0, 1); // far cars: only their tail lights show
+const nightHide = e => e.kind === "works" ? 0 : nightPlay() * clamp((camRefY - e.y - (lenOf(e) - CAR_H) / 2 - 200) / 120, 0, 1); // far cars: only their tail lights show
 let sprayFog = 0, sprayCar = null; // the mist thrown up by the car right ahead of you in the wet
 
 function sprayColor() {
@@ -975,14 +975,37 @@ function pedals(r) {
 }
 const throttleFor = r => { const p = pedals(r); return clamp(p.gas - p.brake, -1, 1); }; // -1..1 while driving
 
+// ---- traffic: plain road cars, then lane-changers, long trucks and roadworks, introduced gradually ----
+const ROAD_COLS = ["#f2f2f0", "#b9bec6", "#2a2c31", "#c0392b", "#2f5fa8", "#7d838c", "#2f6b4f", "#d8c9a3", "#8a1f2b", "#e0e3e8"];
+const TRUCK_LEN = 160, WORKS_LEN = 420, SIGN_AHEAD = 650; // roadworks: the warning sign stands this far before the cones
+const lenOf = e => e.len || CAR_H;
+const NEW_KINDS = { changer: "NEW: Lane changers - watch the blinkers", truck: "NEW: Trucks - longer to pass", works: "NEW: Roadworks - cones close a lane" };
+let seenKinds = store.get("seenKinds", []);
+// World Tour adds a new kind every few cities; Endless as you pass cars (the menu's demo traffic stays plain)
+function trafficKinds() {
+  const p = racers ? Math.max(0, ...racers.map(r => r.passed)) : 0;
+  const has = (city, cars) => state === "playing" && (level ? level.idx >= city : p >= cars);
+  return { changer: has(3, 20), truck: has(6, 40), works: has(10, 70) };
+}
+// is this stretch of a lane taken? (lengths count, so trucks and roadworks block what they really cover)
+const laneBusy = (lane, y, len, pad, skip) => enemies.some(o => o !== skip && o.lane === lane && Math.abs(o.y - y) < (lenOf(o) + len) / 2 + pad);
+function wouldWall(lane, y, len, skip) { // something in all three lanes within a short stretch would leave no way through
+  const near = new Set([lane]);
+  for (const o of enemies) if (o !== skip && Math.abs(o.y - y) < (lenOf(o) + len) / 2 + 148) near.add(o.lane);
+  return near.size >= LANES;
+}
+
 function spawnEnemyAt(y) {
-  const taken = racers.map(r => r.team), pool = TEAMS.filter(t => !taken.includes(t));
+  const k = trafficKinds(), roll = Math.random();
+  let kind = "car";
+  if (k.works && roll < 0.05 && !enemies.some(o => o.kind === "works")) kind = "works";
+  else if (k.truck && roll < 0.17) kind = "truck";
+  else if (k.changer && roll < 0.35) kind = "changer";
+  const len = kind === "truck" ? TRUCK_LEN : kind === "works" ? WORKS_LEN : CAR_H, yc = y - (len - CAR_H) / 2; // long things stretch on up the road
   for (let tries = 0; tries < 4; tries++) {
     const lane = Math.floor(Math.random() * LANES);
-    if (enemies.some(o => o.lane === lane && Math.abs(o.y - y) < CAR_H + 70)) continue; // spot still occupied
-    const near = new Set(enemies.filter(o => Math.abs(o.y - y) < 220).map(o => o.lane)); near.add(lane);
-    if (near.size >= LANES) continue; // that would wall off all three lanes: always leave a way through
-    enemies.push({ lane, x: laneX(lane), y, livery: pick(pool), passed: {}, miss: {} });
+    if (laneBusy(lane, yc, len, 70) || wouldWall(lane, yc, len)) continue; // spot taken, or it would wall off the road
+    enemies.push({ kind, lane, x: laneX(lane), y: yc, len, col: pick(ROAD_COLS), passed: {}, miss: {} });
     return;
   }
 }
@@ -993,7 +1016,7 @@ function seedTraffic(y0 = -60) { const lo = trafficGap() > 100 ? 220 : 150; let 
 
 function spawnPickup(y = -AHEAD, forceNitro = false) {
   const lane = Math.floor(Math.random() * LANES);
-  if (enemies.some(o => o.lane === lane && Math.abs(o.y - y) < 220)) return;
+  if (laneBusy(lane, y, 20, 150)) return; // never in a closed lane or under a car
   if (forceNitro || Math.random() < 0.3) pickups.push({ type: "nitro", lane, x: laneX(lane), y });
   else for (let i = 0; i < 4; i++) pickups.push({ type: "coin", lane, x: laneX(lane), y: y - i * 45 });
 }
@@ -1004,9 +1027,9 @@ function aiPlan(r, p, look, ready, clearance) {
   const v = Math.max(r.v, 1), DT = 4, N = clamp(Math.ceil(look / (v * DT)), 4, 26), margin = CAR_H - 6 + 16;
   const safe = Array.from({ length: N + 2 }, () => [true, true, true]);
   for (const e of enemies) {
-    const d0 = r.y - e.y; // > 0: car is ahead of us
-    if (d0 > look + 80 || d0 < -margin - 10) continue;
-    for (let t = 0; t <= N + 1; t++) if (Math.abs(d0 - v * DT * t) < margin) safe[t][e.lane] = false;
+    const d0 = r.y - e.y, ext = (lenOf(e) - CAR_H) / 2; // d0 > 0: it's ahead of us; ext: how much longer than a car it is at each end
+    if (d0 > look + 80 + ext || d0 < -margin - ext - 10) continue;
+    for (let t = 0; t <= N + 1; t++) if (Math.abs(d0 - v * DT * t) < margin + ext) safe[t][e.lane] = false;
   }
   const surv = Array.from({ length: N + 2 }, () => [0, 0, 0]); // how many steps we can keep going from (step, lane)
   for (let t = N + 1; t >= 0; t--) for (let l = 0; l < LANES; l++) {
@@ -1048,8 +1071,8 @@ function aiThink(r) {
       if (e.lane !== lane) continue;
       if (e.miss[r.id] === undefined) e.miss[r.id] = Math.random() < p.miss;
       if (e.miss[r.id]) continue;
-      const d = r.y - e.y; // > 0: car is ahead of us
-      if (d > -CAR_H && d < look) c = Math.min(c, d);
+      const ext = (lenOf(e) - CAR_H) / 2, d = r.y - e.y - ext; // > 0: its tail is ahead of us
+      if (d > -CAR_H - 2 * ext && d < look) c = Math.min(c, d);
     }
     return c;
   };
@@ -1102,7 +1125,7 @@ function updateDemo() {
   spawnAcc += speed;
   if (spawnAcc > 170) { spawnAcc = 0; spawnEnemy(); }
   for (const e of enemies) e.y += speed;
-  enemies = enemies.filter(e => e.y < H + CAR_H);
+  enemies = enemies.filter(e => e.y - lenOf(e) / 2 < H + CAR_H);
   stepRacers();
 }
 
@@ -1241,7 +1264,8 @@ function updatePlaying() {
   const spray = sprayColor(), rp = rainPlay(), p0 = racers[0];
   let fogT = 0; sprayCar = null;
   if (rp > 0) for (const e of enemies) {
-    const d = p0.y - e.y;
+    if (e.kind === "works") continue;
+    const d = p0.y - e.y - (lenOf(e) - CAR_H) / 2; // from its tail
     if (d > 0 && d < 400 && frame % 4 === 0 && particles.length < 320) particles.push({ x: e.x + rnd(-14, 14), y: e.y + 34, vx: rnd(-.6, .6), vy: rnd(.6, 1.6), life: 20, max: 40, size: rnd(3, 5.5), color: "rgba(215,225,240,0.4)" });
     if (d > 0 && d < 280 && Math.abs(e.x - p0.x) < 40) { const k = 1 - d / 280; if (k > fogT) { fogT = k; sprayCar = e; } } // right behind it in your lane
   }
@@ -1279,16 +1303,28 @@ function updatePlaying() {
 
   for (const e of enemies) {
     e.y += speed;
+    if (e.kind === "changer" && !e.moved) { // blink for a second, then move over (only into a clear lane)
+      const ahead = racers[0].y - e.y, ok = l => l >= 0 && l < LANES && !laneBusy(l, e.y, CAR_H, 60, e) && !wouldWall(l, e.y, CAR_H, e);
+      if (!e.blink && ahead > 0 && ahead < 450) { const opts = [e.lane - 1, e.lane + 1].filter(ok); if (opts.length) { e.to = pick(opts); e.blink = 60; } else e.moved = true; }
+      else if (e.blink && --e.blink === 0) { if (ok(e.to)) e.lane = e.to; e.moved = true; }
+    }
+    e.x += (laneX(e.lane) - e.x) * 0.06;
+    if (e.kind !== "car" && !seenKinds.includes(e.kind) && e.y + lenOf(e) / 2 + (e.kind === "works" ? SIGN_AHEAD : 0) > 0) { // first sighting ever
+      seenKinds.push(e.kind); store.set("seenKinds", seenKinds); say(NEW_KINDS[e.kind]);
+    }
+    const reach = (lenOf(e) + CAR_H) / 2; // centre-to-centre distance at which it touches a car
     for (const r of racers) {
       if (!r.alive) continue;
-      if (!e.passed[r.id] && e.y > r.y + CAR_H) {
+      if (!e.passed[r.id] && e.y > r.y + reach) {
         e.passed[r.id] = true;
-        r.passed++;
-        r.score += (1 + (r.v >= 3.6 ? 1 : 0) + (r.v >= 4.8 ? 1 : 0)) * comboMult(r); // fast overtakes pay more, and the combo multiplies them
+        if (e.kind !== "works") { // cones don't count as overtakes
+          r.passed++;
+          r.score += (1 + (r.v >= 3.6 ? 1 : 0) + (r.v >= 4.8 ? 1 : 0)) * comboMult(r); // fast overtakes pay more, and the combo multiplies them
+        }
         if (e.dodged && e.dodged[r.id]) nearMiss(r);
       }
       const hitX = Math.abs(e.x - r.x) < CAR_W - 4;
-      const hitY = Math.abs(e.y - r.y) < CAR_H - 6;
+      const hitY = Math.abs(e.y - r.y) < reach - 6;
       if (hitX && hitY && level && r.ai) { // the Grand Final CPU bumps off traffic instead of crashing: it loses speed and flashes for a second
         if (!(r.ghost > 0)) { r.v *= 0.6; r.ghost = 60; burst(r.x, r.y - 20, ["#ffffff", "#ffd23f"], 12, 3); }
         continue;
@@ -1300,7 +1336,7 @@ function updatePlaying() {
       }
     }
   }
-  enemies = enemies.filter(e => e.y < H + CAR_H);
+  enemies = enemies.filter(e => e.y - lenOf(e) / 2 < H + CAR_H);
 
   if (level ? !racers[0].alive : racers.some(r => !r.alive)) endRound(); // in the tour only your crash ends it (a crashed CPU is simply out)
   else if (finishObj && finishObj.y >= racers[0].y - CAR_H / 2) finishLevel(); // nose over the line
@@ -1603,14 +1639,59 @@ function drawNitroIcon(x, y, r, t) {
   ctx.restore();
 }
 
+// ---- traffic drawing: overhead (nose up, centred) and from behind (origin where the tyres meet the road) ----
+const blinkOn = e => e.blink > 0 && Math.floor(e.blink / 8) % 2 === 0;
+function drawRoadCar(col) { // a plain saloon seen from above
+  ctx.fillStyle = "rgba(0,0,0,0.28)"; roundRect(-15, -31, 34, 68, 9); ctx.fill();
+  ctx.fillStyle = col; roundRect(-17, -34, 34, 68, 9); ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.18)"; roundRect(-14, -31, 8, 62, 4); ctx.fill(); // sheen
+  ctx.fillStyle = "#1b2633"; roundRect(-13, -17, 26, 11, 3); ctx.fill(); roundRect(-12, 16, 24, 8, 3); ctx.fill(); // windscreen, rear window
+  ctx.fillStyle = shade(col, -0.12); roundRect(-12, -6, 24, 22, 3); ctx.fill(); // roof
+  ctx.fillStyle = "#fff6c8"; ctx.fillRect(-14, -34, 7, 3); ctx.fillRect(7, -34, 7, 3); // headlights
+  ctx.fillStyle = "#c81e1e"; ctx.fillRect(-14, 31, 7, 3); ctx.fillRect(7, 31, 7, 3); // tail lights
+  ctx.fillStyle = col; ctx.fillRect(-20, -12, 3, 5); ctx.fillRect(17, -12, 3, 5); // mirrors
+}
+function drawTruck(e) { // cab up front, a long box trailer behind
+  const L = e.len, top = -L / 2;
+  ctx.fillStyle = "rgba(0,0,0,0.3)"; ctx.fillRect(-17, top + 4, 38, L);
+  ctx.fillStyle = e.col; roundRect(-17, top, 34, 38, 6); ctx.fill();
+  ctx.fillStyle = "#1b2633"; ctx.fillRect(-14, top + 6, 28, 9);
+  ctx.fillStyle = "#d9dce1"; ctx.fillRect(-19, top + 42, 38, L - 42);
+  ctx.fillStyle = "rgba(0,0,0,0.12)"; for (let y = top + 52; y < L / 2 - 6; y += 14) ctx.fillRect(-19, y, 38, 2); // roof ribs
+  ctx.fillStyle = e.col; ctx.fillRect(-19, top + 42, 38, 5);
+  ctx.fillStyle = "#c81e1e"; ctx.fillRect(-18, L / 2 - 3, 7, 3); ctx.fillRect(11, L / 2 - 3, 7, 3);
+}
+function drawCone(x, y, s = 1) { ctx.fillStyle = "#ff6a00"; ctx.beginPath(); ctx.arc(x, y, 6 * s, 0, TAU); ctx.fill(); ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(x, y, 3 * s, 0, TAU); ctx.fill(); ctx.fillStyle = "#ff6a00"; ctx.beginPath(); ctx.arc(x, y, 1.5 * s, 0, TAU); ctx.fill(); }
+function worksSignX(e) { return e.lane === 0 ? ROAD_L - 22 : ROAD_R + 22; } // on the verge beside the closed lane (right-hand verge for the middle)
+function drawWorksSign(x, y) { // orange diamond on a post: ROAD WORKS
+  ctx.fillStyle = "#555"; ctx.fillRect(x - 1.5, y - 4, 3, 22);
+  ctx.save(); ctx.translate(x, y - 14); ctx.rotate(Math.PI / 4); ctx.fillStyle = "#ff8c1a"; ctx.fillRect(-12, -12, 24, 24); ctx.strokeStyle = "#111"; ctx.lineWidth = 2; ctx.strokeRect(-10, -10, 20, 20); ctx.restore();
+  textAt("!", x, y - 8, 14, "center", "#111");
+}
+function drawWorks(e) { // a lane closed by cones, with a striped barrier where it starts and a warning sign well before
+  const L = e.len, near = L / 2, side = e.lane === 0 ? -1 : 1;
+  for (let y = -L / 2; y <= near - 70; y += 30) drawCone(0, y);
+  for (let i = 0; i < 4; i++) drawCone(side * (38 - i * 12), near - 10 - i * 18); // taper in from the lane edge
+  for (let i = 0; i < 6; i++) { ctx.fillStyle = i % 2 ? "#fff" : "#e8401c"; ctx.fillRect(-36 + i * 12, near - 6, 12, 6); } // barrier
+  const sx = worksSignX(e) - e.x;
+  if (worksSignX(e) > 30 && worksSignX(e) < W - 30) { drawWorksSign(sx, near + SIGN_AHEAD); textAt("ROAD WORKS", sx, near + SIGN_AHEAD + 30, 9, "center", "#ffb347"); } // only when the verge is on screen
+  const ay = near + SIGN_AHEAD - 10, to = e.lane === 0 ? 1 : -1; // painted on the closed lane too (the verge can be off screen on a phone): an arrow toward the open lane
+  ctx.fillStyle = "rgba(255,140,26,0.75)"; ctx.beginPath(); ctx.moveTo(-to * 18, ay + 22); ctx.lineTo(to * 6, ay - 4); ctx.lineTo(to * 6, ay - 14); ctx.lineTo(to * 26, ay); ctx.lineTo(to * 6, ay + 14); ctx.lineTo(to * 6, ay + 4); ctx.lineTo(-to * 10, ay + 22); ctx.closePath(); ctx.fill();
+  textAt("LANE CLOSED", 0, ay + 40, 10, "center", "#ffb347");
+}
+function drawIndicator(e, x, y, r) { if (blinkOn(e)) glow(x + (e.to < e.lane ? -1 : 1) * Math.abs(r), y, 14, "255,170,0", 0.95); }
+
 function drawEnemy(e) {
   ctx.save();
   ctx.translate(e.x, e.y);
-  drawCar(e.livery);
-  const h = nightHide(e);
+  if (e.kind === "works") { drawWorks(e); ctx.restore(); return; }
+  if (e.kind === "truck") drawTruck(e); else drawRoadCar(e.col);
+  drawIndicator(e, 0, -30, 16); drawIndicator(e, 0, 30, 16); // front and rear indicators
+  const h = nightHide(e), back = lenOf(e) / 2;
   if (h > 0) { // swallowed by the dark: just two red tail lights
-    ctx.fillStyle = `rgba(4,6,16,${0.93 * h})`; roundRect(-24, -40, 48, 80, 10); ctx.fill();
-    for (const x of [-13, 13]) { glow(x, 36, 12, "255,30,30", 0.9 * h + 0.1); ctx.fillStyle = "#ff3030"; ctx.fillRect(x - 3, 34, 6, 3); }
+    ctx.fillStyle = `rgba(4,6,16,${0.93 * h})`; roundRect(-22, -back - 4, 44, lenOf(e) + 8, 10); ctx.fill();
+    for (const x of [-11, 11]) { glow(x, back - 2, 12, "255,30,30", 0.9 * h + 0.1); ctx.fillStyle = "#ff3030"; ctx.fillRect(x - 3, back - 4, 6, 3); }
+    drawIndicator(e, 0, back - 2, 16);
   }
   ctx.restore();
 }
@@ -1625,12 +1706,35 @@ function drawSprayFog(C) {
   if (y0 - 90 > top) { ctx.fillStyle = `rgba(215,225,238,${a})`; ctx.fillRect(0, top, W, y0 - 90 - top); }
 }
 
-function drawEnemyRear(e) { // 3D version of the same
-  drawCarRear(e.livery);
-  const h = nightHide(e);
+function drawRoadCarRear(col) { // a saloon from behind
+  ctx.fillStyle = "rgba(0,0,0,0.32)"; ctx.beginPath(); ctx.ellipse(0, -1, 32, 6, 0, 0, TAU); ctx.fill();
+  ctx.fillStyle = "#111"; ctx.fillRect(-27, -9, 11, 9); ctx.fillRect(16, -9, 11, 9); // tyres
+  ctx.fillStyle = shade(col, -0.15); ctx.beginPath(); ctx.moveTo(-19, -46); ctx.lineTo(19, -46); ctx.lineTo(25, -30); ctx.lineTo(-25, -30); ctx.closePath(); ctx.fill(); // cabin
+  ctx.fillStyle = "#1b2633"; ctx.beginPath(); ctx.moveTo(-16, -44); ctx.lineTo(16, -44); ctx.lineTo(21, -32); ctx.lineTo(-21, -32); ctx.closePath(); ctx.fill(); // rear window
+  ctx.fillStyle = col; roundRect(-29, -31, 58, 25, 5); ctx.fill(); // boot and bumper
+  ctx.fillStyle = "#c81e1e"; ctx.fillRect(-27, -26, 11, 6); ctx.fillRect(16, -26, 11, 6); // tail lights
+  ctx.fillStyle = "#f2f2f2"; ctx.fillRect(-7, -17, 14, 6); ctx.fillStyle = "rgba(0,0,0,0.35)"; ctx.fillRect(-29, -9, 58, 3);
+}
+function drawTruckRear(col) { // a tall box trailer
+  ctx.fillStyle = "rgba(0,0,0,0.32)"; ctx.beginPath(); ctx.ellipse(0, -1, 34, 6, 0, 0, TAU); ctx.fill();
+  ctx.fillStyle = "#111"; ctx.fillRect(-28, -10, 12, 10); ctx.fillRect(16, -10, 12, 10);
+  ctx.fillStyle = "#d9dce1"; ctx.fillRect(-31, -96, 62, 84); ctx.strokeStyle = "rgba(0,0,0,0.25)"; ctx.lineWidth = 1.5; ctx.strokeRect(-31, -96, 62, 84);
+  ctx.beginPath(); ctx.moveTo(0, -94); ctx.lineTo(0, -14); ctx.stroke(); // doors
+  ctx.fillStyle = col; ctx.fillRect(-31, -96, 62, 6);
+  ctx.fillStyle = "#c81e1e"; ctx.fillRect(-30, -20, 9, 6); ctx.fillRect(21, -20, 9, 6);
+  ctx.fillStyle = "#333"; ctx.fillRect(-28, -12, 56, 3); // under-run bar
+}
+function drawCone3D() { ctx.fillStyle = "#ff6a00"; ctx.beginPath(); ctx.moveTo(-6, 0); ctx.lineTo(6, 0); ctx.lineTo(1.5, -18); ctx.lineTo(-1.5, -18); ctx.closePath(); ctx.fill(); ctx.fillStyle = "#fff"; ctx.fillRect(-4, -10, 8, 3); ctx.fillStyle = "#222"; ctx.fillRect(-8, -1, 16, 2); }
+function drawBarrier3D() { ctx.fillStyle = "#444"; ctx.fillRect(-26, -16, 3, 16); ctx.fillRect(23, -16, 3, 16); for (let i = 0; i < 6; i++) { ctx.fillStyle = i % 2 ? "#fff" : "#e8401c"; ctx.fillRect(-30 + i * 10, -26, 10, 10); } }
+function drawSign3D() { ctx.fillStyle = "#555"; ctx.fillRect(-2, -60, 4, 60); ctx.save(); ctx.translate(0, -70); ctx.rotate(Math.PI / 4); ctx.fillStyle = "#ff8c1a"; ctx.fillRect(-16, -16, 32, 32); ctx.strokeStyle = "#111"; ctx.lineWidth = 2.5; ctx.strokeRect(-13, -13, 26, 26); ctx.restore(); ctx.font = "bold 18px sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "#111"; ctx.fillText("!", 0, -62); }
+
+function drawEnemyRear(e, inMirror = false) { // 3D version: by kind, with indicators and the night treatment
+  if (e.kind === "truck") drawTruckRear(e.col); else drawRoadCarRear(e.col);
+  if (blinkOn(e)) glow((e.to < e.lane ? -1 : 1) * 22, -23, 16, "255,170,0", 0.95);
+  const h = inMirror ? 0 : nightHide(e), tall = e.kind === "truck" ? 100 : 52;
   if (h > 0) {
-    ctx.fillStyle = `rgba(4,6,16,${0.93 * h})`; ctx.fillRect(-32, -52, 64, 54);
-    for (const x of [-16, 16]) { glow(x, -14, 14, "255,30,30", 0.9 * h + 0.1); ctx.fillStyle = "#ff3030"; ctx.fillRect(x - 4, -16, 8, 4); }
+    ctx.fillStyle = `rgba(4,6,16,${0.93 * h})`; ctx.fillRect(-33, -tall, 66, tall + 2);
+    for (const x of [-21, 21]) { glow(x, -22, 14, "255,30,30", 0.9 * h + 0.1); ctx.fillStyle = "#ff3030"; ctx.fillRect(x - 4, -24, 8, 4); }
   }
 }
 
@@ -1832,7 +1936,7 @@ function drawTopDown() {
     if (k.y < -30) continue;
     if (k.type === "nitro") drawNitroIcon(k.x, k.y, 13, clock); else drawCoin(k.x, k.y, 10, Math.cos(clock / 8 + k.y / 20));
   }
-  for (const e of enemies) if (e.y > -CAR_H) drawEnemy(e);
+  for (const e of enemies) if (e.y + lenOf(e) / 2 + (e.kind === "works" ? SIGN_AHEAD + 40 : 0) > -40) drawEnemy(e);
   for (const r of racers) drawRacer(r);
   drawSprayFog(null);
   if (startObj) drawGantryTop();
@@ -2590,7 +2694,17 @@ function drawSprites3D(C) {
   const list = [];
   for (const s of scenery) { const p = toScreen(C, s.x3, s.y); if (p && p.sc > (s.kind === "lm" ? 0.1 : 0.17) && p.sx > -240 && p.sx < W + 240) list.push({ d: p.d, p, fn: () => drawScenery3D(s) }); } // tiny, far objects aren't worth drawing
   for (const k of pickups) { const p = toScreen(C, k.x, k.y); if (p) list.push({ d: p.d, p, coin: k }); }
-  for (const e of enemies) { const p = toScreen(C, e.x, e.y, CAR_H / 2); if (p) list.push({ d: p.d, p, fn: () => drawEnemyRear(e) }); }
+  for (const e of enemies) {
+    const back = e.y + lenOf(e) / 2; // the end nearest us
+    if (e.kind === "works") {
+      for (let y = e.y - e.len / 2; y <= back - 70; y += 30) { const p = toScreen(C, e.x, y); if (p) list.push({ d: p.d, p, fn: drawCone3D }); }
+      for (let i = 0; i < 4; i++) { const p = toScreen(C, e.x + (e.lane === 0 ? -1 : 1) * (38 - i * 12), back - 10 - i * 18); if (p) list.push({ d: p.d, p, fn: drawCone3D }); }
+      const pb = toScreen(C, e.x, back - 4); if (pb) list.push({ d: pb.d, p: pb, fn: drawBarrier3D });
+      const ps = toScreen(C, worksSignX(e), back + SIGN_AHEAD); if (ps) list.push({ d: ps.d, p: ps, fn: drawSign3D });
+      continue;
+    }
+    const p = toScreen(C, e.x, back - CAR_H / 2, CAR_H / 2); if (p) list.push({ d: p.d, p, fn: () => drawEnemyRear(e) });
+  }
   for (const r of racers) {
     const p = toScreen(C, r.x, r.y, CAR_H / 2);
     if (p) list.push({ d: p.d, p, fn: () => { if (r.ghost > 0 && Math.floor(r.ghost / 5) % 2) ctx.globalAlpha *= 0.35; drawCarRear(r.team, { brake: r.alive && r.braking, slip: r.alive && r.v >= 4.6, nitro: r.alive && r.nitro > 0 }); }, tilt: r.tilt, dead: !r.alive });
@@ -2684,12 +2798,12 @@ function drawMirror(x, y, w, h, side) {
   for (const k of [-1 / 3, 1 / 3]) { ctx.moveTo(vx, hor); ctx.lineTo(vx + k * hw, bot); }
   ctx.stroke(); ctx.setLineDash([]);
   const list = [];
-  for (const e of enemies) { const dd = e.y - camRefY; if (dd > -50 && dd < 560) list.push({ dd, x: e.x, L: e.livery }); }
+  for (const e of enemies) { const dd = e.y - camRefY; if (e.kind !== "works" && dd > -50 && dd < 560) list.push({ dd, x: e.x, e }); }
   for (const o of racers) if (o !== r && o.alive) { const dd = o.y - r.y; if (dd > -50 && dd < 560) list.push({ dd, x: o.x, L: o.team }); }
   list.sort((a, b) => b.dd - a.dd); // farthest first
   for (const c of list) {
     const s = 1 / (1 + Math.max(c.dd, -40) / 90), cy = hor + (bot - hor) * s, cx = vx + ((c.x - W / 2) / (ROAD_W / 2)) * hw * s;
-    ctx.save(); ctx.translate(cx, cy); ctx.scale(s * 0.9, s * 0.9); drawCarRear(c.L); ctx.restore();
+    ctx.save(); ctx.translate(cx, cy); ctx.scale(s * 0.9, s * 0.9); if (c.e) drawEnemyRear(c.e, true); else drawCarRear(c.L); ctx.restore();
   }
   const gl = ctx.createLinearGradient(x, y, x + w, y + h); gl.addColorStop(0, "rgba(255,255,255,0.24)"); gl.addColorStop(0.45, "rgba(255,255,255,0)");
   ctx.fillStyle = gl; ctx.fillRect(x, y, w, h); ctx.fillStyle = "rgba(120,170,255,0.07)"; ctx.fillRect(x, y, w, h);
