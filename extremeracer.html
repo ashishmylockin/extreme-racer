@@ -477,9 +477,17 @@ let level = null, finishObj = null, levelTime = 0; // World Tour: the city being
 let tourCleared = store.get("tourCleared", 0); // how many cities of the tour are done, in order
 let cityStars = store.get("stars", []); // best stars (0-3) per city
 let starAnim = null, uiFx = []; // CITY COMPLETE: stars popping in one by one, and their sparkle (screen-space particles)
-// score needed for 2 and 3 stars in each city, calibrated with bot runs (see starTargets)
-const STAR_T = [];
-const starTargets = i => STAR_T[i] || [250, 380]; // provisional until the per-city table is filled in
+// score needed for [2, 3] stars in each city. Calibrated with bot runs on each city's traffic: 2 stars is about what a careful
+// ~216 km/h driver scores, 3 stars needs ~300 km/h overtakes plus most of the coins (88% of an expert bot), smoothed city to city
+const STAR_T = [[280, 370], [270, 360], [270, 370], [250, 360], [260, 370], [250, 370], [270, 370], [270, 370], [270, 380], [270, 380], [280, 380],
+  [280, 380], [290, 380], [290, 380], [300, 380], [310, 380], [310, 380], [320, 380], [320, 380], [330, 380], [340, 380], [340, 380]];
+const starTargets = i => STAR_T[i] || [300, 380];
+// World Tour difficulty: early cities are roomy and relaxed, later ones busier with a higher minimum pace
+function tourParams(i) {
+  const k = clamp(i / (ROUTE.length - 2), 0, 1);
+  return { gap: Math.round(250 - 85 * k), vmin: 1.2 + 2.1 * k }; // 250 -> 165 between cars; ~72 -> ~198 km/h floor
+}
+const FINAL_CPU = { ...DIFFS.hard, speed: 4.7, miss: 0.01 }; // the Grand Final rival: Hard's reflexes, cruising at ~282 km/h
 const totalStars = () => cityStars.reduce((a, s) => a + (s || 0), 0);
 let sel = 0, overAt = 0, garageIdx = 0, mapIdx = 0, runStage = 0, startDist = 0, toast = null, padG = [0, 0], padB = [0, 0], hasPad = false, hasTouch = false;
 const held = new Set();
@@ -551,6 +559,10 @@ function startGame(m, d, stage = 0) {
   racers = [makeRacer(0, { label: m === "single" || m === "tour" ? "" : m === "vs" ? "YOU" : "P1", team: TEAMS[equipped] })];
   if (m === "vs") racers.push(makeRacer(1, { label: "CPU", team: rivalTeam(), ai: DIFFS[difficulty] }));
   if (m === "multi") racers.push(makeRacer(1, { label: "P2", team: rivalTeam() }));
+  if (level && stage === ROUTE.length - 1) { // Grand Final: first to the line wins
+    level.final = true; racers[0].label = "YOU";
+    racers.push(makeRacer(1, { label: "CPU", team: rivalTeam(), ai: FINAL_CPU }));
+  }
   grid = newGrid(false); startObj = { y: H - 100 - 50 }; // cars sit on the grid behind the start line, under the lights
   seedTraffic(-260);
   spawnPickup(-450, true); // one nitro canister up the road
@@ -932,6 +944,8 @@ function spawnEnemyAt(y) {
   for (let tries = 0; tries < 4; tries++) {
     const lane = Math.floor(Math.random() * LANES);
     if (enemies.some(o => o.lane === lane && Math.abs(o.y - y) < CAR_H + 70)) continue; // spot still occupied
+    const near = new Set(enemies.filter(o => Math.abs(o.y - y) < 220).map(o => o.lane)); near.add(lane);
+    if (near.size >= LANES) continue; // that would wall off all three lanes: always leave a way through
     enemies.push({ lane, x: laneX(lane), y, livery: pick(pool), passed: {}, miss: {} });
     return;
   }
@@ -1032,7 +1046,8 @@ function stepRacers() {
     if (r.alive) {
       r.x += (laneX(r.lane) - r.x) * 0.3;
       // slower than the pace car -> slip back down the screen; the spring pulls you back when you keep up
-      r.y = clamp(r.y + (speed - r.v) - 0.015 * (r.y - r.ty), 80, H - 38);
+      if (level && level.final && r.ai) r.y = clamp(r.y + (speed - r.v), -AHEAD + 60, H + 400); // the final's CPU sits at its true distance from you, on screen or not
+      else r.y = clamp(r.y + (speed - r.v) - 0.015 * (r.y - r.ty), 80, H - 38);
       const target = clamp(Math.atan2(r.x - px, 10), -0.45, 0.45);
       r.tilt += (target - r.tilt) * 0.3;
     } else {
@@ -1077,29 +1092,28 @@ function rumble() {
 }
 
 // The round ends the instant anyone crashes: the other car wins (or the higher score if both go at once).
-function endRound() {
+function endRound(beaten = false) {
   state = "over";
   overAt = performance.now();
   sel = 0;
   touch.gas = touch.brake = false;
   const [a, b] = racers;
   if (mode === "single") result = "Crash!";
-  else if (mode === "tour") result = "City failed!";
+  else if (mode === "tour") { if (!beaten) result = "City failed!"; }
   else {
     const w = a.alive ? a : b.alive ? b : a.score === b.score ? null : a.score > b.score ? a : b;
     result = !w ? "Draw!" : mode === "vs" ? (w === a ? "You win!" : "CPU wins!") : `${w.label} wins!`;
   }
   if (mode === "single" && a.score > best) { best = a.score; newBest = best > 0; store.set("best", best); }
   sound.silence();
-  sound.thud();
-  rumble();
+  if (!beaten) { sound.thud(); rumble(); }
 }
 
 function updatePlaying() {
   frame++;
   if (steerHint && hasTouch && grid.done && (steerTaps >= 2 || frame > grid.goFrame + 360)) { steerHint = false; store.set("steerHint", true); } // got the idea
   const top = Math.max(...racers.map(r => r.passed));
-  const vmin = Math.min(1 + tier * 0.15, 4.4); // the pace rises every 10 cars passed (up to 264 km/h): you can't dawdle forever
+  const vmin = level ? tourParams(level.idx).vmin : Math.min(1 + tier * 0.15, 4.4); // Endless: the pace rises every 10 cars passed (up to 264 km/h); a tour city has its own floor
   if (Math.floor(top / 10) > tier) tier = Math.floor(top / 10);
 
   // the start lights: five reds come on one by one, hold for a random moment, then turn green
@@ -1156,7 +1170,7 @@ function updatePlaying() {
     r.v = Math.max(r.v, r.rolling ? vmin : 0);       // no top speed: keep your foot down and it keeps climbing
   }
   const live = racers.filter(r => r.alive);
-  if (live.length) speed = Math.max(...live.map(r => r.v)); // the camera follows the fastest car
+  if (live.length) speed = level && level.final && racers[0].alive ? racers[0].v : Math.max(...live.map(r => r.v)); // the camera follows the fastest car (in the Grand Final: you)
   scroll = speed;
   dist += speed;
 
@@ -1169,7 +1183,7 @@ function updatePlaying() {
   }
   if (grid.done && !finishObj) { // nothing new spawns past the finish line
     spawnAcc += speed;
-    const gap = Math.max(trafficGap(), SPAWN_PX - Math.floor(top / 3) * 4);
+    const gap = level ? tourParams(level.idx).gap : Math.max(trafficGap(), SPAWN_PX - Math.floor(top / 3) * 4);
     if (spawnAcc >= gap) { spawnAcc -= gap; spawnEnemy(); }
     pickupAcc -= speed;
     if (pickupAcc <= 0) { spawnPickup(); pickupAcc = rnd(520, 960); }
@@ -1177,6 +1191,7 @@ function updatePlaying() {
 
   const spray = sprayColor();
   for (const r of racers) {
+    if (r.ghost > 0) r.ghost--;
     if (r.ai && r.alive) aiThink(r);
     if (!r.alive || particles.length > 320) continue;
     if (frame % 3 === 0 && spray && r.v > 2) {
@@ -1194,6 +1209,7 @@ function updatePlaying() {
   for (const k of pickups) {
     k.y += speed;
     for (const r of racers) {
+      if (level && r.ai) continue; // the Grand Final CPU leaves pickups alone: a steady, readable rival
       if (r.alive && Math.abs(k.x - r.x) < 26 && Math.abs(k.y - r.y) < 42) {
         collect(r, k); k.taken = true;
         if (k.type === "coin") burst(k.x, k.y, ["#ffd23f", "#fff3b0"], 8, 2.5);
@@ -1214,6 +1230,10 @@ function updatePlaying() {
       }
       const hitX = Math.abs(e.x - r.x) < CAR_W - 4;
       const hitY = Math.abs(e.y - r.y) < CAR_H - 6;
+      if (hitX && hitY && level && r.ai) { // the Grand Final CPU bumps off traffic instead of crashing: it loses speed and flashes for a second
+        if (!(r.ghost > 0)) { r.v *= 0.6; r.ghost = 60; burst(r.x, r.y - 20, ["#ffffff", "#ffd23f"], 12, 3); }
+        continue;
+      }
       if (hitX && hitY) {
         r.alive = false; r.drift = (r.x < e.x ? -1 : 1) * 1.5;
         burst(r.x, r.y, [r.team.p, r.team.s, "#ff9f1c", "#ffd23f", "#444"], 40, 5.5);
@@ -1223,8 +1243,9 @@ function updatePlaying() {
   }
   enemies = enemies.filter(e => e.y < H + CAR_H);
 
-  if (racers.some(r => !r.alive)) endRound();
+  if (level ? !racers[0].alive : racers.some(r => !r.alive)) endRound(); // in the tour only your crash ends it (a crashed CPU is simply out)
   else if (finishObj && finishObj.y >= racers[0].y - CAR_H / 2) finishLevel(); // nose over the line
+  else if (finishObj && level.final && racers[1].alive && finishObj.y >= racers[1].y - CAR_H / 2) { result = "CPU won the final!"; endRound(true); } // beaten to the line
   if (level && state === "playing") { // a little fanfare the moment a star target is beaten
     const tg = starTargets(level.idx), now = 1 + (racers[0].score >= tg[0]) + (racers[0].score >= tg[1]);
     if (now > (level.starNow || 1)) { level.starNow = now; say(`${now}-star score reached!`); sound.tone(880, 1760, 0.18, "triangle", 0.07); }
@@ -1532,6 +1553,7 @@ function drawEnemy(e) {
 function drawRacer(r) {
   ctx.save();
   if (!r.alive) ctx.globalAlpha = 0.55;
+  else if (r.ghost > 0 && Math.floor(r.ghost / 5) % 2) ctx.globalAlpha = 0.35; // flashing after a bump
   ctx.translate(r.x, r.y);
   ctx.rotate(r.tilt);
   drawCar(r.team, { brake: r.alive && r.braking, slip: r.alive && r.v >= 4.6, nitro: r.alive && r.nitro > 0 });
@@ -2486,7 +2508,7 @@ function drawSprites3D(C) {
   for (const e of enemies) { const p = toScreen(C, e.x, e.y, CAR_H / 2); if (p) list.push({ d: p.d, p, fn: () => drawCarRear(e.livery) }); }
   for (const r of racers) {
     const p = toScreen(C, r.x, r.y, CAR_H / 2);
-    if (p) list.push({ d: p.d, p, fn: () => drawCarRear(r.team, { brake: r.alive && r.braking, slip: r.alive && r.v >= 4.6, nitro: r.alive && r.nitro > 0 }), tilt: r.tilt, dead: !r.alive });
+    if (p) list.push({ d: p.d, p, fn: () => { if (r.ghost > 0 && Math.floor(r.ghost / 5) % 2) ctx.globalAlpha *= 0.35; drawCarRear(r.team, { brake: r.alive && r.braking, slip: r.alive && r.v >= 4.6, nitro: r.alive && r.nitro > 0 }); }, tilt: r.tilt, dead: !r.alive });
   }
   for (const it of roadItems) { const p = toScreen(C, it.x, it.y); if (p) list.push({ d: p.d + 0.5, p, item: it }); }
   if (startObj) { const p = toScreen(C, W / 2, startObj.y); if (p) list.push({ d: p.d, p, fn: () => drawGantry3D() }); }
@@ -2792,7 +2814,7 @@ function drawGauge(r) {
   if (r.v >= 4.6) textAt("SLIPSTREAM", cx + R + 10, cy - 22, 11, "left", "#39ff14");
 }
 
-const roundLabel = st => st.venue.toUpperCase() === st.country ? `ROUND ${st.n}` : `ROUND ${st.n}  -  ${st.venue.toUpperCase()}`; // no 'ABU DHABI - ABU DHABI'
+const roundLabel = st => st.n === ROUTE.length ? `GRAND FINAL` : st.venue.toUpperCase() === st.country ? `ROUND ${st.n}` : `ROUND ${st.n}  -  ${st.venue.toUpperCase()}`; // no 'ABU DHABI - ABU DHABI'
 function drawStageBar() { // which city you're in, and how far through it
   const st = ROUTE[stageIdx], x0 = 130, w = 140, y = H - 14;
   ctx.font = "bold 12px sans-serif";
@@ -2852,7 +2874,7 @@ function drawStar(cx, cy, r, on) {
 
 // before the lights go green in a tour city: what each star needs
 function drawTargets() {
-  const tg = starTargets(level.idx), y = 168, rows = [[1, "Finish the city"], [2, `Score ${tg[0]}`], [3, `Score ${tg[1]}`]];
+  const tg = starTargets(level.idx), y = 168, rows = [[1, level.final ? "Beat the CPU to the line" : "Finish the city"], [2, `Score ${tg[0]}`], [3, `Score ${tg[1]}`]];
   ctx.fillStyle = "rgba(0,0,0,0.6)"; roundRect(W / 2 - 110, y, 220, 104, 12); ctx.fill();
   textAt("CITY TARGETS", W / 2, y + 20, 13, "center", "#ffd23f");
   rows.forEach(([n, label], i) => {
@@ -2871,6 +2893,11 @@ function drawHud() {
       if (next) { for (let k = 0; k < next[0]; k++) drawStar(W / 2 - 38 + k * 12, 75, 5, true); textAt(`${next[1]}`, W / 2 - 38 + next[0] * 12, 80, 12, "left", "#ffd23f"); }
       else { for (let k = 0; k < 3; k++) drawStar(W / 2 - 18 + k * 12, 75, 5, true); }
       if (!grid.done) drawTargets();
+      if (level.final) { // where the CPU really is: 1st / 2nd and the gap in seconds
+        const c = racers[1], first = !c.alive || racers[0].y <= c.y, gap = Math.abs(c.y - racers[0].y) / Math.max(1, racers[0].v * 60);
+        text(first ? "1st" : "2nd", 34, 20, "right", first ? "#3dff6e" : "#ff5a5a");
+        if (grid.done && racers[0].v > 1) text(`${first ? "+" : "-"}${gap.toFixed(1)}s`, 56, 13, "right", "#ddd");
+      }
     }
   } else {
     racers.forEach((r, i) => {
@@ -2978,7 +3005,7 @@ function draw() {
   if (state === "cleared") {
     ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(0, -moy, W, H);
     const st = ROUTE[level.idx], r = racers[0], s = Math.floor(levelTime);
-    text(lastCity() ? "TOUR COMPLETE!" : "CITY COMPLETE", 118, Math.min(34, (W - 24) / 9.4), "center", "#ffd23f");
+    text(lastCity() ? "TOUR CHAMPION!" : "CITY COMPLETE", 118, Math.min(34, (W - 24) / 9.4), "center", "#ffd23f");
     text(`${st.venue}, ${st.country}  -  ${st.n} / ${ROUTE.length}`, 150, 14, "center", "#ddd");
     text(`Time ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`, 186, 20);
     text(`Score ${r.score}   Cars ${r.passed}   Coins +${r.coins}`, 214, 15);
