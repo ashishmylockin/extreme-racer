@@ -146,8 +146,8 @@ function drawCredits() {
   drawLogo(W / 2, 120, Math.min(0.8, (W - 30) / 330));
   text("Made by Ashish", 196, 22, "center", "#ffd23f");
   text(`Version ${VERSION}`, 222, 13, "center", "#ccc");
-  text("Everything you see and hear is drawn and synthesised in code:", 266, 12, "center", "#ddd");
-  text("no image or sound files.", 284, 12, "center", "#ddd");
+  text(window.R3D ? "3D models by Kenney, skies by Poly Haven (both CC0)," : "Everything you see and hear is drawn and synthesised in code:", 262, 12, "center", "#ddd");
+  text(window.R3D ? "Three.js engine. Music and sounds are made in code." : "no image or sound files.", 280, 12, "center", "#ddd");
   text("All teams, cars and liveries are fictional.", 314, 12, "center", "#ddd");
   text("Thanks for playing!", 366, 18);
 }
@@ -156,7 +156,7 @@ const drawVersion = () => textAt(`v${VERSION}`, W - 14, H - 10, 10, "right", "rg
 function drawControls() { // every way to play, on one page
   text("CONTROLS", 40, 28);
   const cols = [
-    ["KEYBOARD", ["Left / Right or A / D: change lane", "Up / W: gas    Down / S: brake", "C: camera    P / Esc: pause", "F: fullscreen    M: mute    N: next song", "R: retry after a crash"]],
+    ["KEYBOARD", ["Left / Right or A / D: change lane", "Up / W: gas    Down / S: brake", "C: camera    P / Esc: pause", "P again (paused): photo mode", "F: fullscreen    M: mute    N: next song", "R: retry after a crash"]],
     ["MULTIPLAYER", ["P1: arrow keys    P2: W A S D"]],
     ["CONTROLLER", ["Stick / D-pad: change lane", "RT or A: gas    LT, B or X: brake", "Y / Back: camera", "Start: pause"]],
     ["TOUCH", ["Tap left / right half: change lane", "GAS and BRAKE pads", "Camera top-left, pause bottom-right"]],
@@ -586,6 +586,7 @@ function draw() {
   if (state === "paused") {
     ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.fillRect(0, -moy, W, H);
     text("PAUSED", 200, 40);
+    if (window.R3D) textAt("Press P for photo mode", W / 2, 462, 12, "center", "#bbb");
     text(sel === 1 ? "Left / Right or tap to change the camera" : CAMS[cam].desc, 235, 14, "center", "#ccc");
     drawButtons();
   }

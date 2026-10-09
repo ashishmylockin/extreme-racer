@@ -85,3 +85,4 @@ const B = {
 export const hasLandmark = key => !!B[key];
 // build (once per instance) the landmark `key`, fitting `half` world units
 export function makeLandmark(key, half) { const g = B[key](half); g.traverse(o => { if (o.isMesh) o.castShadow = true; }); return g; }
+export const LANDMARK_KEYS = Object.keys(B);

@@ -90,6 +90,7 @@ export function ensure(instancer, choice) {
   const parts = partsOf(wrap);
   if (choice.sponsor) for (const p of parts) if (p.material.map) p.material = sponsorMaterial(choice.sponsor); // the billboard's picture
   if (/^building-|^low-detail/.test(choice.name)) lightWindows(parts);
+  if (/^grandStand/.test(choice.name)) for (const p of parts) if (p.material.name === "red") p.material = crowdMat; // the seats become a crowd
   instancer.register(key, parts);
   info = { key, w: size.x, h: size.y }; registered.set(key, info);
   return info;
@@ -114,4 +115,17 @@ export function lightWindows(parts) {
     mat.emissiveMap = windowTex; mat.emissive = new THREE.Color(0xffd9a0); mat.emissiveIntensity = 0; mat.userData.windowsLit = true; mat.needsUpdate = true;
     windowMats.push(mat);
   }
+}
+
+// ---------- crowds in the grandstands ----------
+// The stands' seat material is swapped for a speckled texture in the city's crowd colours (flags, shirts), so each stand looks full of people.
+const crowdCanvas = document.createElement("canvas"); crowdCanvas.width = crowdCanvas.height = 64;
+const crowdTex = new THREE.CanvasTexture(crowdCanvas); crowdTex.wrapS = crowdTex.wrapT = THREE.RepeatWrapping; crowdTex.repeat.set(8, 4); crowdTex.magFilter = THREE.NearestFilter; crowdTex.colorSpace = THREE.SRGBColorSpace;
+export const crowdMat = new THREE.MeshStandardMaterial({ map: crowdTex, roughness: 0.9 });
+let crowdKey = "";
+export function setCrowd(colors) { // colors: ["#ff6a00", "#fff", ...]
+  const key = colors.join(","); if (key === crowdKey) return; crowdKey = key;
+  const g = crowdCanvas.getContext("2d"); g.fillStyle = "#2a2a30"; g.fillRect(0, 0, 64, 64);
+  for (let y = 0; y < 64; y += 4) for (let x = 0; x < 64; x += 4) { g.fillStyle = colors[(Math.random() * colors.length) | 0]; g.fillRect(x + 1, y, 2, 3); g.fillStyle = "#e8c9a4"; g.fillRect(x + 1, y - 1 < 0 ? 0 : y - 1, 2, 1); } // a head over each shirt
+  crowdTex.needsUpdate = true;
 }

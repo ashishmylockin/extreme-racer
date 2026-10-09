@@ -8,7 +8,7 @@ import { SCALE, simX, simZ, roadHalf, arrToHex, setCol } from "./mapping.js";
 import * as M from "./models.js";
 import { createWorld } from "./world.js";
 import { createCameraRig } from "./cameras.js";
-import { Instancer, chooseModel, ensure, hasChoice, leafMat, leafDarkMat, grassTopMat, windowMats } from "./scenery.js";
+import { Instancer, chooseModel, ensure, hasChoice, leafMat, leafDarkMat, grassTopMat, windowMats, setCrowd } from "./scenery.js";
 import { hasModel } from "./assets.js";
 import { loadSkies } from "./env.js";
 import { glows } from "./landmarks.js";
@@ -63,7 +63,13 @@ export function createRenderer3D(canvas2d, glCanvas) {
     for (const t of [post.composer.renderTarget1, post.composer.renderTarget2]) if (t.samples !== Q.msaa) { t.samples = Q.msaa; t.dispose(); }
     for (const m of rig.mirrors) m.rt.setSize(Q.mirrorRes, Q.mirrorRes / 2);
     sizeKey = ""; // the pixel ratio may have changed
-    for (const m of scene.children) if (m.material && m.material.needsUpdate !== undefined) m.material.needsUpdate = true;
+    refreshMaterials(); // shadows on/off changes every material's shader
+  }
+
+  // after a quality change, every material must be rebuilt (e.g. shadows on/off changes its shader), including those of hidden pooled objects
+  function refreshMaterials() {
+    const seen = new Set(), mark = o => o.traverse(c => { const ms = c.material ? (Array.isArray(c.material) ? c.material : [c.material]) : []; for (const m of ms) if (!seen.has(m)) { seen.add(m); m.needsUpdate = true; } });
+    mark(scene); for (const list of pools.values()) for (const o of list) mark(o);
   }
 
   // ---------- pools: finished objects are hidden and reused instead of rebuilt ----------
@@ -268,6 +274,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
     const flash = weather.update(time, fxDt, camera.position, rainI, wind, pal.petals, mode, Q.rain);
     if (flash > 0) { scene.environmentIntensity += flash * 3; world.sun.intensity += flash * 4; } // lightning lights up the whole scene for a moment
     for (const w of windowMats) w.emissiveIntensity = 2.4 * night; // lit windows in the skyline
+    setCrowd(stA.crowd); // the grandstand crowd wears this city's colours
     let nl = 0;
     if (night > 0.04) for (const [s, rec] of instT.recs) if (s.kind === "lamp") { const l = lampList[nl++] || (lampList[nl - 1] = { x: 0, z: 0, side: 1 }); l.x = rec.cx; l.z = lerp(rec.pz, rec.cz, alpha); l.side = s.side; }
     nightFx.update(night, lampList, nl, p0.alive && rec0 ? (playerLight.x = camTarget.x, playerLight.z = camTarget.z, playerLight.yaw = -camTarget.tilt, playerLight) : null);

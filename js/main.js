@@ -48,14 +48,17 @@ requestAnimationFrame(loop);
   if (dev) {
     const [m, c, k] = dev.split(",");
     if (m === "garage") { garageIdx = +c || 0; openMenu("garage"); }
-    else if (m === "menu" || m === "options" || m === "graphics") openMenu(m);
+    else if (m === "menu" || m === "options" || m === "graphics" || m === "stats" || m === "upgrades" || m === "credits" || m === "controls" || m === "songs" || m === "difficulty" || m === "tutorial") openMenu(m);
+    else if (m === "map") openMap();
+    else if (m === "brief") { mapIdx = +c || 0; jumpTo(mapIdx, 0.3); openMenu("brief"); }
     else {
-      cam = +k || 0; startGame(m === "pause" ? "tour" : m || "single", "medium", +c || 0); held.add("ArrowUp");
+      cam = +k || 0; startGame(m === "pause" || m === "camerapick" ? "tour" : m || "single", "medium", +c || 0); held.add("ArrowUp");
       if (q.has("god")) racers[0].ghost = 1e9; // god: crashes are ignored
       for (let i = +q.get("ff") || 0; i > 0; i--) update(); // ff=600 fast-forwards 600 sim ticks (10 s)
       if (q.has("crash")) { racers[0].alive = false; racers[0].drift = 1.5; racers[0].ghost = 0; endRound(); }
       if (q.has("finish") && level) finishLevel();
       if (m === "pause") state = "paused";
+      if (m === "camerapick") openMenu("camera", cam);
     }
   }
 }

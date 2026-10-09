@@ -19,3 +19,7 @@ Game code, menus, music and sound effects: made by Ashish. All teams, liveries a
 
 All from [Poly Haven](https://polyhaven.com), CC0 1.0 (https://polyhaven.com/license):
 Kiara 1 (Dawn) - `morning.hdr`, Kloofendal 48d Partly Cloudy (Pure Sky) - `midday.hdr`, Venice Sunset - `sunset.hdr`, Satara Night (No Lamps) - `night.hdr`, Overcast Soil (Pure Sky) - `overcast.hdr`. 1k versions.
+
+## Made in code (original)
+
+The race-car livery colours, 56 city landmarks, country props, the cockpit, the showroom and all effects (weather, night lighting, particles, post-processing) are built from simple shapes and shaders in `js/render3d/`. Music and sound effects are synthesised in code.

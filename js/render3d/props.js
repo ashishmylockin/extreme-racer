@@ -47,3 +47,4 @@ const P = {
 };
 export const hasProp = key => !!P[key];
 export function makeProp(key) { const g = new THREE.Group(); P[key](g); g.traverse(o => { if (o.isMesh) o.castShadow = true; }); return g; }
+export const PROP_KEYS = Object.keys(P);
