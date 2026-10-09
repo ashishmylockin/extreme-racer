@@ -68,7 +68,7 @@ itch.io also wants a **cover image (630 × 500)**: crop the title screen or a ch
 
 > **Extreme Racer** is an arcade racing game you play right in your browser.
 >
-> Drive an open-wheel race car on a World Tour through 22 cities, from Sydney to the Grand Final in Abu Dhabi. Every city has its own landmarks, weather and traffic: rain and spray in London, neon nights in Las Vegas, roadworks, trucks and drivers who change lanes on you.
+> Drive an open-wheel race car on a World Tour through 22 cities, from Sydney to the Grand Final in Abu Dhabi. Every city has its own landmarks, weather and traffic: rain and spray in London, neon nights in Las Vegas, roadworks and long trucks.
 >
 > - **World Tour:** 22 cities, 3 stars and 3 missions each, and a head-to-head Grand Final
 > - **Daily Challenge:** the same city and traffic for everyone each day; keep your streak going

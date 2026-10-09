@@ -1210,17 +1210,17 @@ function pedals(r) {
 }
 const throttleFor = r => { const p = pedals(r); return clamp(p.gas - p.brake, -1, 1); }; // -1..1 while driving
 
-// ---- traffic: plain road cars, then lane-changers, long trucks and roadworks, introduced gradually ----
+// ---- traffic: plain road cars, then long trucks and roadworks, introduced gradually; nothing ever changes lane ----
 const ROAD_COLS = ["#f2f2f0", "#b9bec6", "#2a2c31", "#c0392b", "#2f5fa8", "#7d838c", "#2f6b4f", "#d8c9a3", "#8a1f2b", "#e0e3e8"];
 const TRUCK_LEN = 160, WORKS_LEN = 420, SIGN_AHEAD = 650; // roadworks: the warning sign stands this far before the cones
 const lenOf = e => e.len || CAR_H;
-const NEW_KINDS = { changer: "NEW: Lane changers - watch the blinkers", truck: "NEW: Trucks - longer to pass", works: "NEW: Roadworks - cones close a lane", shield: "NEW: Shield - absorbs one crash" };
+const NEW_KINDS = { truck: "NEW: Trucks - longer to pass", works: "NEW: Roadworks - cones close a lane", shield: "NEW: Shield - absorbs one crash" };
 let seenKinds = store.get("seenKinds", []);
 // World Tour adds a new kind every few cities; Endless as you pass cars (the menu's demo traffic stays plain)
 function trafficKinds() {
   const p = racers ? Math.max(0, ...racers.map(r => r.passed)) : 0;
   const has = (city, cars) => state === "playing" && (level ? level.idx >= city : p >= cars);
-  return { changer: has(3, 20), truck: has(6, 40), works: has(10, 70) };
+  return { truck: has(6, 40), works: has(10, 70) };
 }
 // is this stretch of a lane taken? (lengths count, so trucks and roadworks block what they really cover)
 const laneBusy = (lane, y, len, pad, skip) => enemies.some(o => o !== skip && o.lane === lane && Math.abs(o.y - y) < (lenOf(o) + len) / 2 + pad);
@@ -1235,12 +1235,11 @@ function spawnEnemyAt(y) {
   let kind = "car";
   if (k.works && roll < 0.05 && !enemies.some(o => o.kind === "works")) kind = "works";
   else if (k.truck && roll < 0.17) kind = "truck";
-  else if (k.changer && roll < 0.35) kind = "changer";
   const len = kind === "truck" ? TRUCK_LEN : kind === "works" ? WORKS_LEN : CAR_H, yc = y - (len - CAR_H) / 2; // long things stretch on up the road
   for (let tries = 0; tries < 4; tries++) {
     const lane = Math.floor(grand() * LANES);
     if (laneBusy(lane, yc, len, 70) || wouldWall(lane, yc, len)) continue; // spot taken, or it would wall off the road
-    enemies.push({ kind, lane, x: laneX(lane), y: yc, len, col: gpick(ROAD_COLS), side: grand() < 0.5 ? -1 : 1, passed: {}, miss: {} }); // side: which way a lane-changer prefers to go
+    enemies.push({ kind, lane, x: laneX(lane), y: yc, len, col: gpick(ROAD_COLS), passed: {}, miss: {} });
     return;
   }
 }
@@ -1542,12 +1541,6 @@ function updatePlaying() {
 
   for (const e of enemies) {
     e.y += speed;
-    if (e.kind === "changer" && !e.moved) { // blink for a second, then move over (only into a clear lane)
-      const ahead = racers[0].y - e.y, ok = l => l >= 0 && l < LANES && !laneBusy(l, e.y, CAR_H, 60, e) && !wouldWall(l, e.y, CAR_H, e)
-        && !racers.some(r => r.alive && r.lane === l && Math.abs(r.y - e.y) < CAR_H + 40); // never pull over onto someone alongside
-      if (!e.blink && ahead > 0 && ahead < 450) { const opts = [e.lane - 1, e.lane + 1].filter(ok); if (opts.length) { e.to = opts.includes(e.lane + e.side) ? e.lane + e.side : opts[0]; e.blink = 60; } else e.moved = true; }
-      else if (e.blink && --e.blink === 0) { if (ok(e.to)) e.lane = e.to; e.moved = true; }
-    }
     e.x += (laneX(e.lane) - e.x) * 0.06;
     if (e.kind !== "car" && !seenKinds.includes(e.kind) && e.y + lenOf(e) / 2 + (e.kind === "works" ? SIGN_AHEAD : 0) > 0) { // first sighting ever
       seenKinds.push(e.kind); store.set("seenKinds", seenKinds); say(NEW_KINDS[e.kind]);
@@ -3598,9 +3591,9 @@ function drawControls() { // every way to play, on one page
 // ---- main menu carousel: cards side by side, each with a live little preview of what it is ----
 const CARD_INFO = [ // per MAIN_MENU entry: colour, tagline, badge, preview
   { col: "#ff7a1a", tag: "22 cities, stars and missions", badge: () => `${totalStars()} / ${ROUTE.length * 3} stars`, art: "tour" },
-  { col: "#ffd23f", tag: "One race, the same for everyone today", badge: () => daily.streak ? `${daily.streak}-day streak` : "Play today", art: "daily" },
+  { col: "#ffd23f", tag: "Same race for everyone today", badge: () => daily.streak ? `${daily.streak}-day streak` : "Play today", art: "daily" },
   { col: "#3dff6e", tag: "How far can you go?", badge: () => `Best ${best}`, art: "endless" },
-  { col: "#ff4d4d", tag: "Race the CPU, Easy to Impossible", badge: () => "4 levels", art: "vs" },
+  { col: "#ff4d4d", tag: "Race the CPU, Easy to Impossible!", badge: () => "4 levels", art: "vs" },
   { col: "#b06bff", tag: "Two players, one keyboard", badge: () => "P1 vs P2", art: "multi" },
   { col: "#5fd4ff", tag: "Cars, liveries and upgrades", badge: () => `${wallet} coins`, art: "garage" },
   { col: "#ffb347", tag: "Your records and awards", badge: () => `${achieved.length} / ${ACHIEVEMENTS.length} awards`, art: "stats" },
@@ -3641,9 +3634,10 @@ function drawCarousel() {
     }
     const ty = py + ph;
     ctx.save(); roundRect(c.x + 2, c.y, c.w - 4, c.h, 16); ctx.clip(); // side cards are narrower: keep their text inside
-    textAt(typeof item.label === "function" ? item.label() : item.label, c.x + c.w / 2, ty + 28 * c.s, 19 * c.s, "center", "#fff");
-    ctx.font = `${Math.round(11.5 * c.s)}px sans-serif`;
-    textAt(info.tag, c.x + c.w / 2, ty + 50 * c.s, 11 * c.s, "center", "#c8ced8");
+    const room = c.w - 18 * c.s, fit = (str, size) => { ctx.font = `bold ${size}px sans-serif`; const w = ctx.measureText(str).width; return w > room ? size * room / w : size; }; // shrink text that would run past the card's edges
+    const label = typeof item.label === "function" ? item.label() : item.label;
+    textAt(label, c.x + c.w / 2, ty + 28 * c.s, fit(label, 19 * c.s), "center", "#fff");
+    textAt(info.tag, c.x + c.w / 2, ty + 50 * c.s, fit(info.tag, 11 * c.s), "center", "#c8ced8");
     const bt = info.badge(); ctx.font = `bold ${Math.round(11 * c.s)}px sans-serif`; const bw = ctx.measureText(bt).width + 18 * c.s;
     roundRect(c.x + c.w / 2 - bw / 2, ty + 62 * c.s, bw, 20 * c.s, 10 * c.s); ctx.fillStyle = shade(info.col, -0.35); ctx.fill();
     textAt(bt, c.x + c.w / 2, ty + 76 * c.s, 11 * c.s, "center", "#fff");

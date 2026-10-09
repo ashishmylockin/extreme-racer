@@ -9,7 +9,7 @@ Open `extremeracer.html` in a browser (press **F** for fullscreen). To publish i
 - **Endless**, **VS Computer** (Easy to Impossible) and **Multiplayer** (arrows + WASD)
 - Near misses build a combo that multiplies your score; faster driving always scores more
 - Nitro you control (up to 3 charges), rare shields that absorb one crash
-- Traffic that gets trickier: lane-changers, long trucks and roadworks
+- Traffic that gets trickier: long trucks and roadworks
 - Rain and night cities drive differently
 - Garage: 11 fictional teams and upgrades (Handling, Nitro, Magnet, Shield)
 - Stats and 18 achievements
