@@ -210,6 +210,16 @@ if (!owned.includes(equipped)) equipped = 0;
 let cam = store.get("camera", 0);
 if (!(cam >= 0 && cam < CAMS.length)) cam = 0;
 
+// ---------- settings: volumes (1 = the original mix), screen shake, reduced effects for slow machines ----------
+let settings = Object.assign({ music: 1, fx: 1, engine: 1, shake: true, lowfx: false }, store.get("settings", {}));
+const saveSettings = () => store.set("settings", settings);
+function applyVolumes() {
+  if (sound.fxBus) { sound.fxBus.gain.value = settings.fx; sound.engBus.gain.value = settings.engine; }
+  if (music.bus) music.bus.gain.setTargetAtTime(0.5 * settings.music, sound.ac.currentTime, 0.05);
+  if (music.audio) music.audio.volume = 0.6 * settings.music;
+}
+const maxParticles = () => settings.lowfx ? 90 : 320;
+
 // ---------- sound (synthesised, no assets) ----------
 
 const sound = {
@@ -221,6 +231,8 @@ const sound = {
         this.out = this.ac.createGain();
         this.out.gain.value = 0.22; // master level for effects: kept low
         this.out.connect(this.ac.destination);
+        this.fxBus = this.ac.createGain(); this.fxBus.gain.value = settings.fx; this.fxBus.connect(this.out); // effects volume
+        this.engBus = this.ac.createGain(); this.engBus.gain.value = settings.engine; this.engBus.connect(this.out); // engine volume
       } catch (e) { this.ac = null; }
     }
     if (this.ac && this.ac.state === "suspended") this.ac.resume();
@@ -242,7 +254,7 @@ const sound = {
     o.frequency.exponentialRampToValueAtTime(Math.max(1, f2), t + dur);
     g.gain.setValueAtTime(vol, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(g); g.connect(this.out);
+    o.connect(g); g.connect(this.fxBus);
     o.start(t); o.stop(t + dur);
   },
   // filtered noise burst whose filter sweeps from f0 to f1: the building block for clicks, whooshes and pops
@@ -252,7 +264,7 @@ const sound = {
     src.buffer = this.noiseBuffer(); f.type = type; f.Q.value = 1.2;
     f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
     g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    src.connect(f); f.connect(g); g.connect(this.out);
+    src.connect(f); f.connect(g); g.connect(this.fxBus);
     src.start(t, Math.random() * 0.5, dur + 0.02);
   },
   // paddle-shift: a crisp click and a blow-off "pssh" on the way up, a throttle blip and burble on the way down
@@ -279,7 +291,7 @@ const sound = {
         const a = this.ac.createOscillator(), b = this.ac.createOscillator(), c = this.ac.createOscillator();
         const g = this.ac.createGain(), gc = this.ac.createGain(), f = this.ac.createBiquadFilter();
         a.type = "sawtooth"; b.type = "square"; c.type = "triangle"; f.type = "lowpass"; g.gain.value = 0.05; gc.gain.value = 0.25;
-        a.connect(f); b.connect(f); c.connect(gc); gc.connect(f); f.connect(g); g.connect(this.out);
+        a.connect(f); b.connect(f); c.connect(gc); gc.connect(f); f.connect(g); g.connect(this.engBus);
         a.start(); b.start(); c.start();
         this.eng = { a, b, c, f, g };
       }
@@ -301,7 +313,7 @@ const sound = {
     if (!this.nit) {
       const ac = this.ac, src = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
       src.buffer = this.noiseBuffer(); src.loop = true; f.type = "bandpass"; f.frequency.value = 1600; f.Q.value = 0.6; g.gain.value = 0;
-      src.connect(f); f.connect(g); g.connect(this.out); src.start();
+      src.connect(f); f.connect(g); g.connect(this.engBus); src.start();
       this.nit = { g, f };
     }
     const t = this.ac.currentTime;
@@ -340,7 +352,7 @@ const sound = {
       const mk = (type, freq, q) => {
         const s = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
         s.buffer = buf; s.loop = true; f.type = type; f.frequency.value = freq; f.Q.value = q; g.gain.value = 0;
-        s.connect(f); f.connect(g); g.connect(this.out); s.start();
+        s.connect(f); f.connect(g); g.connect(this.fxBus); s.start();
         return g;
       };
       this.env = { rain: mk("highpass", 2200, 0.7), wind: mk("bandpass", 420, 0.9) };
@@ -379,7 +391,7 @@ const music = {
   },
   clearUser() { this.stop(); this.tracks = this.tracks.filter(t => t.synth); this.userCount = 0; this.idx = -1; },
   tick(should) {
-    const want = should && sound.on && this.on;
+    const want = should && sound.on && this.on && settings.music > 0;
     if (want && !this.playing && sound.ac && sound.ac.state === "running") this.start();
     else if (!want && this.playing) this.stop();
   },
@@ -390,11 +402,11 @@ const music = {
     if (tr.synth) {
       const ac = sound.ac;
       this.bus = ac.createGain(); this.bus.gain.value = 0; this.bus.connect(ac.destination);
-      this.bus.gain.setTargetAtTime(0.5, ac.currentTime, 0.15);
+      this.bus.gain.setTargetAtTime(0.5 * settings.music, ac.currentTime, 0.15);
       this.step = 0; this.nextT = ac.currentTime + 0.1;
       this.timer = setInterval(() => this.schedule(tr.synth), 25);
     } else {
-      this.audio = new Audio(tr.url); this.audio.volume = 0.6;
+      this.audio = new Audio(tr.url); this.audio.volume = 0.6 * settings.music;
       this.audio.onended = () => { this.stop(); this.next(); };
       this.audio.play().catch(() => {});
     }
@@ -695,17 +707,28 @@ const MAIN_MENU = [
   { label: "Multiplayer", go: () => startGame("multi") },
   { label: "Garage", go: () => { garageIdx = equipped; openMenu("garage"); } },
   { label: "Stats & Awards", go: () => openMenu("stats") },
-  { label: "Options", go: () => openMenu("options") },
+  { label: "Settings", go: () => openMenu("options") },
 ];
+// Settings: three volume sliders (Left / Right or tap the bar), toggles, the controls page and the songs sub-menu
+function setSlider(key, v) { settings[key] = Math.round(clamp(v, 0, 1) * 10) / 10; saveSettings(); applyVolumes(); if (key !== "music") sound.tone(600, 600, 0.05, "square", 0.03); }
 const OPTIONS_MENU = [
-  { label: () => `Sound FX: ${sound.on ? "ON" : "OFF"}`, go: () => sound.toggle() },
-  { label: () => `Music: ${music.on ? "ON" : "OFF"}`, go: () => { music.on = !music.on; store.set("music", music.on); } },
-  { label: "Next Song", go: () => music.next() },
-  { label: () => `Add My Songs${music.userCount ? ` (${music.userCount})` : ""}`, go: () => songInput.click() },
-  { label: () => `Fullscreen: ${document.fullscreenElement || document.webkitFullscreenElement ? "ON" : "OFF"}`, go: () => toggleFullscreen() },
-  { label: "Clear My Songs", go: () => { music.clearUser(); songDB.clear().catch(() => {}); say("Songs cleared"); } },
+  { slider: "music", name: "Music", label: "", w: 300, go: () => {} },
+  { slider: "fx", name: "Effects", label: "", w: 300, go: () => {} },
+  { slider: "engine", name: "Engine", label: "", w: 300, go: () => {} },
+  { label: () => `Screen shake: ${settings.shake ? "ON" : "OFF"}`, w: 300, go: () => { settings.shake = !settings.shake; saveSettings(); } },
+  { label: () => `Reduce effects: ${settings.lowfx ? "ON" : "OFF"}`, w: 300, go: () => { settings.lowfx = !settings.lowfx; saveSettings(); fit(); } },
+  { label: () => `Fullscreen: ${document.fullscreenElement || document.webkitFullscreenElement ? "ON" : "OFF"}`, w: 300, go: () => toggleFullscreen() },
+  { label: "Controls", w: 300, go: () => openMenu("controls") },
+  { label: () => `Songs...${music.userCount ? ` (${music.userCount} of yours)` : ""}`, w: 300, go: () => openMenu("songs") },
   { label: "Back", go: () => openMenu("menu", 7) },
 ];
+const SONGS_MENU = [
+  { label: "Next Song", go: () => music.next() },
+  { label: () => `Add My Songs${music.userCount ? ` (${music.userCount})` : ""}`, go: () => songInput.click() },
+  { label: "Clear My Songs", go: () => { music.clearUser(); songDB.clear().catch(() => {}); say("Songs cleared"); } },
+  { label: "Back", go: () => openMenu("options", 7) },
+];
+const CONTROLS_MENU = [{ label: "Back", go: () => openMenu("options", 6) }];
 const DIFF_MENU = [
   { label: "Easy", go: () => startGame("vs", "easy") },
   { label: "Medium", go: () => startGame("vs", "medium") },
@@ -834,7 +857,9 @@ function currentMenu() {
     case "stats": return { items: STATS_MENU, top: 440, h: 28, gap: 0 };
     case "map": return { items: MAP_MENU, top: 446, h: 28, gap: 0 };
     case "brief": return { items: BRIEF_MENU, top: 370, h: 34, gap: 8 };
-    case "options": return { items: OPTIONS_MENU, top: 138, h: 34, gap: 8 };
+    case "options": return { items: OPTIONS_MENU, top: 92, h: 31, gap: 6 };
+    case "songs": return { items: SONGS_MENU, top: 150, h: 36, gap: 8 };
+    case "controls": return { items: CONTROLS_MENU, top: 440, h: 30, gap: 0 };
     case "difficulty": return { items: DIFF_MENU, top: 200, h: 40, gap: 10 };
     case "garage": return { items: GARAGE_MENU, top: 336, h: 36, gap: 6 };
     case "upgrades": return { items: UPGRADE_MENU, top: 92, h: 36, gap: 8 };
@@ -889,6 +914,8 @@ function menuAction(a) {
     else if (a === "down") moveMap(Math.min(ROUTE.length - 1, c * MAP_ROWS + Math.min(MAP_ROWS - 1, r + 1)));
     else if (a === "left" || a === "right") moveMap(Math.min(ROUTE.length - 1, (a === "left" ? 0 : 1) * MAP_ROWS + r));
     else if (a === "confirm") startCity(mapIdx);
+  } else if (state === "options" && OPTIONS_MENU[sel] && OPTIONS_MENU[sel].slider && (a === "left" || a === "right")) { // nudge a volume
+    const k = OPTIONS_MENU[sel].slider; setSlider(k, settings[k] + (a === "left" ? -0.1 : 0.1));
   } else if (state === "tutorial" && (a === "left" || a === "right")) { // flick between the tip cards
     if (a === "right") nextTip(); else { tipIdx = Math.max(0, tipIdx - 1); sel = 0; }
   } else if (state === "paused" && sel === 1 && (a === "left" || a === "right")) { // flick through the cameras
@@ -906,6 +933,8 @@ function menuAction(a) {
     else if (state === "garage") openMenu("menu", 5);
     else if (state === "upgrades") openMenu("garage", 1);
     else if (state === "options") openMenu("menu", 7);
+    else if (state === "songs") openMenu("options", 7);
+    else if (state === "controls") openMenu("options", 6);
     else if (state === "stats") openMenu("menu", 6);
     else if (state === "over" || state === "cleared") toMenu();
   }
@@ -1002,7 +1031,7 @@ function spawnScenery(y) {
 function updateWeather() {
   const add = p => { if (wx.length < 300) wx.push(p); };
   if (Math.random() < 0.2 * pal.petals) add({ t: "petal", x: rnd(-20, W + 20), y: -10, vy: rnd(0.6, 1.3), rot: rnd(0, TAU), vr: rnd(-.08, .08), ph: rnd(0, TAU), s: rnd(3, 5), c: pick(["#ffc2dd", "#ffd9e8", "#fff0f6", "#ffadd0"]) });
-  for (let i = 0, n = 4 * rainI + (Math.random() < (4 * rainI) % 1 ? 1 : 0); i < Math.floor(n); i++) add({ t: "rain", x: rnd(-30, W + 30), y: -10, vx: -2.2 - wind, vy: rnd(11, 16), len: rnd(10, 18) });
+  for (let i = 0, n = (settings.lowfx ? 1.5 : 4) * rainI + (Math.random() < ((settings.lowfx ? 1.5 : 4) * rainI) % 1 ? 1 : 0); i < Math.floor(n); i++) add({ t: "rain", x: rnd(-30, W + 30), y: -10, vx: -2.2 - wind, vy: rnd(11, 16), len: rnd(10, 18) });
   for (const p of wx) {
     if (p.t === "petal") { p.ph += 0.05; p.x += Math.sin(p.ph) * 0.7 - wind * 0.8; p.y += p.vy + scroll * 0.25; p.rot += p.vr; }
     else { p.x += p.vx; p.y += p.vy; }
@@ -1016,7 +1045,7 @@ function updateWeather() {
 // ---------- effects ----------
 
 function burst(x, y, colors, n, power) {
-  for (let i = 0; i < n && particles.length < 400; i++) {
+  for (let i = 0; i < n && particles.length < maxParticles() + 80; i++) {
     const a = rnd(0, TAU), s = rnd(0.5, power);
     particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rnd(20, 45), max: 45, size: rnd(2, 5), color: pick(colors) });
   }
@@ -1425,7 +1454,7 @@ function updatePlaying() {
   if (rp > 0) for (const e of enemies) {
     if (e.kind === "works") continue;
     const d = p0.y - e.y - (lenOf(e) - CAR_H) / 2; // from its tail
-    if (d > 0 && d < 400 && frame % 4 === 0 && particles.length < 320) particles.push({ x: e.x + rnd(-14, 14), y: e.y + 34, vx: rnd(-.6, .6), vy: rnd(.6, 1.6), life: 20, max: 40, size: rnd(3, 5.5), color: "rgba(215,225,240,0.4)" });
+    if (d > 0 && d < 400 && frame % 4 === 0 && particles.length < maxParticles()) particles.push({ x: e.x + rnd(-14, 14), y: e.y + 34, vx: rnd(-.6, .6), vy: rnd(.6, 1.6), life: 20, max: 40, size: rnd(3, 5.5), color: "rgba(215,225,240,0.4)" });
     if (d > 0 && d < 280 && Math.abs(e.x - p0.x) < 40) { const k = 1 - d / 280; if (k > fogT) { fogT = k; sprayCar = e; } } // right behind it in your lane
   }
   sprayFog += (rp * fogT - sprayFog) * 0.08;
@@ -1434,7 +1463,7 @@ function updatePlaying() {
     if (r.comboT > 0 && --r.comboT === 0) r.combo = 0; // the chain lapses
     if (r.ghost > 0) r.ghost--;
     if (r.ai && r.alive) { aiThink(r); if (r.charges > 0 && !(r.nitro > 0)) fireNitro(r); } // the CPU uses nitro as soon as it has it
-    if (!r.alive || particles.length > 320) continue;
+    if (!r.alive || particles.length > maxParticles()) continue;
     if (frame % 3 === 0 && spray && r.v > 2) {
       for (const sx of [-18, 18]) particles.push({ x: r.x + sx, y: r.y + 30, vx: rnd(-.5, .5), vy: rnd(.4, 1.4), life: 18, max: 45, size: rnd(2.5, 4.5), color: spray });
     }
@@ -1614,7 +1643,7 @@ function update() {
   sound.engineTick(state === "playing", effV(racers[0]), racers[0].nitro > 0);
   if (state === "playing" && racers[0].rev > 0.9 && Math.random() < 0.12) sound.burst(0.05, 0.4, "lowpass", 900, 260); // rev-limiter pops
   sound.envTick(state === "playing", Math.max(rainI, wet), 0, 0);
-  music.tick(state === "menu" || state === "tutorial" || state === "difficulty" || state === "garage" || state === "upgrades" || state === "options" || state === "map" || state === "brief" || state === "stats");
+  music.tick(state === "menu" || state === "tutorial" || state === "difficulty" || state === "garage" || state === "upgrades" || state === "options" || state === "songs" || state === "controls" || state === "map" || state === "brief" || state === "stats");
 }
 
 // ---------- tile textures (pre-rendered once per resolution) ----------
@@ -1679,7 +1708,7 @@ function fit() { // fill the whole window; render at the real on-screen pixel si
   let cssH = window.innerHeight, cssW = cssH * W / H;
   if (cssW > window.innerWidth) { cssW = window.innerWidth; cssH = cssW * H / W; }
   canvas.style.width = cssW + "px"; canvas.style.height = cssH + "px";
-  const res = clamp((window.devicePixelRatio || 1) * cssH / H, 1, 3);
+  const res = clamp((window.devicePixelRatio || 1) * cssH / H, 1, settings.lowfx ? 1.25 : 3); // reduced effects: render fewer pixels
   if (Math.abs(res - RES) < 0.01 && roadPat && canvas.width === Math.round(W * res) && canvas.height === Math.round(H * res)) return;
   RES = res;
   canvas.width = Math.round(W * RES);
@@ -2433,6 +2462,7 @@ function dome(cx, y, r, col) {
 }
 function spire(cx, y, w, h, col) { ctx.fillStyle = col; poly([[cx - w / 2, y], [cx + w / 2, y], [cx, y - h]]); ctx.fillStyle = "rgba(0,0,0,0.18)"; poly([[cx, y], [cx + w / 2, y], [cx, y - h]]); }
 function glow(x, y, r, col, a) {
+  if (settings.lowfx) { ctx.fillStyle = `rgba(${col},${a * 0.35})`; ctx.beginPath(); ctx.arc(x, y, r * 0.35, 0, TAU); ctx.fill(); return; } // reduced effects: a cheap dot instead of a gradient
   ctx.save(); ctx.globalCompositeOperation = "lighter";
   const g = ctx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(${col},${a})`); g.addColorStop(1, `rgba(${col},0)`);
   ctx.fillStyle = g; ctx.fillRect(x - r, y - r, 2 * r, 2 * r); ctx.restore();
@@ -2974,7 +3004,7 @@ function drawHaze(C) { // fades the far road into the sky so cars and trees neve
 }
 
 function draw3D(C) {
-  const p0 = racers[0], vib = (state === "playing" ? Math.min(p0.v / VMAX, 1.3) * 0.6 : 0) + nitroFx * 1.8;
+  const p0 = racers[0], vib = settings.shake ? (state === "playing" ? Math.min(p0.v / VMAX, 1.3) * 0.6 : 0) + nitroFx * 1.8 : 0; // no rattle with screen shake off
   ctx.save();
   ctx.translate(W / 2, H * 0.62);
   ctx.rotate(-(p0.alive ? clamp(p0.tilt, -0.45, 0.45) : 0) * 0.12); // the horizon rolls a touch as you change lanes (never once you've crashed)
@@ -3071,7 +3101,7 @@ function racerScreen(r) {
 function drawWorld() {
   const v = view3D();
   ctx.save();
-  if (shake > 0.5) ctx.translate(rnd(-shake, shake), rnd(-shake, shake));
+  if (shake > 0.5 && settings.shake) ctx.translate(rnd(-shake, shake), rnd(-shake, shake));
   if (v === 0) drawTopDown(); else draw3D(camFor(v));
   drawWeather();
   if (v === 2) drawCockpit(W);
@@ -3114,7 +3144,7 @@ function drawAtmosphere() {
     g.addColorStop(0, "rgba(40,150,255,0)"); g.addColorStop(1, `rgba(40,150,255,${0.5 * nf})`);
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
     ctx.save(); ctx.globalCompositeOperation = "lighter"; ctx.lineCap = "round";
-    for (let i = 0; i < 46; i++) {
+    for (let i = 0, n = settings.lowfx ? 14 : 46; i < n; i++) {
       const ang = (i * 2.399) % TAU, ph = (clock * (0.035 + (i % 5) * 0.012) + i * 0.137) % 1, r0 = 70 + ph * ph * 340, r1 = r0 + 24 + ph * 120;
       ctx.strokeStyle = `rgba(${150 + (i % 3) * 35},230,255,${0.55 * nf * (0.25 + ph)})`; ctx.lineWidth = 1 + ph * 1.8;
       ctx.beginPath(); ctx.moveTo(W / 2 + Math.cos(ang) * r0, H * 0.5 + Math.sin(ang) * r0 * 1.15); ctx.lineTo(W / 2 + Math.cos(ang) * r1, H * 0.5 + Math.sin(ang) * r1 * 1.15); ctx.stroke();
@@ -3253,6 +3283,34 @@ function drawGarage() {
   [t.p, t.s, t.a].forEach((c, i) => { ctx.fillStyle = c; ctx.strokeStyle = "#000"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(W / 2 - 18 + i * 18, 304, 6, 0, TAU); ctx.fill(); ctx.stroke(); });
   if (isOwned) text(garageIdx === equipped ? "EQUIPPED" : "OWNED", 327, 15, "center", "#7CFC9A");
   else text(wallet >= t.cost ? `Price ${t.cost} coins` : `Need ${t.cost - wallet} more coins`, 327, 15, "center", wallet >= t.cost ? "#fff" : "#ff7b7b");
+}
+
+const sliderBar = r => ({ x: r.x + 100, y: r.y + r.h / 2 - 5, w: r.w - 160, h: 10 }); // the bar inside a slider row
+function drawSliders() {
+  const menu = currentMenu();
+  OPTIONS_MENU.forEach((it, i) => {
+    if (!it.slider) return;
+    const r = btnRect(menu, i), b = sliderBar(r), v = settings[it.slider];
+    textAt(it.name, r.x + 14, r.y + r.h / 2 + 5, 15, "left");
+    roundRect(b.x, b.y, b.w, b.h, 5); ctx.fillStyle = "rgba(255,255,255,0.18)"; ctx.fill();
+    roundRect(b.x, b.y, Math.max(b.h, b.w * v), b.h, 5); ctx.fillStyle = "#3dff6e"; ctx.fill();
+    textAt(`${Math.round(v * 100)}%`, r.x + r.w - 12, r.y + r.h / 2 + 5, 13, "right");
+  });
+}
+function drawControls() { // every way to play, on one page
+  text("CONTROLS", 40, 28);
+  const cols = [
+    ["KEYBOARD", ["Left / Right or A / D: change lane", "Up / W: gas    Down / S: brake", "Space or Shift: fire nitro", "C: camera    P / Esc: pause", "F: fullscreen    M: mute    N: next song", "R: retry after a crash"]],
+    ["MULTIPLAYER", ["P1: arrows, Right Shift / Enter = nitro", "P2: W A S D, Left Shift / Space = nitro"]],
+    ["CONTROLLER", ["Stick / D-pad: change lane", "RT or A: gas    LT, B or X: brake", "RB: nitro    Y / Back: camera", "Start: pause"]],
+    ["TOUCH", ["Tap left / right half: change lane", "GAS and BRAKE pads, NITRO button", "Camera top-left, pause bottom-right"]],
+  ];
+  let y = 70;
+  for (const [title, lines] of cols) {
+    textAt(title, W / 2, y, 13, "center", "#ffd23f"); y += 18;
+    for (const l of lines) { textAt(l, W / 2, y, 11, "center", "#ddd"); y += 15; }
+    y += 8;
+  }
 }
 
 function drawUpgrades() {
@@ -3469,7 +3527,7 @@ function draw() {
   const moy = menuOY(); // menus and overlays are laid out for a 480-high screen: centre them on taller ones
   ctx.save(); ctx.translate(0, moy);
 
-  if (state === "menu" || state === "tutorial" || state === "difficulty" || state === "garage" || state === "upgrades" || state === "options" || state === "map" || state === "brief" || state === "stats") {
+  if (state === "menu" || state === "tutorial" || state === "difficulty" || state === "garage" || state === "upgrades" || state === "options" || state === "songs" || state === "controls" || state === "map" || state === "brief" || state === "stats") {
     ctx.fillStyle = "rgba(15,15,20,0.66)"; // fade the highway behind the title
     ctx.fillRect(0, -moy, W, H);
     if (state === "map") drawMap();
@@ -3479,8 +3537,9 @@ function draw() {
     else if (state === "garage") drawGarage();
     else if (state === "upgrades") drawUpgrades();
     else if (state === "options") {
-      text("OPTIONS", 86, 32);
-      text(`Now playing: ${music.playing ? music.name : "-"}`, 118, 13, "center", "#ccc");
+      text("SETTINGS", 46, 30);
+      text(`Now playing: ${music.playing ? music.name : "-"}`, 74, 12, "center", "#ccc");
+    } else if (state === "songs" || state === "controls") { // drawn after the buttons, below
     } else {
       text("EXTREME RACER", 112, Math.min(38, (W - 24) / 9.4)); // shrinks to fit a narrow phone
       if (state === "difficulty") text("VS Computer: pick a level", 175, 18);
@@ -3494,12 +3553,15 @@ function draw() {
     }
     drawButtons();
     if (state === "upgrades") drawUpgradeRows();
+    if (state === "options") drawSliders();
+    if (state === "songs") { text("SONGS", 96, 30); text(`Now playing: ${music.playing ? music.name : "-"}`, 128, 12, "center", "#ccc"); }
+    if (state === "controls") drawControls();
     ctx.fillStyle = "#ccc";
     ctx.font = "13px sans-serif";
     ctx.textAlign = "center";
     const musicNote = music.on && sound.on ? (music.playing ? `Now playing: ${music.name}   (N = next)` : "Press any key to start the music") : "";
     if (state === "menu" && musicNote) ctx.fillText(musicNote, W / 2, 452);
-    ctx.fillText(state === "brief" || state === "stats" ? "" /* buttons sit there */ : state === "upgrades" ? (hasTouch ? "Tap an upgrade to buy its next level" : "Up / Down to choose, Enter to upgrade") : state === "tutorial" ? (hasTouch ? "Tap Next, or Skip to go straight in" : "Enter = next   Esc = skip") : state === "garage" ? "Left / Right to browse, Enter to pick" : state === "map" ? "" /* the map has its own Back button there */ : `Up / Down + Enter, or tap an option${hasPad ? "  |  Controller ready" : ""}`, W / 2, 470);
+    ctx.fillText(state === "brief" || state === "stats" || state === "controls" ? "" /* buttons sit there */ : state === "upgrades" ? (hasTouch ? "Tap an upgrade to buy its next level" : "Up / Down to choose, Enter to upgrade") : state === "tutorial" ? (hasTouch ? "Tap Next, or Skip to go straight in" : "Enter = next   Esc = skip") : state === "garage" ? "Left / Right to browse, Enter to pick" : state === "map" ? "" /* the map has its own Back button there */ : `Up / Down + Enter, or tap an option${hasPad ? "  |  Controller ready" : ""}`, W / 2, 470);
   }
 
   if (state === "paused") {
@@ -3663,7 +3725,8 @@ canvas.addEventListener("pointerdown", e => {
   }
   p.y -= menuOY(); // menu screens are centred on tall screens
   const i = menuIndexAt(p.x, p.y);
-  if (i >= 0) { sel = i; activate(i); }
+  if (i >= 0 && state === "options" && OPTIONS_MENU[i].slider) { sel = i; const b = sliderBar(btnRect(currentMenu(), i)); setSlider(OPTIONS_MENU[i].slider, (p.x - b.x) / b.w); }
+  else if (i >= 0) { sel = i; activate(i); }
   else if (state === "garage" && p.y > 110 && p.y < 300) menuAction(p.x < W / 2 ? "left" : "right");
   else if (state === "map") { const t = ROUTE.findIndex((_, k) => inRect(p, mapTile(k), 0)); if (t >= 0) { moveMap(t); startCity(t); } } // tap a city to race it
 });
