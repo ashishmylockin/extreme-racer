@@ -534,9 +534,7 @@ function drawHud() {
 function draw() {
   ctx.setTransform(RES, 0, 0, RES, 0, 0);
   ctx.clearRect(0, 0, W, H);
-  drawWorld();
-  drawAtmosphere();
-  postFX();
+  if (!window.R3D) { drawWorld(); drawAtmosphere(); postFX(); } // with the 3D renderer on, the world is drawn behind this canvas
 
   if (state === "playing" || state === "paused" || state === "camera") drawHud();
   if (flashT > 0.02) { ctx.fillStyle = `rgba(255,255,255,${flashT})`; ctx.fillRect(0, 0, W, H); }

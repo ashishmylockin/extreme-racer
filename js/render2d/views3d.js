@@ -1024,6 +1024,7 @@ function drawCockpit(worldW) {
 const camFor = v => ({ ...CAMS[v], hor: CAMS[v].hor + (H - 480) * (v === 2 ? 1 : 0.5), f: CAMS[v].f * (1 - 0.16 * kickFx) }); // firing nitro briefly widens the view
 // where a racer appears on screen in the current view (for popups beside the car)
 function racerScreen(r) {
+  if (window.R3D) return window.R3D.racerScreen(r);
   const v = view3D();
   if (v === 0) return { x: r.x, y: r.y - 30 };
   const p = v === 1 ? toScreen(camFor(v), r.x, r.y) : null;

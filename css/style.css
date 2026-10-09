@@ -3,3 +3,7 @@
     user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
   body { display: flex; justify-content: center; align-items: center; font-family: sans-serif; }
   canvas { display: block; background: #444; touch-action: none; outline: none; } /* sized from JS so the game fills the whole window */
+  /* the 3D (WebGL) canvas sits exactly behind the 2D canvas, which then only draws menus, HUD and popups on top of it */
+  #stage { position: relative; line-height: 0; }
+  #gl { display: none; position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; background: #0b0b0d; }
+  #game.over3d { background: transparent; position: relative; }

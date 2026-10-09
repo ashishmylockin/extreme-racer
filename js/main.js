@@ -10,12 +10,23 @@ function perfGuard(dt) {
   else perfT = 0;
 }
 
+// ---- the 3D renderer (js/render3d) is optional: if WebGL is missing or anything in it throws, we drop back to the 2D renderer ----
+function disable3D(why) {
+  console.warn("3D renderer off, using the 2D one:", why);
+  window.R3D = null;
+  const gl = document.getElementById("gl"); if (gl) gl.style.display = "none";
+  canvas.classList.remove("over3d");
+}
+function tick3D() { try { R3D.tick(); } catch (e) { disable3D(e); } }
+function render3D(alpha) { try { R3D.render(alpha); } catch (e) { disable3D(e); } }
+
 function loop(now) {
   perfGuard(now - lastTime);
   acc += Math.min(100, now - lastTime) * (slowT > 0 && state === "playing" ? 0.35 : 1); // big combos: a moment of slow motion
   lastTime = now;
-  while (acc >= STEP) { update(); acc -= STEP; }
+  while (acc >= STEP) { update(); if (window.R3D) tick3D(); acc -= STEP; }
   draw();
+  if (window.R3D) render3D(acc / STEP); // acc / STEP = how far we are between two sim ticks (smooth motion on fast screens)
   requestAnimationFrame(loop);
 }
 
@@ -24,3 +35,14 @@ fit();
 grabFocus();
 initDemo();
 requestAnimationFrame(loop);
+
+// Developer shortcut for testing and screenshots: index.html?dev=tour,3,1  starts World Tour city 4 (counting from 0: 3) with camera 1
+// (0 Overhead, 1 Chase, 2 Cockpit) and holds the gas down; add &ff=600 to skip the first 10 seconds. Modes: tour, single, vs.
+{
+  const dev = new URLSearchParams(location.search).get("dev");
+  if (dev) {
+    const [m, c, k] = dev.split(",");
+    cam = +k || 0; startGame(m || "single", "medium", +c || 0); held.add("ArrowUp");
+    for (let i = +new URLSearchParams(location.search).get("ff") || 0; i > 0; i--) update(); // ff=600 fast-forwards 600 sim ticks (10 s)
+  }
+}
