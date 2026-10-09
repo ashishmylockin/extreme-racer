@@ -1,18 +1,20 @@
 # Extreme Racer
 
-A single-file browser racing game: dodge traffic in an open-wheel race car on a world tour through 22 cities.
+A single-file browser racing game: dodge traffic in an open-wheel race car on a world tour through 22 cities. Everything is drawn and synthesised in code: no image or sound files.
 
-Open `extremeracer.html` in a browser (press **F** for fullscreen).
+Open `extremeracer.html` in a browser (press **F** for fullscreen). To publish it, see [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md).
 
-- World Tour: 22 cities, each a level with a finish line and 1-3 stars; finish a city to unlock the next; the last one is a Grand Final against the CPU
-- Endless, VS Computer (Easy to Impossible), Multiplayer (arrows + WASD)
+- **World Tour:** 22 cities, each a level with a finish line, 1–3 stars and 3 missions; finish a city to unlock the next; the last one is a Grand Final against the CPU
+- **Daily Challenge:** one city and traffic pattern per day (seeded from the date), best score and day streak
+- **Endless**, **VS Computer** (Easy to Impossible) and **Multiplayer** (arrows + WASD)
 - Near misses build a combo that multiplies your score; faster driving always scores more
-- Nitro you control: collect up to 3 charges, fire with Space / Shift, RB or the NITRO button
-- Traffic that gets trickier: lane-changers, long trucks and roadworks; rare shields absorb one crash
-- Rain and night cities drive differently (slower lane changes and spray; tail lights in the dark)
-- Keyboard, controller and touch support, including portrait phones
-- Grid start with the five-light gantry: hold brake + throttle to rev, release the brake on green
-- Three cameras: overhead, chase and cockpit (with mirrors), switchable from the pause menu or with **C**
-- Coins and a garage of 11 fictional teams to unlock
+- Nitro you control (up to 3 charges), rare shields that absorb one crash
+- Traffic that gets trickier: lane-changers, long trucks and roadworks
+- Rain and night cities drive differently
+- Garage: 11 fictional teams and upgrades (Handling, Nitro, Magnet, Shield)
+- Stats and 18 achievements
+- Settings: music / effects / engine volume, screen shake, reduced effects, controls page
+- Keyboard, controller and touch support, including portrait phones; runs inside itch.io / CrazyGames iframes
+- Three cameras: overhead, chase and cockpit (with mirrors)
 
-All teams, liveries and names in the game are fictional.
+Made by Ashish. All teams, liveries and names in the game are fictional.
