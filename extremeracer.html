@@ -493,6 +493,7 @@ function markDailyPlayed() {
   const today = dayKey(), y = new Date(); y.setDate(y.getDate() - 1);
   if (daily.last === today) return;
   daily.streak = daily.last === dayKey(y) ? daily.streak + 1 : 1; daily.last = today;
+  unlock("daily"); if (daily.streak >= 3) unlock("streak3");
   store.set("daily", daily);
 }
 function saveDailyScore(s) {
@@ -527,8 +528,43 @@ const inRect = (p, r, pad = 8) => p.x >= r.x - pad && p.x <= r.x + r.w + pad && 
 const newGrid = done => ({ t: 0, lit: 0, hold: -1, done, goFrame: done ? -1000 : -1 });
 const aiGo = () => grid.done && frame >= grid.goFrame + AI_REACT;
 function laneX(lane) { return ROAD_L + lane * LANE_W + LANE_W / 2; }
-function say(text) { toast = { text, t: 0 }; }
-const runKm = () => ((dist - startDist) * 0.012).toFixed(1); // distance covered this run (not counting where you jumped in)
+let toastQ = []; // toasts wait their turn instead of overwriting each other
+function say(text) { if (toast && toast.t < 60) toastQ.push(text); else toast = { text, t: 0 }; }
+
+// ---- lifetime stats and achievements ----
+let stats = Object.assign({ km: 0, cars: 0, nearMisses: 0, bestCombo: 0, topSpeed: 0, crashes: 0, races: 0, coins: 0, shields: 0 }, store.get("stats", {}));
+let statsDirty = false;
+const saveStats = () => { if (statsDirty) { store.set("stats", stats); statsDirty = false; } };
+const bump = (k, n = 1) => { stats[k] += n; statsDirty = true; };
+const ACHIEVEMENTS = [
+  { id: "firstcity", name: "Passport Stamped", desc: "Finish your first city" },
+  { id: "close", name: "Close Shave", desc: "Pull off a near miss" },
+  { id: "near10", name: "Hair's Breadth", desc: "10 near misses in one run" },
+  { id: "combo5", name: "Combo Artist", desc: "Reach a x5 combo" },
+  { id: "combo10", name: "Chain Reaction", desc: "Reach a x10 combo" },
+  { id: "v400", name: "Speed Demon", desc: "Hit 400 km/h" },
+  { id: "v600", name: "Ludicrous Speed", desc: "Hit 600 km/h" },
+  { id: "coins500", name: "Coin Hoarder", desc: "Collect 500 coins in total" },
+  { id: "shield", name: "Bubble Wrapped", desc: "Let a shield save you" },
+  { id: "3stars", name: "Hat-Trick", desc: "Earn 3 stars in a city" },
+  { id: "half", name: "Globetrotter", desc: "Clear 11 cities" },
+  { id: "champ", name: "World Champion", desc: "Win the Grand Final" },
+  { id: "km100", name: "Long Hauler", desc: "Drive 100 km in total" },
+  { id: "nitro3", name: "Rocket Fuel", desc: "Fire 3 nitros in one run" },
+  { id: "react", name: "Lights Out", desc: "React in under 0.200 s" },
+  { id: "maxup", name: "Fully Loaded", desc: "Max out an upgrade" },
+  { id: "daily", name: "Early Bird", desc: "Play a Daily Challenge" },
+  { id: "streak3", name: "On a Roll", desc: "3-day Daily streak" },
+];
+let achieved = store.get("achievements", []);
+function unlock(id) {
+  if (achieved.includes(id)) return;
+  achieved.push(id); store.set("achievements", achieved);
+  const a = ACHIEVEMENTS.find(x => x.id === id);
+  say(`ACHIEVEMENT: ${a.name}`); sound.tone(784, 1568, 0.35, "triangle", 0.08); sound.tone(1175, 2350, 0.3, "sine", 0.05, 0.12);
+}
+const KM_PER_UNIT = 1 / 3600; // 1 unit per frame is 60 km/h, so a unit of road is 1/3600 km (a tour city is ~5.6 km)
+const runKm = () => ((dist - startDist) * KM_PER_UNIT).toFixed(1); // distance covered this run (not counting where you jumped in)
 const view3D = () => (state === "playing" || state === "over" || state === "cleared" || state === "paused" || state === "camera") ? cam : 0;
 
 // ---------- world setup ----------
@@ -592,14 +628,14 @@ function startGame(m, d, stage = 0) {
   grid = newGrid(false); startObj = { y: H - 100 - 50 }; // cars sit on the grid behind the start line, under the lights
   seedTraffic(-260);
   spawnPickup(-450, true); // one nitro canister up the road
-  state = "playing";
+  state = "playing"; bump("races");
   startBanner(stageIdx, true);
   sound.ensure();
 }
 
 function openMenu(s, index = 0) { state = s; sel = index; }
-function toMenu() { initDemo(); openMenu("menu"); }
-function pause() { if (state === "playing") { openMenu("paused"); touch.gas = touch.brake = false; } }
+function toMenu() { saveStats(); initDemo(); openMenu("menu"); }
+function pause() { if (state === "playing") { openMenu("paused"); touch.gas = touch.brake = false; saveStats(); } }
 function openCamera() { if (state === "playing") { openMenu("camera", cam); touch.gas = touch.brake = false; } }
 function startBanner(i, quiet) {
   banner = { idx: i, t: 0 }; if (!quiet) sound.jingle(i);
@@ -626,6 +662,7 @@ function buyUpgrade(u) {
   const l = upLvl(u.key);
   if (l >= 5 || wallet < UPG_COST[l]) { sound.tone(200, 120, 0.2, "sawtooth", 0.05); return; }
   wallet -= UPG_COST[l]; upg[u.key] = l + 1;
+  if (l + 1 >= 5) unlock("maxup");
   store.set("coins", wallet); store.set("upgrades", upg);
   sound.tone(500, 1400, 0.3, "triangle", 0.08);
 }
@@ -657,6 +694,7 @@ const MAIN_MENU = [
   { label: "VS Computer", go: () => openMenu("difficulty", 1) },
   { label: "Multiplayer", go: () => startGame("multi") },
   { label: "Garage", go: () => { garageIdx = equipped; openMenu("garage"); } },
+  { label: "Stats & Awards", go: () => openMenu("stats") },
   { label: "Options", go: () => openMenu("options") },
 ];
 const OPTIONS_MENU = [
@@ -666,7 +704,7 @@ const OPTIONS_MENU = [
   { label: () => `Add My Songs${music.userCount ? ` (${music.userCount})` : ""}`, go: () => songInput.click() },
   { label: () => `Fullscreen: ${document.fullscreenElement || document.webkitFullscreenElement ? "ON" : "OFF"}`, go: () => toggleFullscreen() },
   { label: "Clear My Songs", go: () => { music.clearUser(); songDB.clear().catch(() => {}); say("Songs cleared"); } },
-  { label: "Back", go: () => openMenu("menu", 6) },
+  { label: "Back", go: () => openMenu("menu", 7) },
 ];
 const DIFF_MENU = [
   { label: "Easy", go: () => startGame("vs", "easy") },
@@ -775,6 +813,7 @@ const DAILY_MENU = [
   { label: "RETRY", big: true, go: () => startGame("daily", null, dailyCity()) },
   { label: "Menu", go: toMenu },
 ];
+const STATS_MENU = [{ label: "Back", go: () => openMenu("menu", 6) }];
 const lastCity = () => level && level.idx >= ROUTE.length - 1;
 const CLEARED_MENU = [
   { label: () => lastCity() ? "MENU" : "NEXT CITY", big: true, go: () => lastCity() ? toMenu() : startGame("tour", null, level.idx + 1) },
@@ -791,7 +830,8 @@ const BTN_W = 210;
 
 function currentMenu() {
   switch (state) {
-    case "menu": return { items: MAIN_MENU, top: 178, h: 30, gap: 6 };
+    case "menu": return { items: MAIN_MENU, top: 176, h: 27, gap: 5 };
+    case "stats": return { items: STATS_MENU, top: 440, h: 28, gap: 0 };
     case "map": return { items: MAP_MENU, top: 446, h: 28, gap: 0 };
     case "brief": return { items: BRIEF_MENU, top: 370, h: 34, gap: 8 };
     case "options": return { items: OPTIONS_MENU, top: 138, h: 34, gap: 8 };
@@ -865,7 +905,8 @@ function menuAction(a) {
     else if (state === "brief") { openMenu("map"); sel = -1; }
     else if (state === "garage") openMenu("menu", 5);
     else if (state === "upgrades") openMenu("garage", 1);
-    else if (state === "options") openMenu("menu", 6);
+    else if (state === "options") openMenu("menu", 7);
+    else if (state === "stats") openMenu("menu", 6);
     else if (state === "over" || state === "cleared") toMenu();
   }
 }
@@ -1013,6 +1054,8 @@ function updateFx() {
   if (nitroFx > 0.3) shake = Math.max(shake, 1.6 * nitroFx);
   if (banner && ++banner.t > 200) banner = null;
   if (toast && ++toast.t > 150) toast = null;
+  if (!toast && toastQ.length) toast = { text: toastQ.shift(), t: 0 };
+  if (statsDirty && clock % 600 === 0) saveStats();
   kickFx *= 0.93;
   for (const p of pops) p.t++;
   pops = pops.filter(p => p.t < 50);
@@ -1035,6 +1078,10 @@ const SPEED_PAR = 90; // World Tour: every second under 90 s at the finish is wo
 function nearMiss(r) {
   r.combo = (r.comboT > 0 ? r.combo : 0) + 1; r.comboT = COMBO_T;
   r.nm = (r.nm || 0) + 1; r.bestCombo = Math.max(r.bestCombo || 0, r.combo); // for missions and stats
+  if (!r.ai) {
+    bump("nearMisses"); if (r.combo > stats.bestCombo) bump("bestCombo", r.combo - stats.bestCombo);
+    unlock("close"); if (r.nm >= 10) unlock("near10"); if (r.combo >= 5) unlock("combo5"); if (r.combo >= 10) unlock("combo10");
+  }
   r.score += 5 * passPoints(r.v) * comboMult(r); // a close shave at speed is worth more
   if (r.ai) return;
   pops.push({ r, text: r.combo > 1 ? `CLOSE! x${r.combo}` : "CLOSE!", t: 0 });
@@ -1236,6 +1283,7 @@ function fireNitro(r) {
   if (!r || !r.alive || state !== "playing" || !grid.done) return;
   if (!(r.charges > 0) || r.nitro > 0) { if (!r.ai) sound.tone(200, 160, 0.08, "square", 0.03); return; } // empty, or one is already burning
   r.charges--; r.usedNitro = true;
+  if (!r.ai && (r.nitrosFired = (r.nitrosFired || 0) + 1) >= 3) unlock("nitro3");
   r.cruise = r.v; // the speed you'd be doing without it
   r.nitro = r.nitroMax = nitroFramesFor(r); // the Nitro upgrade makes it burn longer
   burst(r.x, r.y + 30, ["#5fd4ff", "#ffffff", "#2a7bff"], 18, 4);
@@ -1257,6 +1305,7 @@ function collect(r, k) {
     return;
   }
   r.coins++; r.score += 5;
+  if (!r.ai) { bump("coins"); if (stats.coins >= 500) unlock("coins500"); }
   if (r.id === 0 || mode === "multi") { wallet++; store.set("coins", wallet); }
   sound.coin();
 }
@@ -1284,6 +1333,7 @@ function endRound(beaten = false) {
     result = !w ? "Draw!" : mode === "vs" ? (w === a ? "You win!" : "CPU wins!") : `${w.label} wins!`;
   }
   if (mode === "single" && a.score > best) { best = a.score; newBest = best > 0; store.set("best", best); }
+  saveStats();
   sound.silence();
   if (!beaten) { sound.thud(); rumble(); }
 }
@@ -1334,6 +1384,7 @@ function updatePlaying() {
       else if (!r.launched) {
         r.rev += clamp((pd.brake > 0.3 ? pd.gas : 0) - r.rev, -0.08, 0.05); // you can keep revving after green until you decide to go
         if (pd.gas > 0.3 && pd.brake < 0.3) { // brake off, throttle on: away you go, instantly, harder the more revs you built
+          if (!r.falseStart && since / 60 < 0.2) unlock("react"); // lightning off the line
           r.launched = true; r.reaction = since; r.v = Math.max(r.v, 0.4 + 1.5 * r.rev); r.rev = 0;
           if (r.id === 0 && !r.falseStart) say(`Reaction ${(since / 60).toFixed(3)}s${mode === "vs" ? "   CPU 0.100s" : ""}`);
         }
@@ -1431,7 +1482,7 @@ function updatePlaying() {
       if (!e.passed[r.id] && e.y > r.y + reach) {
         e.passed[r.id] = true;
         if (e.kind !== "works") { // cones don't count as overtakes
-          r.passed++;
+          r.passed++; if (!r.ai) bump("cars");
           r.score += passPoints(r.v) * comboMult(r); // fast overtakes pay more, and the combo multiplies them
         }
         if (e.dodged && e.dodged[r.id]) nearMiss(r);
@@ -1446,6 +1497,7 @@ function updatePlaying() {
       }
       if (hitX && hitY) {
         r.alive = false; r.drift = (r.x < e.x ? -1 : 1) * 1.5;
+        if (!r.ai) bump("crashes");
         burst(r.x, r.y, [r.team.p, r.team.s, "#ff9f1c", "#ffd23f", "#444"], 40, 5.5);
         shake = 14;
       }
@@ -1457,6 +1509,11 @@ function updatePlaying() {
   else if (finishObj && finishObj.y >= racers[0].y - CAR_H / 2) finishLevel(); // nose over the line
   else if (finishObj && level.final && racers[1].alive && finishObj.y >= racers[1].y - CAR_H / 2) { result = "CPU won the final!"; endRound(true); } // beaten to the line
   if (racers[0].alive) racers[0].topV = Math.max(racers[0].topV || 0, racers[0].v);
+  for (const r of racers) if (!r.ai && r.alive && grid.done) { // lifetime distance and top speed
+    bump("km", r.v * KM_PER_UNIT);
+    const kmh = Math.round(r.v * 60); if (kmh > stats.topSpeed) { stats.topSpeed = kmh; if (kmh >= 400) unlock("v400"); if (kmh >= 600) unlock("v600"); }
+  }
+  if (stats.km >= 100) unlock("km100");
   if (state === "playing") checkMissions(false);
   if (level && !level.daily && state === "playing") { // a little fanfare the moment a star target is beaten
     const tg = starTargets(level.idx), now = 1 + (racers[0].score >= tg[0]) + (racers[0].score >= tg[1]);
@@ -1468,6 +1525,7 @@ function updatePlaying() {
 // the shield absorbs a crash: bounce off, lose the combo and some speed, and it shatters
 function shieldBreak(r) {
   r.shield = false; r.combo = 0; r.comboT = 0;
+  if (!r.ai) { bump("shields"); unlock("shield"); }
   r.v *= 0.7; r.y = Math.min(r.y + 26, H - 38); r.ghost = 45;
   burst(r.x, r.y - 10, ["#7fffff", "#ffffff", "#3ad0ff", "#bff6ff"], 60, 7);
   shake = Math.max(shake, 10);
@@ -1479,13 +1537,15 @@ function finishLevel() {
   touch.gas = touch.brake = false;
   levelTime = (frame - grid.goFrame) / 60;
   level.bonus = Math.max(0, Math.round((SPEED_PAR - levelTime) * 4)); racers[0].score += level.bonus; // the quicker the finish, the bigger the bonus
-  if (level.daily) { saveDailyScore(racers[0].score); sound.silence(); sound.jingle(level.idx); burst(racers[0].x, racers[0].y - 40, ["#ffd23f", "#ffffff", "#3dff6e", "#5fd4ff"], 50, 6); return; } // no stars, unlocks or missions in the Daily
+  if (level.daily) { saveStats(); saveDailyScore(racers[0].score); sound.silence(); sound.jingle(level.idx); burst(racers[0].x, racers[0].y - 40, ["#ffd23f", "#ffffff", "#3dff6e", "#5fd4ff"], 50, 6); return; } // no stars, unlocks or missions in the Daily
   const firstClear = level.idx + 1 > tourCleared;
   if (firstClear) { tourCleared = level.idx + 1; store.set("tourCleared", tourCleared); }
   const tg = starTargets(level.idx), got = 1 + (racers[0].score >= tg[0]) + (racers[0].score >= tg[1]);
   const prev = cityStars[level.idx] || 0;
   if (got > prev) { cityStars[level.idx] = got; store.set("stars", cityStars); }
   checkMissions(true);
+  unlock("firstcity"); if (got === 3) unlock("3stars"); if (tourCleared >= 11) unlock("half"); if (level.final) unlock("champ");
+  saveStats();
   starAnim = { got, prev, shown: 0, t: 0 };
   level.reward = 5 * got + (firstClear ? 10 : 0); // coins for finishing: 5 a star, plus 10 the first time
   wallet += level.reward; store.set("coins", wallet);
@@ -1554,7 +1614,7 @@ function update() {
   sound.engineTick(state === "playing", effV(racers[0]), racers[0].nitro > 0);
   if (state === "playing" && racers[0].rev > 0.9 && Math.random() < 0.12) sound.burst(0.05, 0.4, "lowpass", 900, 260); // rev-limiter pops
   sound.envTick(state === "playing", Math.max(rainI, wet), 0, 0);
-  music.tick(state === "menu" || state === "tutorial" || state === "difficulty" || state === "garage" || state === "upgrades" || state === "options" || state === "map" || state === "brief");
+  music.tick(state === "menu" || state === "tutorial" || state === "difficulty" || state === "garage" || state === "upgrades" || state === "options" || state === "map" || state === "brief" || state === "stats");
 }
 
 // ---------- tile textures (pre-rendered once per resolution) ----------
@@ -3126,6 +3186,28 @@ function drawBrief() { // the city card between the map and the race
   });
 }
 
+function drawStats() { // lifetime numbers on top, the achievements underneath
+  text("STATS & AWARDS", 32, 24);
+  const rows = [["Distance", `${stats.km.toFixed(1)} km`], ["Cars passed", stats.cars], ["Near misses", stats.nearMisses], ["Best combo", `x${stats.bestCombo}`],
+    ["Top speed", `${stats.topSpeed} km/h`], ["Crashes", stats.crashes], ["Races", stats.races], ["Coins collected", stats.coins], ["Shields used", stats.shields]];
+  const cw = Math.min(W - 24, 520), x0 = (W - cw) / 2, half = Math.ceil(rows.length / 2);
+  rows.forEach(([k, v], i) => {
+    const c = i < half ? 0 : 1, y = 58 + (i % half) * 17, x = x0 + c * (cw / 2 + 6);
+    textAt(k, x, y, 11, "left", "#bbb"); textAt(String(v), x + cw / 2 - 12, y, 12, "right", "#fff");
+  });
+  textAt(`ACHIEVEMENTS  ${achieved.length} / ${ACHIEVEMENTS.length}`, W / 2, 158, 13, "center", "#ffd23f");
+  const aw = (cw - 6) / 2;
+  ACHIEVEMENTS.forEach((a, i) => {
+    const c = i % 2, y = 166 + Math.floor(i / 2) * 30, x = x0 + c * (aw + 6), got = achieved.includes(a.id);
+    roundRect(x, y, aw, 27, 6); ctx.fillStyle = got ? "rgba(255,210,63,0.16)" : "rgba(0,0,0,0.5)"; ctx.fill();
+    ctx.globalAlpha = got ? 1 : 0.45;
+    ctx.fillStyle = got ? "#ffd23f" : "#777"; // a little trophy
+    ctx.beginPath(); ctx.moveTo(x + 8, y + 7); ctx.lineTo(x + 20, y + 7); ctx.lineTo(x + 18, y + 15); ctx.lineTo(x + 10, y + 15); ctx.closePath(); ctx.fill(); ctx.fillRect(x + 13, y + 15, 2, 4); ctx.fillRect(x + 10, y + 19, 8, 2);
+    textAt(a.name, x + 26, y + 12, 11, "left", got ? "#fff" : "#ccc"); textAt(a.desc, x + 26, y + 23, 9, "left", "#aaa");
+    ctx.globalAlpha = 1;
+  });
+}
+
 function drawMap() {
   text("WORLD TOUR", 34, 26);
   drawStar(W / 2 - 40, 49, 7, true); textAt(`${totalStars()} / ${ROUTE.length * 3}`, W / 2 - 28, 54, 13, "left", "#ffd23f");
@@ -3387,10 +3469,11 @@ function draw() {
   const moy = menuOY(); // menus and overlays are laid out for a 480-high screen: centre them on taller ones
   ctx.save(); ctx.translate(0, moy);
 
-  if (state === "menu" || state === "tutorial" || state === "difficulty" || state === "garage" || state === "upgrades" || state === "options" || state === "map" || state === "brief") {
+  if (state === "menu" || state === "tutorial" || state === "difficulty" || state === "garage" || state === "upgrades" || state === "options" || state === "map" || state === "brief" || state === "stats") {
     ctx.fillStyle = "rgba(15,15,20,0.66)"; // fade the highway behind the title
     ctx.fillRect(0, -moy, W, H);
     if (state === "map") drawMap();
+    else if (state === "stats") drawStats();
     else if (state === "brief") drawBrief();
     else if (state === "tutorial") drawTutorial();
     else if (state === "garage") drawGarage();
@@ -3415,8 +3498,8 @@ function draw() {
     ctx.font = "13px sans-serif";
     ctx.textAlign = "center";
     const musicNote = music.on && sound.on ? (music.playing ? `Now playing: ${music.name}   (N = next)` : "Press any key to start the music") : "";
-    if (state === "menu" && musicNote) ctx.fillText(musicNote, W / 2, 448);
-    ctx.fillText(state === "brief" ? "" /* RACE / Back sit there */ : state === "upgrades" ? (hasTouch ? "Tap an upgrade to buy its next level" : "Up / Down to choose, Enter to upgrade") : state === "tutorial" ? (hasTouch ? "Tap Next, or Skip to go straight in" : "Enter = next   Esc = skip") : state === "garage" ? "Left / Right to browse, Enter to pick" : state === "map" ? "" /* the map has its own Back button there */ : `Up / Down + Enter, or tap an option${hasPad ? "  |  Controller ready" : ""}`, W / 2, 470);
+    if (state === "menu" && musicNote) ctx.fillText(musicNote, W / 2, 452);
+    ctx.fillText(state === "brief" || state === "stats" ? "" /* buttons sit there */ : state === "upgrades" ? (hasTouch ? "Tap an upgrade to buy its next level" : "Up / Down to choose, Enter to upgrade") : state === "tutorial" ? (hasTouch ? "Tap Next, or Skip to go straight in" : "Enter = next   Esc = skip") : state === "garage" ? "Left / Right to browse, Enter to pick" : state === "map" ? "" /* the map has its own Back button there */ : `Up / Down + Enter, or tap an option${hasPad ? "  |  Controller ready" : ""}`, W / 2, 470);
   }
 
   if (state === "paused") {
