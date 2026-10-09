@@ -8,13 +8,15 @@
 <title>Extreme Racer – World Tour Racing</title>
 <link id="favicon" rel="icon" href="data:,">
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0b0d; }
+  /* no scrollbars, rubber-banding, text selection or tap flashes, also when embedded in an iframe (itch.io, CrazyGames) */
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0b0d; overscroll-behavior: none; touch-action: none;
+    user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
   body { display: flex; justify-content: center; align-items: center; font-family: sans-serif; }
-  canvas { display: block; background: #444; touch-action: none; } /* sized from JS so the game fills the whole window */
+  canvas { display: block; background: #444; touch-action: none; outline: none; } /* sized from JS so the game fills the whole window */
 </style>
 </head>
 <body>
-<canvas id="game" width="400" height="480"></canvas>
+<canvas id="game" width="400" height="480" tabindex="0"></canvas>
 <input id="songInput" type="file" accept="audio/*" multiple hidden>
 <script>
 const canvas = document.getElementById("game");
@@ -1631,7 +1633,8 @@ const padPrev = {};
 
 function pollPads() {
   padG = [0, 0]; padB = [0, 0];
-  const list = (typeof navigator !== "undefined" && navigator.getGamepads) ? navigator.getGamepads() : [];
+  let list = [];
+  try { list = navigator.getGamepads ? navigator.getGamepads() : []; } catch (e) {} // an iframe can block controllers (permissions policy): then there just aren't any
   const pads = Array.from(list || []).filter(g => g && g.connected);
   hasPad = pads.length > 0;
   pads.forEach((g, k) => {
@@ -1767,11 +1770,13 @@ function fit() { // fill the whole window; render at the real on-screen pixel si
 }
 
 function toggleFullscreen() {
+  const d = document, el = d.documentElement, refused = () => say("Fullscreen isn't allowed here"); // e.g. an iframe without allowfullscreen
   try {
-    const d = document, el = d.documentElement;
     if (d.fullscreenElement || d.webkitFullscreenElement) (d.exitFullscreen || d.webkitExitFullscreen).call(d);
-    else { const r = (el.requestFullscreen || el.webkitRequestFullscreen).call(el); if (r && r.catch) r.catch(() => {}); }
-  } catch (e) {}
+    else if ((d.fullscreenEnabled || d.webkitFullscreenEnabled) && (el.requestFullscreen || el.webkitRequestFullscreen)) {
+      const r = (el.requestFullscreen || el.webkitRequestFullscreen).call(el); if (r && r.catch) r.catch(refused);
+    } else refused();
+  } catch (e) { refused(); }
 }
 
 // ---------- drawing: cars ----------
@@ -3818,11 +3823,17 @@ document.addEventListener("keydown", e => {
 });
 
 document.addEventListener("keyup", e => held.delete(e.code));
-window.addEventListener("blur", () => { held.clear(); touch.gas = touch.brake = false; });
+window.addEventListener("blur", () => { held.clear(); touch.gas = touch.brake = false; pause(); }); // clicking outside an embedded game: pause rather than crash blind
+const grabFocus = () => { try { canvas.focus({ preventScroll: true }); } catch (e) {} try { window.focus(); } catch (e) {} };
+for (const ev of ["touchend", "click"]) document.addEventListener(ev, () => sound.ensure(), { passive: true }); // iOS Safari only unlocks audio on these
+canvas.addEventListener("contextmenu", e => e.preventDefault()); // no long-press / right-click menu over the game
 window.addEventListener("resize", fit);
 document.addEventListener("fullscreenchange", fit);
 window.addEventListener("gamepadconnected", () => { hasPad = true; say("Controller connected"); });
-document.addEventListener("visibilitychange", () => { if (document.hidden) pause(); });
+document.addEventListener("visibilitychange", () => { // hidden tab: pause and go quiet; back again: sound resumes
+  if (document.hidden) { pause(); try { if (sound.ac) sound.ac.suspend(); } catch (e) {} }
+  else try { if (sound.ac) sound.ac.resume(); } catch (e) {}
+});
 
 function canvasPoint(e) {
   const rect = canvas.getBoundingClientRect();
@@ -3836,6 +3847,7 @@ canvas.addEventListener("pointermove", e => {
 });
 
 canvas.addEventListener("pointerdown", e => {
+  grabFocus(); // inside an iframe, keys only reach the game once it has focus
   const p = canvasPoint(e);
   sound.ensure();
   if (e.pointerType === "touch") hasTouch = true;
@@ -3867,6 +3879,7 @@ canvas.addEventListener("pointerleave", releasePedals);
 
 songDB.all().then(rows => { for (const r of rows || []) music.addBlob(r.name, r.blob); }).catch(() => {});
 fit();
+grabFocus();
 initDemo();
 requestAnimationFrame(loop);
 </script>
