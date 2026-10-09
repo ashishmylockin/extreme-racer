@@ -48,7 +48,7 @@ requestAnimationFrame(loop);
   if (dev) {
     const [m, c, k] = dev.split(",");
     if (m === "garage") { garageIdx = +c || 0; openMenu("garage"); }
-    else if (m === "menu") openMenu("menu");
+    else if (m === "menu" || m === "options" || m === "graphics") openMenu(m);
     else {
       cam = +k || 0; startGame(m === "pause" ? "tour" : m || "single", "medium", +c || 0); held.add("ArrowUp");
       if (q.has("god")) racers[0].ghost = 1e9; // god: crashes are ignored

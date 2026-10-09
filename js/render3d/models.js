@@ -129,7 +129,7 @@ export function makeGantry(finish, roadHalf) {
       const m = new THREE.MeshStandardMaterial({ color: "#220000", emissive: "#000000" });
       const l = new THREE.Mesh(new THREE.SphereGeometry(0.7, 12, 8), m); l.position.set((i - 2) * 3.2, 10, 0.7); grp.add(l); lights.push(m);
     }
-    const line = new THREE.Mesh(new THREE.PlaneGeometry(roadHalf * 2, 0.8), new THREE.MeshBasicMaterial({ color: "#ffffff" })); line.rotation.x = -Math.PI / 2; line.position.set(0, 0.06, 0); grp.add(line);
+    const line = new THREE.Mesh(new THREE.PlaneGeometry(roadHalf * 2, 0.8), new THREE.MeshBasicMaterial({ color: "#d8d8d8" })); line.rotation.x = -Math.PI / 2; line.position.set(0, 0.06, 0); grp.add(line);
   }
   grp.userData = { lights, kind: finish ? "finish" : "start" };
   return grp;

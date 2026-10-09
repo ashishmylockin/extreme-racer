@@ -46,22 +46,22 @@ export function createNight(scene) {
   return {
     makeBeam, beamMat,
     // night 0..1; lamps = [{ x, z, side }]; player = car { x, z, yaw, alive } or null
-    update(night, lamps, player) {
+    update(night, lamps, nLamps, player) {
       const on = night > 0.04;
       pools.visible = heads.visible = halos.visible = on;
       if (on) {
         let n = 0;
-        for (const l of lamps) {
+        for (let li = 0; li < nLamps; li++) { const l = lamps[li];
           if (n >= CAP) break;
           dummy.rotation.set(0, 0, 0);
-          dummy.position.set(l.side * (RH - 4.5), 0.07, l.z); dummy.scale.set(20, 1, 20); dummy.updateMatrix(); pools.setMatrixAt(n, dummy.matrix);
+          dummy.position.set(l.side * (RH - 4.5), 0.07, l.z); dummy.scale.set(15, 1, 15); dummy.updateMatrix(); pools.setMatrixAt(n, dummy.matrix);
           dummy.position.set(l.x - l.side * 1.6, 7.4, l.z); dummy.scale.setScalar(1); dummy.updateMatrix(); heads.setMatrixAt(n, dummy.matrix);
           dummy.position.set(l.x - l.side * 1.6, 7.4, l.z); dummy.scale.set(6, 6, 6); dummy.updateMatrix(); halos.setMatrixAt(n, dummy.matrix);
           n++;
         }
         pools.count = heads.count = halos.count = n;
         pools.instanceMatrix.needsUpdate = heads.instanceMatrix.needsUpdate = halos.instanceMatrix.needsUpdate = true;
-        poolMat.opacity = Math.min(1, night * 1.1); headMat.opacity = Math.min(1, night * 1.5); haloMat.opacity = Math.min(1, night);
+        poolMat.opacity = Math.min(0.6, night * 0.7); headMat.opacity = Math.min(1, night * 1.5); haloMat.opacity = Math.min(1, night);
       }
       beamMat.uniforms.k.value = night;
       spots.forEach((s, i) => {

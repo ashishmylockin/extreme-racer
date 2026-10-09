@@ -61,7 +61,7 @@ class Trail {
   step(x, y, z, shiftZ, rgb, amount) {
     this.fade += (amount - this.fade) * 0.2;
     for (const p of this.pts) p.z += shiftZ;
-    this.pts.pop(); this.pts.unshift(new THREE.Vector3(x, y, z));
+    const head = this.pts.pop(); head.set(x, y, z); this.pts.unshift(head); // the oldest point is reused as the new head
     this.mesh.visible = this.fade > 0.02; if (!this.mesh.visible) return;
     const pos = this.geo.attributes.position.array, col = this.geo.attributes.color.array;
     for (let i = 0; i < this.n; i++) {

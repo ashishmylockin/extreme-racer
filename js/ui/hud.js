@@ -545,7 +545,7 @@ function draw() {
 
   if (state === "title" || state === "menu") { ctx.save(); ctx.translate(0, -moy); drawVersion(); ctx.restore(); }
   if (state === "title") drawTitle(moy);
-  if (state === "menu" || state === "tutorial" || state === "difficulty" || state === "garage" || state === "upgrades" || state === "options" || state === "songs" || state === "controls" || state === "credits" || state === "map" || state === "brief" || state === "stats") {
+  if (state === "menu" || state === "tutorial" || state === "difficulty" || state === "garage" || state === "upgrades" || state === "options" || state === "graphics" || state === "songs" || state === "controls" || state === "credits" || state === "map" || state === "brief" || state === "stats") {
     ctx.fillStyle = window.R3D && state === "garage" ? "rgba(15,15,20,0.0)" : "rgba(15,15,20,0.66)"; // fade the highway behind the title (the 3D showroom needs no fade)
     ctx.fillRect(0, -moy, W, H);
     if (state === "map") drawMap();
@@ -554,6 +554,7 @@ function draw() {
     else if (state === "tutorial") drawTutorial();
     else if (state === "garage") drawGarage();
     else if (state === "upgrades") drawUpgrades();
+    else if (state === "graphics") { text("GRAPHICS", 46, 30); text(window.R3D ? "Left / Right or Enter to change" : "3D is off here: showing the 2D game", 64, 12, "center", "#ccc"); }
     else if (state === "options") {
       text("SETTINGS", 46, 30);
       text(`Now playing: ${music.playing ? music.name : "-"}`, 74, 12, "center", "#ccc");

@@ -58,12 +58,33 @@ const OPTIONS_MENU = [
   { slider: "fx", name: "Effects", label: "", w: 300, go: () => {} },
   { slider: "engine", name: "Engine", label: "", w: 300, go: () => {} },
   { label: () => `Screen shake: ${settings.shake ? "ON" : "OFF"}`, w: 300, go: () => { settings.shake = !settings.shake; saveSettings(); } },
-  { label: () => `Reduce effects: ${settings.lowfx ? "ON" : "OFF"}`, w: 300, go: () => { settings.lowfx = !settings.lowfx; saveSettings(); fit(); } },
+  { label: "Graphics...", w: 300, go: () => openMenu("graphics") },
   { label: () => `Fullscreen: ${document.fullscreenElement || document.webkitFullscreenElement ? "ON" : "OFF"}`, w: 300, go: () => toggleFullscreen() },
   { label: "Controls", w: 300, go: () => openMenu("controls") },
   { label: "Credits", w: 300, go: () => openMenu("credits") },
   { label: () => `Songs...${music.userCount ? ` (${music.userCount} of yours)` : ""}`, w: 300, go: () => openMenu("songs") },
   { label: "Back", go: () => openMenu("menu", 7) },
+];
+// ---- Graphics settings (the 3D renderer): a preset, then each setting on its own. Enter or Left / Right cycles a row. ----
+const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+const cycleIn = (list, cur, dir) => list[(list.indexOf(cur) + list.length + dir) % list.length];
+function gfxApply() { saveSettings(); if (window.R3D) R3D.refreshQuality(); fit(); }
+const gfxShown = key => settings[key] || (R3D.gfxDefaults(R3D.quality.level)[key]); // what a setting currently is (its own value, or the preset's)
+const GRAPHICS_MENU = [
+  { label: () => window.R3D ? `Graphics: ${settings.gfx === "auto" ? `Auto (${cap(R3D.quality.level)})` : cap(settings.gfx)}` : "Graphics: 2D mode", w: 300,
+    cycle: dir => { if (!window.R3D) return; settings.gfx = cycleIn(["auto", "low", "medium", "high", "ultra"], settings.gfx, dir); Object.assign(settings, { renderScale: 0, shadows: "", effects: "", drawDist: "" }); gfxApply(); }, go: () => GRAPHICS_MENU[0].cycle(1) },
+  { label: () => window.R3D ? `Render scale: ${Math.round(R3D.quality.scale * 100)}%` : "Render scale: -", w: 300,
+    cycle: dir => { if (!window.R3D) return; settings.renderScale = cycleIn(R3D.OPTIONS.SCALES, R3D.quality.scale, dir); gfxApply(); }, go: () => GRAPHICS_MENU[1].cycle(1) },
+  { label: () => window.R3D ? `Shadows: ${cap(gfxShown("shadows"))}` : "Shadows: -", w: 300,
+    cycle: dir => { if (!window.R3D) return; settings.shadows = cycleIn(R3D.OPTIONS.SHADOWS, gfxShown("shadows"), dir); gfxApply(); }, go: () => GRAPHICS_MENU[2].cycle(1) },
+  { label: () => window.R3D ? `Effects: ${cap(gfxShown("effects"))}` : "Effects: -", w: 300,
+    cycle: dir => { if (!window.R3D) return; settings.effects = cycleIn(R3D.OPTIONS.EFFECTS, gfxShown("effects"), dir); gfxApply(); }, go: () => GRAPHICS_MENU[3].cycle(1) },
+  { label: () => window.R3D ? `Draw distance: ${cap(gfxShown("drawDist"))}` : "Draw distance: -", w: 300,
+    cycle: dir => { if (!window.R3D) return; settings.drawDist = cycleIn(R3D.OPTIONS.DIST, gfxShown("drawDist"), dir); gfxApply(); }, go: () => GRAPHICS_MENU[4].cycle(1) },
+  { label: () => `FPS counter: ${settings.fps ? "ON" : "OFF"}`, w: 300, cycle: () => { settings.fps = !settings.fps; saveSettings(); }, go: () => GRAPHICS_MENU[5].cycle(1) },
+  { label: () => `Cinematic cameras: ${settings.cinema === false ? "OFF" : "ON"}`, w: 300, cycle: () => { settings.cinema = settings.cinema === false; saveSettings(); if (window.R3D) R3D.cinematic = settings.cinema; }, go: () => GRAPHICS_MENU[6].cycle(1) },
+  { label: () => `Reduce effects (2D mode): ${settings.lowfx ? "ON" : "OFF"}`, w: 300, cycle: () => { settings.lowfx = !settings.lowfx; saveSettings(); fit(); }, go: () => GRAPHICS_MENU[7].cycle(1) },
+  { label: "Back", go: () => openMenu("options", 4) },
 ];
 const SONGS_MENU = [
   { label: "Next Song", go: () => music.next() },
@@ -202,6 +223,7 @@ function currentMenu() {
     case "map": return { items: MAP_MENU, top: 446, h: 28, gap: 0 };
     case "brief": return { items: BRIEF_MENU, top: 370, h: 34, gap: 8 };
     case "options": return { items: OPTIONS_MENU, top: 90, h: 29, gap: 5 };
+    case "graphics": return { items: GRAPHICS_MENU, top: 84, h: 31, gap: 6 };
     case "credits": return { items: CREDITS_MENU, top: 420, h: 32, gap: 0 };
     case "songs": return { items: SONGS_MENU, top: 150, h: 36, gap: 8 };
     case "controls": return { items: CONTROLS_MENU, top: 440, h: 30, gap: 0 };
@@ -260,6 +282,8 @@ function menuAction(a) {
     else if (a === "down") moveMap(Math.min(ROUTE.length - 1, c * MAP_ROWS + Math.min(MAP_ROWS - 1, r + 1)));
     else if (a === "left" || a === "right") moveMap(Math.min(ROUTE.length - 1, (a === "left" ? 0 : 1) * MAP_ROWS + r));
     else if (a === "confirm") startCity(mapIdx);
+  } else if (state === "graphics" && GRAPHICS_MENU[sel] && GRAPHICS_MENU[sel].cycle && (a === "left" || a === "right")) { // change a graphics setting
+    GRAPHICS_MENU[sel].cycle(a === "left" ? -1 : 1); sound.tone(600, 600, 0.04, "square", 0.03);
   } else if (state === "options" && OPTIONS_MENU[sel] && OPTIONS_MENU[sel].slider && (a === "left" || a === "right")) { // nudge a volume
     const k = OPTIONS_MENU[sel].slider; setSlider(k, settings[k] + (a === "left" ? -0.1 : 0.1));
   } else if (state === "tutorial" && (a === "left" || a === "right")) { // flick between the tip cards
@@ -282,6 +306,7 @@ function menuAction(a) {
     else if (state === "garage") openMenu("menu", 5);
     else if (state === "upgrades") openMenu("garage", 1);
     else if (state === "options") openMenu("menu", 7);
+    else if (state === "graphics") openMenu("options", 4);
     else if (state === "songs") openMenu("options", 8);
     else if (state === "credits") openMenu("options", 7);
     else if (state === "controls") openMenu("options", 6);

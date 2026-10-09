@@ -1,3 +1,4 @@
+import { SRGBColorSpace } from "three";
 // THE ONE PLACE that turns simulation coordinates into 3D world units.
 //
 // The simulation works in flat "screen units": x goes across the road, y goes DOWN the screen, and the world scrolls
@@ -17,3 +18,6 @@ export const viewAhead = () => AHEAD * SCALE;     // how far up the road things 
 
 // the simulation keeps palettes as [r, g, b] 0..255 arrays
 export const arrToHex = c => (Math.round(c[0]) << 16) | (Math.round(c[1]) << 8) | Math.round(c[2]);
+
+// set a THREE.Color from 0..255 sRGB numbers (times k) without making any garbage
+export const setCol = (c, r, g, b, k = 1) => c.setRGB(Math.min(1, r * k / 255), Math.min(1, g * k / 255), Math.min(1, b * k / 255), SRGBColorSpace);

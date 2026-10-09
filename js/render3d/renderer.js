@@ -4,7 +4,7 @@
 // we call tick(), which remembers where each thing was and where it is now. Every frame we call render(alpha), where alpha
 // (0..1) says how far we are between the two ticks, and draw everything at the blended position.
 import * as THREE from "three";
-import { SCALE, simX, simZ, roadHalf, arrToHex } from "./mapping.js";
+import { SCALE, simX, simZ, roadHalf, arrToHex, setCol } from "./mapping.js";
 import * as M from "./models.js";
 import { createWorld } from "./world.js";
 import { createCameraRig } from "./cameras.js";
@@ -18,12 +18,13 @@ import { createPost } from "./post.js";
 import { createFX } from "./fx.js";
 import { createPhoto } from "./photo.js";
 import { createShowroom } from "./showroom.js";
-import { resolve, createAuto } from "./quality.js";
+import { resolve, createAuto, gfxDefaults, OPTIONS } from "./quality.js";
 
 const RACE_STATES = new Set(["playing", "over", "cleared", "paused", "camera"]);
 const MODES = ["overhead", "chase", "cockpit"];
 const lerp = (a, b, t) => a + (b - a) * t;
 const rnd = (a, b) => a + Math.random() * (b - a);
+const START_FINISH = ["start", "finish"], NO_GRADE = {}, focus = { x: 0, z: 0, camPos: null }, playerLight = { x: 0, z: 0, yaw: 0, alive: true }, cin = { kick: 0, shake: 0, time: 0, gear: 1, lit: 0, grid01: 0, crashT: 0, finishT: 0, photo: null };
 const sizeV = new THREE.Vector2(), sunV = new THREE.Vector3(), sunP = new THREE.Vector3(), camFwd = new THREE.Vector3();
 const qTmp = new THREE.Quaternion(), pTmp = new THREE.Vector3(), sTmp = new THREE.Vector3(), mTmp = new THREE.Matrix4(), yAxis = new THREE.Vector3(0, 1, 0);
 
@@ -145,7 +146,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
   // ---------- per-frame ----------
   let last = performance.now(), time = 0, frozen = null, fps = 60, crashAt = -1, crashClock = 0, finishAt = -1, fwT = 0, lastState = "";
   const camTarget = { x: 0, z: 0, v: 0, tilt: 0, nitro: false };
-  const R = { active: true, renderer, scene, camera, rig, tick, racerScreen, photo, refreshQuality: applyQuality, get fps() { return fps; }, get quality() { return Q; }, get autoLevel() { return auto.level; } };
+  const R = { active: true, renderer, scene, camera, rig, tick, racerScreen, photo, refreshQuality: applyQuality, gfxDefaults, OPTIONS, cinematic: settings.cinema !== false, get fps() { return fps; }, get quality() { return Q; }, get autoLevel() { return auto.level; } };
 
   const INSPECT = new URLSearchParams(location.search).get("inspect"); // ?inspect=side|front|top: a fixed close-up of your car, for checking models
   function modeNow() {
@@ -199,7 +200,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
       }
       if (Q.trails && fxDt > 0) {
         const tr = fx.trailsFor(r.id), nit = r.alive && r.nitro > 0, amt = nit ? 1 : (r.alive && night > 0.3 && r.v > 1.5 ? 0.5 : 0), rgb = nit ? [0.45, 0.8, 1.3] : [1.3, 0.12, 0.06];
-        for (const [side, t] of [[-1.15, tr.l], [1.15, tr.r]]) t.step(x + side * c + 3.4 * s, 1.2, z - side * s + 3.4 * c, shiftZ, rgb, amt);
+        tr.l.step(x - 1.15 * c + 3.4 * s, 1.2, z + 1.15 * s + 3.4 * c, shiftZ, rgb, amt); tr.r.step(x + 1.15 * c + 3.4 * s, 1.2, z - 1.15 * s + 3.4 * c, shiftZ, rgb, amt);
       }
     }
     // traffic, pickups, scenery
@@ -233,15 +234,15 @@ export function createRenderer3D(canvas2d, glCanvas) {
     }
     instancer.end();
     // everything leafy follows the city's colour, and the cars' lights come up at night
-    leafMat.color.setHex(arrToHex(pal.leaf)); leafDarkMat.color.setHex(arrToHex(pal.leaf.map(v => v * 0.72))); grassTopMat.color.setHex(arrToHex(pal.leaf.map(v => Math.min(255, v * 1.12))));
+    setCol(leafMat.color, pal.leaf[0], pal.leaf[1], pal.leaf[2]); setCol(leafDarkMat.color, pal.leaf[0], pal.leaf[1], pal.leaf[2], 0.72); setCol(grassTopMat.color, pal.leaf[0], pal.leaf[1], pal.leaf[2], 1.12);
     M.lightMats.head.emissiveIntensity = 0.4 + 4 * night; M.lightMats.tail.emissiveIntensity = 0.8 + 2 * night;
     for (const g of glows) g.mat.emissiveIntensity = g.base * (0.12 + 1.5 * night); // neon, lit windows and landmark lights come up at night
-    for (const name of ["start", "finish"]) {
+    for (const name of START_FINISH) {
       const m = marks[name]; if (!m) continue;
       m.obj.position.set(0, 0, lerp(m.pz, m.cz, alpha));
       if (name === "start") m.obj.userData.lights.forEach((mt, i) => {
         const green = grid.done, red = !green && i < grid.lit;
-        mt.emissive.set(green ? 0x00ff40 : red ? 0xff1010 : 0x000000); mt.emissiveIntensity = green || red ? 3 : 0; mt.color.set(green ? 0x00aa30 : red ? 0xaa0000 : 0x220000);
+        mt.emissive.set(green ? 0x00ff40 : red ? 0xff0000 : 0x000000); mt.emissiveIntensity = green ? 2.4 : red ? 1.8 : 0; mt.color.set(green ? 0x00aa30 : red ? 0xaa0000 : 0x220000); // (pure red at a lower strength: bright reds turn orange in the tone mapper)
       });
     }
 
@@ -255,19 +256,20 @@ export function createRenderer3D(canvas2d, glCanvas) {
 
     photo.update(dt);
     crashClock += dt * (time - crashAt < 1.6 ? 0.35 : 1); // the crash camera runs in slow motion at first
-    const cin = { kick: kickFx, shake: settings.shake ? shake : 0, time, gear: gearOf(p0.v), lit: Math.round(rpmOf(effV(p0)) * 10),
-      grid01: Math.min(1, grid.t / (5 * GRID_STEP + 25)), crashT: crashClock, finishT: time - finishAt, photo };
+    cin.kick = kickFx; cin.shake = settings.shake ? shake : 0; cin.time = time; cin.gear = gearOf(p0.v); cin.lit = Math.round(rpmOf(effV(p0)) * 10);
+    cin.grid01 = Math.min(1, grid.t / (5 * GRID_STEP + 25)); cin.crashT = crashClock; cin.finishT = time - finishAt; cin.photo = photo;
     rig.update(mode, target, dt, cin);
-    world.update(pal, rainI, lerp(scrollPrev, scrollCur, alpha) * SCALE, { x: target.x, z: target.z, camPos: camera.position }, stA, stB, stBlend, wet);
+    focus.x = target.x; focus.z = target.z; focus.camPos = camera.position; // (reused every frame: nothing is allocated while racing)
+    world.update(pal, rainI, lerp(scrollPrev, scrollCur, alpha) * SCALE, focus, stA, stB, stBlend, wet);
     scene.fog.near *= Q.dist; scene.fog.far *= Q.dist;
-    if (!Q.ibl) { scene.environment = null; world.fill.intensity = 1.1; } else world.fill.intensity = 0;
+    if (!Q.ibl) { scene.environment = null; world.fill.intensity = 1.1; } else world.fill.intensity = 0.4 * night; // (a little moonlight fill on the cars at night)
     const flash = weather.update(time, fxDt, camera.position, rainI, wind, pal.petals, mode, Q.rain);
     if (flash > 0) { scene.environmentIntensity += flash * 3; world.sun.intensity += flash * 4; } // lightning lights up the whole scene for a moment
     for (const w of windowMats) w.emissiveIntensity = 2.4 * night; // lit windows in the skyline
-    lampList.length = 0;
-    for (const [s, rec] of instT.recs) if (s.kind === "lamp") lampList.push({ x: rec.cx, z: lerp(rec.pz, rec.cz, alpha), side: s.side });
-    nightFx.update(night, lampList, p0.alive && rec0 ? { x: camTarget.x, z: camTarget.z, yaw: -camTarget.tilt, alive: true } : null);
-    const du = world.dome.material.uniforms; du.hazeAmt.value = night * 0.3; du.haze.value.setRGB(...stA.s1.map(v => Math.pow(v / 255, 2.2) * 0.5)); // the glow of the city on the horizon
+    let nl = 0;
+    if (night > 0.04) for (const [s, rec] of instT.recs) if (s.kind === "lamp") { const l = lampList[nl++] || (lampList[nl - 1] = { x: 0, z: 0, side: 1 }); l.x = rec.cx; l.z = lerp(rec.pz, rec.cz, alpha); l.side = s.side; }
+    nightFx.update(night, lampList, nl, p0.alive && rec0 ? (playerLight.x = camTarget.x, playerLight.z = camTarget.z, playerLight.yaw = -camTarget.tilt, playerLight) : null);
+    const du = world.dome.material.uniforms; du.hazeAmt.value = night * 0.3; du.haze.value.setRGB(Math.pow(stA.s1[0] / 255, 2.2) * 0.5, Math.pow(stA.s1[1] / 255, 2.2) * 0.5, Math.pow(stA.s1[2] / 255, 2.2) * 0.5); // the glow of the city on the horizon
 
     // ---- finish line: fireworks and confetti in the city's flag colours ----
     if (state === "cleared" && level && fxDt > 0) {
@@ -283,7 +285,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
     // ---- post-processing settings for this frame ----
     {
       const U = post.u, kmh = p0.v * 60, nf = typeof nitroFx === "number" ? nitroFx : 0;
-      const gA = GRADE[stA.venue] || {}, gB = GRADE[stB.venue] || {}, mixv = (k, d) => (gA[k] ?? d) + ((gB[k] ?? d) - (gA[k] ?? d)) * stBlend;
+      const gA = GRADE[stA.venue] || NO_GRADE, gB = GRADE[stB.venue] || NO_GRADE, mixv = (k, d) => (gA[k] ?? d) + ((gB[k] ?? d) - (gA[k] ?? d)) * stBlend;
       const wetDim = 1 - 0.12 * rainI;
       U.sat.value = mixv("sat", 1.06) * wetDim; U.contrast.value = mixv("contrast", 1.05) + 0.06 * night;
       const ta = gA.tint || [1, 1, 1], tb = gB.tint || [1, 1, 1];
