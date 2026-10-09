@@ -1086,6 +1086,13 @@ function updateWeather() {
 
 // ---------- effects ----------
 
+// glowing (additively blended) particles: sparks, fire, nitro exhaust
+function glowBurst(x, y, colors, n, power, life = 30, size = [2, 4]) {
+  for (let i = 0; i < n && particles.length < maxParticles() + 80; i++) {
+    const a = rnd(0, TAU), s = rnd(0.5, power);
+    particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rnd(life * 0.5, life), max: life, size: rnd(size[0], size[1]), color: pick(colors), add: true });
+  }
+}
 function burst(x, y, colors, n, power) {
   for (let i = 0; i < n && particles.length < maxParticles() + 80; i++) {
     const a = rnd(0, TAU), s = rnd(0.5, power);
@@ -1166,6 +1173,7 @@ function nearMiss(r) {
   if (r.ai) return;
   pops.push({ r, text: r.combo > 1 ? `CLOSE! x${r.combo}` : "CLOSE!", t: 0 });
   sound.whoosh(); shake = Math.max(shake, 3); rumbleSoft(); // a little jolt you can feel
+  if (!settings.lowfx) glowBurst(r.x, r.y - 6, ["#ffffff", "#7fffd4", "#ffe08a"], 16 + Math.min(r.combo, 6) * 3, 5, 18, [1.5, 3]);
   if (r.combo >= 5 && r.combo % 5 === 0) slowT = 14; // a beat of slow motion on big combos
 }
 
@@ -1506,9 +1514,7 @@ function updatePlaying() {
     if (frame % 3 === 0 && spray && r.v > 2) {
       for (const sx of [-18, 18]) particles.push({ x: r.x + sx, y: r.y + 30, vx: rnd(-.5, .5), vy: rnd(.4, 1.4), life: 18, max: 45, size: rnd(2.5, 4.5), color: spray });
     }
-    if (r.nitro > 0) {
-      for (let i = 0; i < 2; i++) particles.push({ x: r.x + rnd(-6, 6), y: r.y + 38, vx: rnd(-.8, .8), vy: rnd(3, 6), life: 14, max: 20, size: rnd(2, 4.5), color: pick(["#5fd4ff", "#ffffff", "#2a7bff", "#bfeaff"]) });
-    }
+    if (r.nitro > 0) for (let i = 0, n = settings.lowfx ? 2 : 4; i < n; i++) particles.push({ x: r.x + rnd(-7, 7), y: r.y + 38, vx: rnd(-.9, .9), vy: rnd(3, 7), life: 16, max: 20, size: rnd(2.5, 6), color: pick(["#5fd4ff", "#ffffff", "#2a7bff", "#bfeaff", "#8a7dff"]), add: true });
     if (r.hardBrake && !spray && frame % 2 === 0) for (const sx of [-20, 20]) particles.push({ x: r.x + sx, y: r.y + 30, vx: rnd(-.4, .4), vy: rnd(.5, 1.4), life: 24, max: 40, size: rnd(4, 7), color: "rgba(210,210,210,0.45)" });
     if (r.v > 4.7 && frame % 2 === 0) {
       particles.push({ x: r.x + rnd(-5, 5), y: r.y + 34, vx: rnd(-1.6, 1.6), vy: rnd(.8, 2.6), life: 11, max: 20, size: rnd(1.4, 2.6), color: pick(["#ffb347", "#fff2a8", "#ff8c1a"]) });
@@ -1569,6 +1575,11 @@ function updatePlaying() {
       if (hitX && hitY) {
         r.alive = false; r.drift = (r.x < e.x ? -1 : 1) * 1.5;
         if (!r.ai) { bump("crashes"); flashT = settings.lowfx ? 0.35 : 0.75; hitStop = 8; } // white flash and a beat of freeze frame
+        if (!settings.lowfx) { // a fireball, sparks flying and smoke rolling off
+          glowBurst(r.x, r.y - 10, ["#fff4c2", "#ffd23f", "#ff9f1c", "#ff5a1f"], 46, 7, 34, [3, 8]);
+          glowBurst(r.x, r.y - 10, ["#ffffff", "#ffe08a"], 30, 11, 22, [1.5, 3]);
+          for (let i = 0; i < 26; i++) particles.push({ x: r.x + rnd(-14, 14), y: r.y + rnd(-20, 10), vx: rnd(-1.2, 1.2), vy: rnd(-1.5, 0.3), life: rnd(50, 90), max: 90, size: rnd(7, 14), color: pick(["rgba(40,40,44,0.55)", "rgba(70,70,76,0.5)", "rgba(30,30,32,0.6)"]) });
+        }
         burst(r.x, r.y, [r.team.p, r.team.s, "#ff9f1c", "#ffd23f", "#444"], 40, 5.5);
         shake = 14;
       }
@@ -1903,7 +1914,12 @@ function drawShieldIcon(x, y, r, t) { // a glowing cyan shield badge
   ctx.fill(); ctx.stroke();
   ctx.fillStyle = "#7fffff"; ctx.fillRect(x - r * 0.12, y - r * 0.55, r * 0.24, r * 1.0); ctx.fillRect(x - r * 0.45, y - r * 0.15, r * 0.9, r * 0.24);
 }
-const drawPickupIcon = (k, x, y, s) => k.type === "nitro" ? drawNitroIcon(x, y, 13 * s, clock) : k.type === "shield" ? drawShieldIcon(x, y, 13 * s, clock) : drawCoin(x, y, 10 * s, Math.cos(clock / 8 + k.y / 20));
+function drawPickupIcon(k, x, y, s) {
+  if (k.type === "nitro") return drawNitroIcon(x, y, 13 * s, clock);
+  if (k.type === "shield") return drawShieldIcon(x, y, 13 * s, clock);
+  if (!settings.lowfx) glow(x, y, 22 * s, "255,210,63", 0.35 + 0.15 * Math.sin(clock / 6 + k.y / 30)); // coins shimmer
+  drawCoin(x, y, 10 * s, Math.cos(clock / 8 + k.y / 20));
+}
 function drawShieldBubble(cx, cy, rx, ry) { // the bubble round a shielded car
   const a = 0.35 + 0.12 * Math.sin(clock / 5);
   ctx.save(); ctx.globalCompositeOperation = "lighter";
@@ -2233,10 +2249,11 @@ function drawTopDown() {
   if (finishObj) drawGantryTop(finishObj.y, true);
   for (const p of particles) {
     ctx.globalAlpha = clamp(p.life / p.max * 1.5, 0, 1);
+    ctx.globalCompositeOperation = p.add ? "lighter" : "source-over"; // glowing ones blend additively
     ctx.fillStyle = p.color;
-    ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+    if (p.add) { ctx.beginPath(); ctx.arc(p.x, p.y, p.size * 0.6, 0, TAU); ctx.fill(); } else ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
   }
-  ctx.globalAlpha = 1;
+  ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
   for (const s of scenery) if (!s.far && s.y > -50 && s.kind === "tree") drawScenery(s);
 }
 
@@ -3095,29 +3112,32 @@ function drawSprites3D(C) {
     o.fn();
     ctx.restore();
   }
-  for (const q of particles) { // sparks, spray and debris
+  for (const q of particles) { // sparks, spray and debris (glowing ones blend additively)
     const p = toScreen(C, q.x, q.y);
     if (!p) continue;
     ctx.globalAlpha = clamp(q.life / q.max * 1.5, 0, 1) * fade3D(C, p.d);
+    ctx.globalCompositeOperation = q.add ? "lighter" : "source-over";
     ctx.fillStyle = q.color;
     const s = Math.max(1, q.size * p.sc);
-    ctx.fillRect(p.sx - s / 2, p.sy - s / 2, s, s);
+    if (q.add) { ctx.beginPath(); ctx.arc(p.sx, p.sy - s, s * 0.6, 0, TAU); ctx.fill(); } else ctx.fillRect(p.sx - s / 2, p.sy - s / 2, s, s);
   }
-  ctx.globalAlpha = 1;
+  ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
 }
 
 function drawSpeedStreaks3D(C) {
   const v = state === "playing" ? racers[0].v : 0;
   if (v < 3) return;
-  ctx.strokeStyle = `rgba(255,255,255,${clamp((v - 3) / 3, 0, 1) * 0.22})`;
-  ctx.lineWidth = 1.5; ctx.beginPath();
+  const k = clamp((v - 3) / 3, 0, 1);
+  ctx.save(); ctx.globalCompositeOperation = "lighter";
+  ctx.strokeStyle = `rgba(230,240,255,${k * 0.32})`;
+  ctx.lineWidth = 1.6; ctx.beginPath();
   const vx = W / 2 - camOff * 0.2, vy = C.hor;
-  for (let i = 0; i < 26; i++) {
+  for (let i = 0, n = settings.lowfx ? 18 : 26 + Math.round(k * 26); i < n; i++) {
     const a = (i * 2.399) % TAU, ph = ((scrollPos * 0.012 * (0.7 + (i % 4) * 0.2) + i * 0.173) % 1), r0 = 40 + ph * ph * 380, r1 = r0 + 14 + ph * 70;
     const ca = Math.cos(a), sa = Math.sin(a) * 0.7;
     ctx.moveTo(vx + ca * r0, vy + 30 + sa * r0); ctx.lineTo(vx + ca * r1, vy + 30 + sa * r1);
   }
-  ctx.stroke();
+  ctx.stroke(); ctx.restore();
 }
 
 // ---- light on the road: wet sheen and reflections, headlights, underglow, rain splashes (3D views) ----
