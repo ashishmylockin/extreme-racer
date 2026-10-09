@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="description" content="Race through 22 world cities in a free browser racing game: dodge traffic, chain near misses, fire nitro and earn 3 stars in every city.">
+<meta name="theme-color" content="#0b0b0d">
+<title>Extreme Racer – World Tour Racing</title>
+<link id="favicon" rel="icon" href="data:,">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<canvas id="game" width="400" height="480" tabindex="0"></canvas>
+<input id="songInput" type="file" accept="audio/*" multiple hidden>
+<!-- The import map lets module code say: import ... from "three" (no build step, no CDN). -->
+<script type="importmap">
+{ "imports": { "three": "./lib/three/three.module.min.js", "three/addons/": "./lib/three/addons/" } }
+</script>
+<!-- The game code is split into plain script files that run in this order and share one scope. -->
+<script src="js/data/config.js"></script>
+<script src="js/data/helpers.js"></script>
+<script src="js/data/teams.js"></script>
+<script src="js/data/cities.js"></script>
+<script src="js/data/tuning.js"></script>
+<script src="js/data/save.js"></script>
+<script src="js/audio/sound.js"></script>
+<script src="js/audio/music.js"></script>
+<script src="js/sim/state.js"></script>
+<script src="js/sim/world.js"></script>
+<script src="js/ui/menus.js"></script>
+<script src="js/sim/stages.js"></script>
+<script src="js/sim/effects.js"></script>
+<script src="js/sim/gameplay.js"></script>
+<script src="js/ui/controller.js"></script>
+<script src="js/sim/update.js"></script>
+<script src="js/render2d/tiles.js"></script>
+<script src="js/render2d/cars.js"></script>
+<script src="js/render2d/scenery.js"></script>
+<script src="js/render2d/topdown.js"></script>
+<script src="js/render2d/views3d.js"></script>
+<script src="js/render2d/post.js"></script>
+<script src="js/ui/hud.js"></script>
+<script src="js/ui/input.js"></script>
+<script src="js/main.js"></script>
+<script type="module" src="js/render3d/boot.js"></script>
+</body>
+</html>

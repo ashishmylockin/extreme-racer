@@ -1,8 +1,8 @@
 # Extreme Racer
 
-A single-file browser racing game: dodge traffic in an open-wheel race car on a world tour through 22 cities. Everything is drawn and synthesised in code: no image or sound files.
+A browser racing game: dodge traffic in an open-wheel race car on a world tour through 22 cities. Cars, music and sound are made in code; the 3D upgrade (branch `3D`) adds Three.js and free CC0 models (see CREDITS.md).
 
-Open `extremeracer.html` in a browser (press **F** for fullscreen). To publish it, see [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md).
+Run it with VS Code Live Server (open the folder, right-click `index.html` → Open with Live Server) or `powershell -ExecutionPolicy Bypass -File tools/serve.ps1`, then press **F** for fullscreen. To publish it, see [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md).
 
 - **World Tour:** 22 cities, each a level with a finish line, 1–3 stars and 3 missions; finish a city to unlock the next; the last one is a Grand Final against the CPU
 - **Daily Challenge:** one city and traffic pattern per day (seeded from the date), best score and day streak

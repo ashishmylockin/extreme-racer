@@ -1,0 +1,5 @@
+  /* no scrollbars, rubber-banding, text selection or tap flashes, also when embedded in an iframe (itch.io, CrazyGames) */
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0b0d; overscroll-behavior: none; touch-action: none;
+    user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+  body { display: flex; justify-content: center; align-items: center; font-family: sans-serif; }
+  canvas { display: block; background: #444; touch-action: none; outline: none; } /* sized from JS so the game fills the whole window */
