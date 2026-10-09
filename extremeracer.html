@@ -478,11 +478,10 @@ let level = null, finishObj = null, levelTime = 0; // World Tour: the city being
 let tourCleared = store.get("tourCleared", 0); // how many cities of the tour are done, in order
 let cityStars = store.get("stars", []); // best stars (0-3) per city
 let starAnim = null, uiFx = []; // CITY COMPLETE: stars popping in one by one, and their sparkle (screen-space particles)
-// score needed for [2, 3] stars in each city. Calibrated with bot runs on each city's traffic: 2 stars is about what a careful
-// ~216 km/h driver scores, 3 stars needs ~300 km/h overtakes plus most of the coins (88% of an expert bot), smoothed city to city
-const STAR_T = [[280, 370], [270, 360], [270, 370], [250, 360], [260, 370], [250, 370], [270, 370], [270, 370], [270, 380], [270, 380], [280, 380],
-  [280, 380], [290, 380], [290, 380], [300, 380], [310, 380], [310, 380], [320, 380], [320, 380], [330, 380], [340, 380], [340, 380]];
-const starTargets = i => STAR_T[i] || [300, 380];
+// score needed for [2, 3] stars in each city, from how many cars it has (measured: ~77 + 0.85 per city):
+// 2 stars = passing them all at ~240 km/h plus some coins; 3 stars = passing at 300+ km/h and chaining some near misses
+const round10 = x => Math.round(x / 10) * 10;
+const starTargets = i => { const n = 77 + 0.85 * i; return [round10(2 * n + 60), round10(3.6 * n + 160)]; };
 // World Tour difficulty: early cities are roomy and relaxed, later ones busier with a higher minimum pace
 function tourParams(i) {
   const k = clamp(i / (ROUTE.length - 2), 0, 1);
@@ -932,10 +931,15 @@ function updateFx() {
 // you passed) is a near miss: bonus points times the combo, which also multiplies overtakes until it lapses.
 const COMBO_T = 180; // frames a combo survives without another near miss
 let pops = [], slowT = 0; // "CLOSE!" popups; slow-motion frames left
-const comboMult = r => r.comboT > 0 ? Math.max(1, r.combo) : 1;
+const COMBO_MAX = 5; // the chain can keep counting, but it never pays more than x5
+const comboMult = r => r.comboT > 0 ? clamp(r.combo, 1, COMBO_MAX) : 1;
+// Score balance: everything scales with speed, so fast, risky driving always out-scores slow, safe driving.
+// An overtake pays 1 point at ~180 km/h or below, 2 at 240, 3 at 300, 4 at 360... with no ceiling.
+const passPoints = v => Math.max(1, Math.round((v * 60 - 120) / 60));
+const SPEED_PAR = 90; // World Tour: every second under 90 s at the finish is worth 4 points
 function nearMiss(r) {
   r.combo = (r.comboT > 0 ? r.combo : 0) + 1; r.comboT = COMBO_T;
-  r.score += 10 * r.combo;
+  r.score += 5 * passPoints(r.v) * comboMult(r); // a close shave at speed is worth more
   if (r.ai) return;
   pops.push({ r, text: r.combo > 1 ? `CLOSE! x${r.combo}` : "CLOSE!", t: 0 });
   sound.whoosh();
@@ -1326,7 +1330,7 @@ function updatePlaying() {
         e.passed[r.id] = true;
         if (e.kind !== "works") { // cones don't count as overtakes
           r.passed++;
-          r.score += (1 + (r.v >= 3.6 ? 1 : 0) + (r.v >= 4.8 ? 1 : 0)) * comboMult(r); // fast overtakes pay more, and the combo multiplies them
+          r.score += passPoints(r.v) * comboMult(r); // fast overtakes pay more, and the combo multiplies them
         }
         if (e.dodged && e.dodged[r.id]) nearMiss(r);
       }
@@ -1334,7 +1338,7 @@ function updatePlaying() {
       const hitY = Math.abs(e.y - r.y) < reach - 6;
       if (hitX && hitY && r.ghost > 0) continue; // still flashing from a bump: no second hit
       if (hitX && hitY && r.shield) { shieldBreak(r); continue; } // the shield takes it
-      if (hitX && hitY && level && r.ai) { // the Grand Final CPU bumps off traffic instead of crashing: it loses speed and flashes for a second
+      if (hitX && hitY && level && level.final && r.id === 1) { // the Grand Final CPU bumps off traffic instead of crashing: it loses speed and flashes for a second
         if (!(r.ghost > 0)) { r.v *= 0.6; r.ghost = 60; burst(r.x, r.y - 20, ["#ffffff", "#ffd23f"], 12, 3); }
         continue;
       }
@@ -1370,6 +1374,7 @@ function finishLevel() {
   state = "cleared"; overAt = performance.now(); sel = 0; toast = null; // nothing covering the results
   touch.gas = touch.brake = false;
   levelTime = (frame - grid.goFrame) / 60;
+  level.bonus = Math.max(0, Math.round((SPEED_PAR - levelTime) * 4)); racers[0].score += level.bonus; // the quicker the finish, the bigger the bonus
   if (level.idx + 1 > tourCleared) { tourCleared = level.idx + 1; store.set("tourCleared", tourCleared); }
   const tg = starTargets(level.idx), got = 1 + (racers[0].score >= tg[0]) + (racers[0].score >= tg[1]);
   const prev = cityStars[level.idx] || 0;
@@ -1433,7 +1438,7 @@ function update() {
   if (starAnim && state === "cleared" && starAnim.shown < starAnim.got && ++starAnim.t >= 28) { // pop the next star
     starAnim.t = 0; const i = starAnim.shown++, sx = W / 2 + (i - 1) * 64;
     sound.tone(660 * (1 + i * 0.26), 1320 * (1 + i * 0.26), 0.3, "triangle", 0.09); sound.burst(0.25, 0.25, "highpass", 5000, 9000);
-    for (let k = 0; k < 26; k++) { const a = rnd(0, TAU), s = rnd(1, 4.5); uiFx.push({ x: sx, y: 262, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rnd(25, 45), color: pick(["#ffd23f", "#fff3b0", "#ffffff", "#ffb347"]) }); }
+    for (let k = 0; k < 26; k++) { const a = rnd(0, TAU), s = rnd(1, 4.5); uiFx.push({ x: sx, y: 270, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rnd(25, 45), color: pick(["#ffd23f", "#fff3b0", "#ffffff", "#ffb347"]) }); }
   }
   for (const p of uiFx) { p.x += p.vx; p.y += p.vy; p.vy += 0.08; p.vx *= 0.97; p.life--; }
   uiFx = uiFx.filter(p => p.life > 0);
@@ -3277,9 +3282,10 @@ function draw() {
     text(`${st.venue}, ${st.country}  -  ${st.n} / ${ROUTE.length}`, 150, 14, "center", "#ddd");
     text(`Time ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`, 186, 20);
     text(`Score ${r.score}   Cars ${r.passed}   Coins +${r.coins}`, 214, 15);
+    if (level.bonus) text(`incl. speed bonus +${level.bonus}`, 232, 11, "center", "#9be89b");
     for (let i = 0; i < 3; i++) { // the stars fill in one at a time, the newest one popping bigger
       const on = starAnim && i < starAnim.shown, pop = on && i === starAnim.shown - 1 ? 1 + 0.5 * Math.max(0, 1 - starAnim.t / 12) : 1;
-      drawStar(W / 2 + (i - 1) * 64, 262, 22 * pop, on);
+      drawStar(W / 2 + (i - 1) * 64, 270, 22 * pop, on);
     }
     if (starAnim && starAnim.shown >= starAnim.got && starAnim.got > starAnim.prev && starAnim.prev > 0) text("New best!", 296, 12, "center", "#ffd23f");
     for (const p of uiFx) { ctx.globalAlpha = clamp(p.life / 30, 0, 1); ctx.fillStyle = p.color; ctx.fillRect(p.x - 2, p.y - 2, 4, 4); }
