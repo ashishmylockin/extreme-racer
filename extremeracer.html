@@ -523,7 +523,7 @@ function initWorld() {
   enemies = []; pickups = []; particles = []; scenery = []; roadItems = []; wx = [];
   frame = 0; clock = 0; speed = 2; scroll = 2; scrollPos = 0; dist = 0; sceneAcc = 0; spawnAcc = 0; pickupAcc = 600;
   grid = newGrid(true); startObj = null; level = null; finishObj = null; starAnim = null; uiFx = [];
-  shake = 0; tier = 0; newBest = false; banner = null; lastStage = 0; wet = 0; lastGear = 0; result = ""; camOff = 0;
+  shake = 0; sprayFog = 0; sprayCar = null; tier = 0; newBest = false; banner = null; lastStage = 0; wet = 0; lastGear = 0; result = ""; camOff = 0;
   updateStage();
   camRefY = H - 100; nitroFx = 0;
   for (let y = -AHEAD; y < H + 40; y += 55) spawnScenery(y);
@@ -575,7 +575,12 @@ function openMenu(s, index = 0) { state = s; sel = index; }
 function toMenu() { initDemo(); openMenu("menu"); }
 function pause() { if (state === "playing") { openMenu("paused"); touch.gas = touch.brake = false; } }
 function openCamera() { if (state === "playing") { openMenu("camera", cam); touch.gas = touch.brake = false; } }
-function startBanner(i, quiet) { banner = { idx: i, t: 0 }; if (!quiet) sound.jingle(i); }
+function startBanner(i, quiet) {
+  banner = { idx: i, t: 0 }; if (!quiet) sound.jingle(i);
+  const st = ROUTE[i]; // these cities drive differently: say so on arrival
+  if (st.rain > 0.3) say("Wet road: slower lane changes, spray ahead");
+  else if (st.night > 0.15) say("Night: distant cars show only tail lights");
+}
 
 // ---------- menus ----------
 
@@ -881,6 +886,12 @@ function burst(x, y, colors, n, power) {
   }
 }
 
+// Rain and night change how a city plays, not just how it looks (London, Brussels, Sao Paulo / Singapore, Las Vegas, Doha)
+const rainPlay = () => clamp((((stA && stA.rain) || 0) - 0.2) / 0.2, 0, 1);
+const nightPlay = () => clamp((((stA && stA.night) || 0) - 0.13) / 0.07, 0, 1);
+const nightHide = e => nightPlay() * clamp((camRefY - e.y - 200) / 120, 0, 1); // far cars: only their tail lights show
+let sprayFog = 0, sprayCar = null; // the mist thrown up by the car right ahead of you in the wet
+
 function sprayColor() {
   if (wet > 0.25) return "rgba(205,220,240,0.35)";
   if (stA && stA.desert) return "rgba(225,205,150,0.28)";
@@ -1044,7 +1055,7 @@ function stepRacers() {
   for (const r of racers) {
     const px = r.x;
     if (r.alive) {
-      r.x += (laneX(r.lane) - r.x) * 0.3;
+      r.x += (laneX(r.lane) - r.x) * (0.3 - 0.09 * rainPlay()); // wet road: lane changes take a little longer
       // slower than the pace car -> slip back down the screen; the spring pulls you back when you keep up
       if (level && level.final && r.ai) r.y = clamp(r.y + (speed - r.v), -AHEAD + 60, H + 400); // the final's CPU sits at its true distance from you, on screen or not
       else r.y = clamp(r.y + (speed - r.v) - 0.015 * (r.y - r.ty), 80, H - 38);
@@ -1189,7 +1200,14 @@ function updatePlaying() {
     if (pickupAcc <= 0) { spawnPickup(); pickupAcc = rnd(520, 960); }
   }
 
-  const spray = sprayColor();
+  const spray = sprayColor(), rp = rainPlay(), p0 = racers[0];
+  let fogT = 0; sprayCar = null;
+  if (rp > 0) for (const e of enemies) {
+    const d = p0.y - e.y;
+    if (d > 0 && d < 400 && frame % 4 === 0 && particles.length < 320) particles.push({ x: e.x + rnd(-14, 14), y: e.y + 34, vx: rnd(-.6, .6), vy: rnd(.6, 1.6), life: 20, max: 40, size: rnd(3, 5.5), color: "rgba(215,225,240,0.4)" });
+    if (d > 0 && d < 280 && Math.abs(e.x - p0.x) < 40) { const k = 1 - d / 280; if (k > fogT) { fogT = k; sprayCar = e; } } // right behind it in your lane
+  }
+  sprayFog += (rp * fogT - sprayFog) * 0.08;
   for (const r of racers) {
     if (r.ghost > 0) r.ghost--;
     if (r.ai && r.alive) aiThink(r);
@@ -1547,7 +1565,31 @@ function drawEnemy(e) {
   ctx.save();
   ctx.translate(e.x, e.y);
   drawCar(e.livery);
+  const h = nightHide(e);
+  if (h > 0) { // swallowed by the dark: just two red tail lights
+    ctx.fillStyle = `rgba(4,6,16,${0.93 * h})`; roundRect(-24, -40, 48, 80, 10); ctx.fill();
+    for (const x of [-13, 13]) { glow(x, 36, 12, "255,30,30", 0.9 * h + 0.1); ctx.fillStyle = "#ff3030"; ctx.fillRect(x - 3, 34, 6, 3); }
+  }
   ctx.restore();
+}
+// the wall of spray off the car right ahead: the road beyond it goes misty until you pull out of its wake
+function drawSprayFog(C) {
+  if (sprayFog < 0.02 || !sprayCar) return;
+  let y0 = sprayCar.y + 10;
+  if (C) { const p = toScreen(C, sprayCar.x, sprayCar.y); if (!p) return; y0 = p.sy; }
+  const top = C ? C.hor - 10 : 0, a = 0.45 * sprayFog, g = ctx.createLinearGradient(0, y0, 0, Math.max(top, y0 - 90));
+  g.addColorStop(0, "rgba(215,225,238,0)"); g.addColorStop(1, `rgba(215,225,238,${a})`);
+  ctx.fillStyle = g; ctx.fillRect(0, Math.max(top, y0 - 90), W, y0 - Math.max(top, y0 - 90));
+  if (y0 - 90 > top) { ctx.fillStyle = `rgba(215,225,238,${a})`; ctx.fillRect(0, top, W, y0 - 90 - top); }
+}
+
+function drawEnemyRear(e) { // 3D version of the same
+  drawCarRear(e.livery);
+  const h = nightHide(e);
+  if (h > 0) {
+    ctx.fillStyle = `rgba(4,6,16,${0.93 * h})`; ctx.fillRect(-32, -52, 64, 54);
+    for (const x of [-16, 16]) { glow(x, -14, 14, "255,30,30", 0.9 * h + 0.1); ctx.fillStyle = "#ff3030"; ctx.fillRect(x - 4, -16, 8, 4); }
+  }
 }
 
 function drawRacer(r) {
@@ -1750,6 +1792,7 @@ function drawTopDown() {
   }
   for (const e of enemies) if (e.y > -CAR_H) drawEnemy(e);
   for (const r of racers) drawRacer(r);
+  drawSprayFog(null);
   if (startObj) drawGantryTop();
   if (finishObj) drawGantryTop(finishObj.y, true);
   for (const p of particles) {
@@ -2505,7 +2548,7 @@ function drawSprites3D(C) {
   const list = [];
   for (const s of scenery) { const p = toScreen(C, s.x3, s.y); if (p && p.sc > (s.kind === "lm" ? 0.1 : 0.17) && p.sx > -240 && p.sx < W + 240) list.push({ d: p.d, p, fn: () => drawScenery3D(s) }); } // tiny, far objects aren't worth drawing
   for (const k of pickups) { const p = toScreen(C, k.x, k.y); if (p) list.push({ d: p.d, p, coin: k }); }
-  for (const e of enemies) { const p = toScreen(C, e.x, e.y, CAR_H / 2); if (p) list.push({ d: p.d, p, fn: () => drawCarRear(e.livery) }); }
+  for (const e of enemies) { const p = toScreen(C, e.x, e.y, CAR_H / 2); if (p) list.push({ d: p.d, p, fn: () => drawEnemyRear(e) }); }
   for (const r of racers) {
     const p = toScreen(C, r.x, r.y, CAR_H / 2);
     if (p) list.push({ d: p.d, p, fn: () => { if (r.ghost > 0 && Math.floor(r.ghost / 5) % 2) ctx.globalAlpha *= 0.35; drawCarRear(r.team, { brake: r.alive && r.braking, slip: r.alive && r.v >= 4.6, nitro: r.alive && r.nitro > 0 }); }, tilt: r.tilt, dead: !r.alive });
@@ -2577,6 +2620,7 @@ function draw3D(C) {
   drawHaze(C);
   drawSpeedStreaks3D(C);
   drawSprites3D(C);
+  drawSprayFog(C);
   ctx.restore();
 }
 
