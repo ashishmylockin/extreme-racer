@@ -475,6 +475,12 @@ let pal, stageIdx = 0, stageFrac = 0, stA = null, stB = null, stBlend = 0, rainI
 let grid = null, startObj = null; // grid = the start-lights sequence, startObj = the start line + gantry (they scroll away once you're racing)
 let level = null, finishObj = null, levelTime = 0; // World Tour: the city being raced ({ idx, d0, len }) and its finish line
 let tourCleared = store.get("tourCleared", 0); // how many cities of the tour are done, in order
+let cityStars = store.get("stars", []); // best stars (0-3) per city
+let starAnim = null, uiFx = []; // CITY COMPLETE: stars popping in one by one, and their sparkle (screen-space particles)
+// score needed for 2 and 3 stars in each city, calibrated with bot runs (see starTargets)
+const STAR_T = [];
+const starTargets = i => STAR_T[i] || [250, 380]; // provisional until the per-city table is filled in
+const totalStars = () => cityStars.reduce((a, s) => a + (s || 0), 0);
 let sel = 0, overAt = 0, garageIdx = 0, jumpIdx = 0, runStage = 0, startDist = 0, toast = null, padG = [0, 0], padB = [0, 0], hasPad = false, hasTouch = false;
 const held = new Set();
 const touch = { gas: false, brake: false, gasId: null, brakeId: null }; // ids = which finger is on which pedal
@@ -508,7 +514,7 @@ function makeRacer(i, opts) {
 function initWorld() {
   enemies = []; pickups = []; particles = []; scenery = []; roadItems = []; wx = [];
   frame = 0; clock = 0; speed = 2; scroll = 2; scrollPos = 0; dist = 0; sceneAcc = 0; spawnAcc = 0; pickupAcc = 600;
-  grid = newGrid(true); startObj = null; level = null; finishObj = null;
+  grid = newGrid(true); startObj = null; level = null; finishObj = null; starAnim = null; uiFx = [];
   shake = 0; tier = 0; newBest = false; banner = null; lastStage = 0; wet = 0; lastGear = 0; result = ""; camOff = 0;
   updateStage();
   camRefY = H - 100; nitroFx = 0;
@@ -676,7 +682,7 @@ function currentMenu() {
     case "paused": return { items: PAUSE_MENU, top: 262, h: 44, gap: 14 };
     case "camera": return { items: CAMERA_MENU, top: 205, h: 44, gap: 10 };
     case "tutorial": return { items: TUTORIAL_MENU, top: 330, h: 44, gap: 10 };
-    case "cleared": return { items: CLEARED_MENU, top: 300, h: 40, gap: 10 };
+    case "cleared": return { items: CLEARED_MENU, top: 306, h: 38, gap: 8 };
     case "over": return { items: OVER_MENU, top: 328, h: 44, gap: 14 };
   }
   return null;
@@ -1208,14 +1214,22 @@ function updatePlaying() {
 
   if (racers.some(r => !r.alive)) endRound();
   else if (finishObj && finishObj.y >= racers[0].y - CAR_H / 2) finishLevel(); // nose over the line
+  if (level && state === "playing") { // a little fanfare the moment a star target is beaten
+    const tg = starTargets(level.idx), now = 1 + (racers[0].score >= tg[0]) + (racers[0].score >= tg[1]);
+    if (now > (level.starNow || 1)) { level.starNow = now; say(`${now}-star score reached!`); sound.tone(880, 1760, 0.18, "triangle", 0.07); }
+  }
 }
 
 // Crossed the finish line of a World Tour city
 function finishLevel() {
-  state = "cleared"; overAt = performance.now(); sel = 0;
+  state = "cleared"; overAt = performance.now(); sel = 0; toast = null; // nothing covering the results
   touch.gas = touch.brake = false;
   levelTime = (frame - grid.goFrame) / 60;
   if (level.idx + 1 > tourCleared) { tourCleared = level.idx + 1; store.set("tourCleared", tourCleared); }
+  const tg = starTargets(level.idx), got = 1 + (racers[0].score >= tg[0]) + (racers[0].score >= tg[1]);
+  const prev = cityStars[level.idx] || 0;
+  if (got > prev) { cityStars[level.idx] = got; store.set("stars", cityStars); }
+  starAnim = { got, prev, shown: 0, t: 0 };
   sound.silence(); sound.jingle(level.idx);
   burst(racers[0].x, racers[0].y - 40, ["#ffd23f", "#ffffff", "#3dff6e", "#5fd4ff"], 50, 6);
 }
@@ -1270,6 +1284,13 @@ function update() {
   }
   else updateDemo();
   updateFx();
+  if (starAnim && state === "cleared" && starAnim.shown < starAnim.got && ++starAnim.t >= 28) { // pop the next star
+    starAnim.t = 0; const i = starAnim.shown++, sx = W / 2 + (i - 1) * 64;
+    sound.tone(660 * (1 + i * 0.26), 1320 * (1 + i * 0.26), 0.3, "triangle", 0.09); sound.burst(0.25, 0.25, "highpass", 5000, 9000);
+    for (let k = 0; k < 26; k++) { const a = rnd(0, TAU), s = rnd(1, 4.5); uiFx.push({ x: sx, y: 262, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rnd(25, 45), color: pick(["#ffd23f", "#fff3b0", "#ffffff", "#ffb347"]) }); }
+  }
+  for (const p of uiFx) { p.x += p.vx; p.y += p.vy; p.vy += 0.08; p.vx *= 0.97; p.life--; }
+  uiFx = uiFx.filter(p => p.life > 0);
   sound.engineTick(state === "playing", effV(racers[0]), racers[0].nitro > 0);
   if (state === "playing" && racers[0].rev > 0.9 && Math.random() < 0.12) sound.burst(0.05, 0.4, "lowpass", 900, 260); // rev-limiter pops
   sound.envTick(state === "playing", Math.max(rainI, wet), 0, 0);
@@ -2797,11 +2818,37 @@ function drawSteerHint() {
   }
 }
 
+// a five-pointed star; gold when earned, an empty outline when not
+function drawStar(cx, cy, r, on) {
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.45 : r; ctx.lineTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr); }
+  ctx.closePath();
+  if (on) { ctx.fillStyle = "#ffd23f"; ctx.fill(); ctx.strokeStyle = "#b8860b"; } else { ctx.fillStyle = "rgba(0,0,0,0.45)"; ctx.fill(); ctx.strokeStyle = "rgba(255,255,255,0.5)"; }
+  ctx.lineWidth = 2; ctx.stroke();
+}
+
+// before the lights go green in a tour city: what each star needs
+function drawTargets() {
+  const tg = starTargets(level.idx), y = 168, rows = [[1, "Finish the city"], [2, `Score ${tg[0]}`], [3, `Score ${tg[1]}`]];
+  ctx.fillStyle = "rgba(0,0,0,0.6)"; roundRect(W / 2 - 110, y, 220, 104, 12); ctx.fill();
+  textAt("CITY TARGETS", W / 2, y + 20, 13, "center", "#ffd23f");
+  rows.forEach(([n, label], i) => {
+    for (let k = 0; k < 3; k++) drawStar(W / 2 - 84 + k * 15, y + 40 + i * 24, 6, k < n);
+    textAt(label, W / 2 - 30, y + 45 + i * 24, 13, "left", (cityStars[level.idx] || 0) >= n ? "#9be89b" : "#fff");
+  });
+}
+
 function drawHud() {
   const p0 = racers[0];
   if (mode === "single" || mode === "tour") {
     text(p0.score, 56, 36);
     text(`Coins ${p0.coins}`, 30, 15, "left", "#ffd23f");
+    if (level) { // the next star to chase, right under the score
+      const tg = starTargets(level.idx), next = p0.score < tg[0] ? [2, tg[0]] : p0.score < tg[1] ? [3, tg[1]] : null;
+      if (next) { for (let k = 0; k < next[0]; k++) drawStar(W / 2 - 38 + k * 12, 75, 5, true); textAt(`${next[1]}`, W / 2 - 38 + next[0] * 12, 80, 12, "left", "#ffd23f"); }
+      else { for (let k = 0; k < 3; k++) drawStar(W / 2 - 18 + k * 12, 75, 5, true); }
+      if (!grid.done) drawTargets();
+    }
   } else {
     racers.forEach((r, i) => {
       text(`${r.label} ${r.score}`, 34, 20, i === 0 ? "left" : "right");
@@ -2907,8 +2954,15 @@ function draw() {
     const st = ROUTE[level.idx], r = racers[0], s = Math.floor(levelTime);
     text(lastCity() ? "TOUR COMPLETE!" : "CITY COMPLETE", 118, Math.min(34, (W - 24) / 9.4), "center", "#ffd23f");
     text(`${st.venue}, ${st.country}  -  ${st.n} / ${ROUTE.length}`, 150, 14, "center", "#ddd");
-    text(`Time ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`, 196, 20);
-    text(`Score ${r.score}   Cars ${r.passed}   Coins +${r.coins}`, 228, 15);
+    text(`Time ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`, 186, 20);
+    text(`Score ${r.score}   Cars ${r.passed}   Coins +${r.coins}`, 214, 15);
+    for (let i = 0; i < 3; i++) { // the stars fill in one at a time, the newest one popping bigger
+      const on = starAnim && i < starAnim.shown, pop = on && i === starAnim.shown - 1 ? 1 + 0.5 * Math.max(0, 1 - starAnim.t / 12) : 1;
+      drawStar(W / 2 + (i - 1) * 64, 262, 22 * pop, on);
+    }
+    if (starAnim && starAnim.shown >= starAnim.got && starAnim.got > starAnim.prev && starAnim.prev > 0) text("New best!", 296, 12, "center", "#ffd23f");
+    for (const p of uiFx) { ctx.globalAlpha = clamp(p.life / 30, 0, 1); ctx.fillStyle = p.color; ctx.fillRect(p.x - 2, p.y - 2, 4, 4); }
+    ctx.globalAlpha = 1;
     drawButtons();
   }
 
