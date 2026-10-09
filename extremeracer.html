@@ -1129,6 +1129,8 @@ function updateFx() {
   menuCar += (sel - menuCar) * 0.16;
   if (statsDirty && clock % 600 === 0) saveStats();
   kickFx *= 0.93;
+  lightning.t *= 0.86;
+  if (stA && stA.rain > 0.3 && !settings.lowfx && Math.random() < 1 / 520) strike(); // the odd thunderstorm
   for (const p of pops) p.t++;
   pops = pops.filter(p => p.t < 50);
   shake *= 0.88;
@@ -2236,26 +2238,83 @@ function drawTopDown() {
 
 function seeded(i) { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
 
+// ---- sky dressing: shaded cloud sprites, a starfield, lightning ----
+const cloudSprites = {};
+function cloudSprite(v, dark) { // a puffy cloud lit from above; dark = the rain-city version
+  const key = v + (dark ? "d" : "l");
+  if (cloudSprites[key]) return cloudSprites[key];
+  const c = cloudSprites[key] = document.createElement("canvas"); c.width = 220; c.height = 96;
+  const g = c.getContext("2d"), puffs = [[0.5, 0.58, 0.26], [0.32, 0.66, 0.2], [0.68, 0.66, 0.21], [0.42, 0.45, 0.2], [0.6, 0.47, 0.17], [0.2, 0.74, 0.13], [0.82, 0.74, 0.13]];
+  for (let i = 0; i < puffs.length; i++) {
+    const [x, y, r] = puffs[(i + v) % puffs.length].map((n, k) => k === 2 ? n * (0.85 + ((v * 7 + i) % 5) * 0.06) : n);
+    const cx = x * 220, cy = y * 96, rr = r * 220, gr = g.createRadialGradient(cx, cy - rr * 0.45, rr * 0.15, cx, cy, rr);
+    gr.addColorStop(0, dark ? "rgba(170,178,192,1)" : "rgba(255,255,255,1)"); gr.addColorStop(0.65, dark ? "rgba(118,126,142,1)" : "rgba(236,240,248,1)"); gr.addColorStop(1, dark ? "rgba(92,100,116,0)" : "rgba(200,212,232,0)");
+    g.fillStyle = gr; g.beginPath(); g.arc(cx, cy, rr, 0, TAU); g.fill();
+  }
+  return c;
+}
+let starField = null, starKey = "";
+function stars(w, h) { // twinkle-free base layer, drawn once per size
+  const key = `${Math.round(w)}x${Math.round(h)}`;
+  if (starKey !== key) {
+    starKey = key; starField = document.createElement("canvas"); starField.width = Math.ceil(w); starField.height = Math.ceil(h);
+    const g = starField.getContext("2d");
+    const band = g.createLinearGradient(0, h, w, 0); band.addColorStop(0.3, "rgba(140,120,255,0)"); band.addColorStop(0.5, "rgba(170,150,255,0.16)"); band.addColorStop(0.7, "rgba(140,120,255,0)");
+    g.fillStyle = band; g.fillRect(0, 0, w, h); // a faint galaxy band
+    for (let i = 0; i < 260; i++) { const s = seeded(i * 3 + 7); g.fillStyle = `rgba(255,${235 + s * 20},${210 + s * 45},${0.25 + s * 0.6})`; const r = s > 0.93 ? 1.6 : s > 0.7 ? 1.1 : 0.7; g.beginPath(); g.arc(seeded(i) * w, seeded(i + 500) * h, r, 0, TAU); g.fill(); }
+  }
+  return starField;
+}
+let lightning = { t: 0, x: 0, pts: null }; // rain cities: a flash, a bolt on the skyline, thunder a moment later
+function strike() {
+  const x = rnd(W * 0.1, W * 0.9), pts = [[x, 0]];
+  for (let y = 0, cx = x; y < 120;) { y += rnd(10, 22); cx += rnd(-16, 16); pts.push([cx, y]); }
+  lightning = { t: 1, x, pts };
+  sound.burst(0.08, 0.5, "highpass", 4000, 2000); sound.burst(1.6, 0.6, "lowpass", 420, 50, 0.35 + Math.random() * 0.6); sound.burst(1.1, 0.4, "lowpass", 260, 40, 0.9);
+}
+
 function drawSky(C) {
   const hor = C.hor, g = ctx.createLinearGradient(0, 0, 0, hor);
   const dim = rainI * 0.35, top = mix(pal.sky0, [88, 98, 112], dim), bot = mix(pal.sky1, [150, 160, 172], dim);
-  g.addColorStop(0, rgb(top)); g.addColorStop(1, rgb(bot));
+  g.addColorStop(0, rgb(mix(top, [0, 0, 0], 0.15))); g.addColorStop(0.55, rgb(top)); g.addColorStop(1, rgb(bot));
   ctx.fillStyle = g; ctx.fillRect(-20, -20, W + 40, hor + 22);
   const px = -camOff * 0.12, night = Math.min(1, pal.dark * 4);
-  if (night > 0.05) { // stars and a moon
+  const glowBand = ctx.createLinearGradient(0, hor - 70, 0, hor); // light pooling on the horizon (warm by day, city-orange at night)
+  glowBand.addColorStop(0, "rgba(255,200,140,0)"); glowBand.addColorStop(1, night > 0.3 ? `rgba(255,140,90,${0.35 * night})` : `rgba(255,236,200,${0.35 * (1 - rainI)})`);
+  ctx.fillStyle = glowBand; ctx.fillRect(-20, hor - 70, W + 40, 72);
+  if (night > 0.05) { // stars, a galaxy band and a glowing moon
+    ctx.globalAlpha = night; ctx.drawImage(stars(W + 40, hor), -20 + px * 0.3, 0);
     ctx.fillStyle = "#fff";
-    for (let i = 0; i < 40; i++) { ctx.globalAlpha = night * (0.4 + 0.6 * Math.abs(Math.sin(clock / 40 + i))); ctx.fillRect(seeded(i) * W, seeded(i + 99) * (hor - 50), 1.5, 1.5); }
-    ctx.globalAlpha = night; ctx.fillStyle = "#f4f0dc"; circle(W * 0.78 + px, hor - 88, 12); ctx.globalAlpha = 1;
+    for (let i = 0; i < 24; i++) { const tw = Math.sin(clock / (18 + i % 7) + i * 3); if (tw > 0.6) { ctx.globalAlpha = night * (tw - 0.6) * 2.5; ctx.fillRect(seeded(i + 40) * W - 1, seeded(i + 140) * (hor - 50) - 1, 2.4, 2.4); } }
+    const mx = W * 0.78 + px, my = hor - 88;
+    ctx.globalAlpha = night; glow(mx, my, 60, "200,215,255", 0.35);
+    ctx.fillStyle = "#f4f0dc"; circle(mx, my, 12);
+    ctx.fillStyle = "rgba(170,165,140,0.5)"; circle(mx - 4, my - 3, 3); circle(mx + 4, my + 4, 2.2); circle(mx + 3, my - 5, 1.6); // craters
+    ctx.globalAlpha = 1;
   }
-  if (pal.sun > 0.02 && rainI < 0.6) { // sun
-    const sx = W * 0.72 + px, sy = hor - 72, sg = ctx.createRadialGradient(sx, sy, 2, sx, sy, 70);
-    sg.addColorStop(0, `rgba(255,248,210,${0.95 * pal.sun})`); sg.addColorStop(0.25, `rgba(255,236,170,${0.5 * pal.sun})`); sg.addColorStop(1, "rgba(255,230,150,0)");
-    ctx.fillStyle = sg; ctx.fillRect(sx - 70, sy - 70, 140, 140);
+  if (pal.sun > 0.02 && rainI < 0.6) { // sun with god rays turning slowly behind it
+    const sx = W * 0.72 + px, sy = hor - 72, sa = pal.sun * (1 - rainI);
+    ctx.save(); ctx.globalCompositeOperation = "lighter";
+    const rg = ctx.createRadialGradient(sx, sy, 10, sx, sy, 260); rg.addColorStop(0, `rgba(255,236,190,${0.16 * sa})`); rg.addColorStop(1, "rgba(255,236,190,0)");
+    ctx.fillStyle = rg;
+    for (let i = 0; i < 12; i++) { const a = clock / 900 + i * TAU / 12, w = 0.07 + 0.04 * Math.sin(i * 2.3); ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + Math.cos(a - w) * 260, sy + Math.sin(a - w) * 260); ctx.lineTo(sx + Math.cos(a + w) * 260, sy + Math.sin(a + w) * 260); ctx.closePath(); ctx.fill(); }
+    ctx.restore();
+    const sg = ctx.createRadialGradient(sx, sy, 2, sx, sy, 80);
+    sg.addColorStop(0, `rgba(255,252,230,${sa})`); sg.addColorStop(0.12, `rgba(255,246,205,${0.95 * sa})`); sg.addColorStop(0.3, `rgba(255,226,160,${0.45 * sa})`); sg.addColorStop(1, "rgba(255,220,150,0)");
+    ctx.fillStyle = sg; ctx.fillRect(sx - 80, sy - 80, 160, 160);
   }
-  ctx.fillStyle = `rgba(255,255,255,${(0.55 + 0.25 * rainI) * (1 - night * 0.8)})`; // a few clouds drifting by
-  for (let i = 0; i < 5; i++) {
-    const cx = ((clock * (0.1 + (i % 3) * 0.05) + i * 160) % (W + 240)) - 120 + px, cy = 18 + (i * 29) % Math.max(30, hor - 60), sz = 18 + (i % 3) * 8;
-    ctx.beginPath(); ctx.ellipse(cx, cy, sz * 1.8, sz * 0.55, 0, 0, TAU); ctx.ellipse(cx - sz * 0.8, cy + 3, sz * 1.1, sz * 0.5, 0, 0, TAU); ctx.ellipse(cx + sz, cy + 4, sz, sz * 0.45, 0, 0, TAU); ctx.fill();
+  const dark = rainI > 0.3, n = dark ? 9 : 6; // clouds at three depths, the near ones bigger and quicker
+  for (let i = 0; i < n; i++) {
+    const depth = 0.45 + (i % 3) * 0.3, cw = 150 * depth * (dark ? 1.35 : 1), span = W + 2 * cw;
+    const cx = ((clock * 0.12 * depth + i * 197) % span) - cw + px * depth, cy = 8 + ((i * 37) % Math.max(30, hor - 70)) * (0.5 + 0.5 * (1 - depth));
+    ctx.globalAlpha = (dark ? 0.92 : 0.85) * (1 - night * 0.75) * (0.55 + depth * 0.45);
+    ctx.drawImage(cloudSprite(i % 4, dark), cx, cy, cw, cw * 0.44);
+  }
+  ctx.globalAlpha = 1;
+  if (lightning.t > 0.02 && lightning.pts) { // the bolt
+    ctx.save(); ctx.globalCompositeOperation = "lighter"; ctx.lineJoin = "round";
+    for (const [lw, a] of [[7, 0.25], [2.2, 1]]) { ctx.strokeStyle = `rgba(210,225,255,${a * lightning.t})`; ctx.lineWidth = lw; ctx.beginPath(); lightning.pts.forEach(([x, y], k) => k ? ctx.lineTo(x + px, Math.min(y, hor - 4)) : ctx.moveTo(x + px, y)); ctx.stroke(); }
+    ctx.restore();
   }
   drawHorizon(stA, 1 - stBlend, hor, px);
   if (stBlend > 0.01) drawHorizon(stB, stBlend, hor, px);
@@ -3184,6 +3243,7 @@ function drawAtmosphere() {
   let A = 0; const col = [0, 0, 0];
   for (const [c, a] of layers) { if (!a) continue; for (let k = 0; k < 3; k++) col[k] = col[k] * A * (1 - a) + c[k] * a; A = A + a * (1 - A); for (let k = 0; k < 3; k++) col[k] /= A; }
   if (A > 0.005) { ctx.fillStyle = `rgba(${col.map(Math.round).join(",")},${A.toFixed(3)})`; ctx.fillRect(0, 0, W, H); }
+  if (lightning.t > 0.03) { ctx.fillStyle = `rgba(215,228,255,${0.45 * lightning.t * lightning.t})`; ctx.fillRect(0, 0, W, H); } // the flash
 
   if (pal.dark > 0.06 && view3D() === 0) { // headlight beams (overhead view)
     ctx.save(); ctx.globalCompositeOperation = "lighter";
