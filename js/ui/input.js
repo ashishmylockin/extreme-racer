@@ -27,8 +27,8 @@ document.addEventListener("keydown", e => {
     }
     if (c === "Escape" || c === "KeyP") pause();
     else if (c === "KeyC") openCamera();
-    else if (c === "KeyV") { cycleCamera(e.shiftKey ? -1 : 1); say(`Camera: ${CAMS[cam].name}`); } // V: next camera straight away (Shift+V: previous)
-    else if (/^Digit[1-9]$/.test(c) && +c.slice(5) <= CAMS.length) { cam = +c.slice(5) - 1; store.set("camera", cam); say(`Camera: ${CAMS[cam].name}`); } // 1 / 2 / 3: pick a camera
+    else if (c === "KeyV") { cycleCamera(e.shiftKey ? -1 : 1); say(`Camera: ${CAMS[cam].name}`, { key: "camera" }); } // V: next camera straight away (Shift+V: previous)
+    else if (/^Digit[1-9]$/.test(c) && +c.slice(5) <= CAMS.length) { cam = +c.slice(5) - 1; store.set("camera", cam); say(`Camera: ${CAMS[cam].name}`, { key: "camera" }); } // 1 / 2 / 3: pick a camera
     return;
   }
   if (state === "camera" && c === "KeyC") { state = "playing"; return; }
@@ -45,8 +45,8 @@ for (const ev of ["touchend", "click"]) document.addEventListener(ev, () => soun
 canvas.addEventListener("contextmenu", e => e.preventDefault()); // no long-press / right-click menu over the game
 window.addEventListener("resize", fit);
 document.addEventListener("fullscreenchange", fit);
-window.addEventListener("gamepadconnected", e => { hasPad = true; padKind = padKindOf(e.gamepad && e.gamepad.id); say(`${PAD_NAME[padKind]} connected`); });
-window.addEventListener("gamepaddisconnected", () => { if (inputDev === "pad") useDevice("kb"); say("Controller disconnected"); });
+window.addEventListener("gamepadconnected", e => { hasPad = true; padKind = padKindOf(e.gamepad && e.gamepad.id); say(`${PAD_NAME[padKind]} connected`, { key: "device" }); });
+window.addEventListener("gamepaddisconnected", () => { if (inputDev === "pad") useDevice("kb"); say("Controller disconnected", { key: "device" }); });
 canvas.addEventListener("wheel", e => { if (window.R3D && R3D.photo.active) { e.preventDefault(); R3D.photo.wheel(e.deltaY); } }, { passive: false }); // photo mode: wheel zooms
 document.addEventListener("visibilitychange", () => { // hidden tab: pause and go quiet; back again: sound resumes
   if (document.hidden) { pause(); try { if (sound.ac) sound.ac.suspend(); } catch (e) {} }

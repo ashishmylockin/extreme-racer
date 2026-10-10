@@ -1,11 +1,66 @@
 // ---------- drawing: UI ----------
 
+// ---------- the look: the same style as the Garage (css/garage.css) - its font, dark glass panels with an orange accent line, italic 900 headings ----------
+const UI_FONT = '"Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif';
+const UI_ACC = "#ffb21a", UI_ACC_RGB = "255,178,26";
+let uiSeen = "", uiT0 = 0; // menu transitions: the screen shown last frame, and when the current one opened
+const uiIn = (delay = 0) => smooth(clamp((performance.now() - uiT0 - delay) / 280, 0, 1)); // 0 -> 1 as a screen opens (delay in ms staggers its parts)
+function glass(x, y, w, h, r = 14, acc = UI_ACC) { // a dark glass panel: gradient, hairline border, a glowing accent line along the top
+  ctx.save();
+  roundRect(x, y, w, h, r);
+  const g = ctx.createLinearGradient(0, y, 0, y + h); g.addColorStop(0, "rgba(26,30,46,0.78)"); g.addColorStop(1, "rgba(8,10,17,0.86)");
+  ctx.fillStyle = g; ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.14)"; ctx.lineWidth = 1; ctx.stroke();
+  if (acc) {
+    ctx.clip(); const ag = ctx.createLinearGradient(x, 0, x + w, 0); ag.addColorStop(0, "rgba(0,0,0,0)"); ag.addColorStop(0.5, acc); ag.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = ag; ctx.fillRect(x, y, w, 2);
+    const hg = ctx.createLinearGradient(0, y, 0, y + 26); hg.addColorStop(0, "rgba(255,255,255,0.07)"); hg.addColorStop(1, "rgba(255,255,255,0)"); ctx.fillStyle = hg; ctx.fillRect(x, y, w, 26);
+  }
+  ctx.restore();
+}
+function heading(str, y, size = 28, x = W / 2) { // italic 900 capitals with the slanted accent bar in front, like the Garage title
+  ctx.save(); ctx.font = `italic 900 ${size}px ${UI_FONT}`; ctx.textAlign = "left"; try { ctx.letterSpacing = `${(size * 0.05).toFixed(1)}px`; } catch (e) {}
+  let s = size; while (ctx.measureText(str).width > W - 60 && s > 12) { s--; ctx.font = `italic 900 ${s}px ${UI_FONT}`; }
+  const w = ctx.measureText(str).width, bar = s * 0.32, left = x - (w + bar * 1.6) / 2, bh = s * 0.74;
+  ctx.fillStyle = UI_ACC; ctx.shadowColor = `rgba(${UI_ACC_RGB},0.9)`; ctx.shadowBlur = 10;
+  ctx.beginPath(); ctx.moveTo(left + bar * 0.55, y - bh); ctx.lineTo(left + bar, y - bh); ctx.lineTo(left + bar * 0.45, y); ctx.lineTo(left, y); ctx.closePath(); ctx.fill();
+  ctx.shadowColor = "rgba(0,0,0,0.75)"; ctx.shadowBlur = 14; ctx.shadowOffsetY = 2; ctx.fillStyle = "#f3f6fb"; ctx.fillText(str, left + bar * 1.6, y);
+  ctx.restore();
+}
+function menuBackdrop(moy) { // darker at the top and bottom where the text is, lighter in the middle (like the title)
+  const g = ctx.createLinearGradient(0, -moy, 0, H - moy); g.addColorStop(0, "rgba(6,8,16,0.86)"); g.addColorStop(0.45, "rgba(6,8,16,0.58)"); g.addColorStop(1, "rgba(6,8,16,0.88)");
+  ctx.fillStyle = g; ctx.fillRect(0, -moy, W, H);
+}
+function pill(x, y, w, h, fill = "rgba(10,12,20,0.6)") { roundRect(x, y, w, h, h / 2); ctx.fillStyle = fill; ctx.fill(); ctx.strokeStyle = "rgba(255,255,255,0.16)"; ctx.lineWidth = 1; ctx.stroke(); }
+
+// ---------- popups: one stack, top centre under the score; never two of the same ----------
+function drawToasts() {
+  const racing = state === "playing" || state === "paused" || state === "camera";
+  let top = 10;
+  if (racing && mode !== "vs" && mode !== "multi") { const p0 = racers[0]; top = level ? 92 : 74; if (p0.comboT > 0 && p0.combo >= 2) top += 28; if (p0.alive && p0.bypass) top += 34; }
+  else if (racing) top = 98;
+  let y = top;
+  for (let i = 0; i < Math.min(3, toasts.length); i++) {
+    const t = toasts[i], a = clamp(Math.min(t.t / 8, (t.life - t.t) / 18), 0, 1);
+    t.y = t.y === undefined ? y : t.y + (y - t.y) * 0.25; // slide up smoothly when the one above leaves
+    let fs = 13; ctx.font = `700 ${fs}px ${UI_FONT}`; while (ctx.measureText(t.text).width > W - 56 && fs > 9) { fs--; ctx.font = `700 ${fs}px ${UI_FONT}`; }
+    const w = ctx.measureText(t.text).width + 30, x = W / 2 - w / 2;
+    ctx.save(); ctx.globalAlpha = a; ctx.translate(0, (1 - a) * -6);
+    glass(x, t.y, w, 24, 12, t.col || UI_ACC);
+    ctx.fillStyle = t.col || UI_ACC; ctx.beginPath(); ctx.arc(x + 12, t.y + 12, 3, 0, TAU); ctx.fill();
+    ctx.textAlign = "center"; ctx.fillStyle = "#f3f6fb"; ctx.fillText(t.text, W / 2 + 5, t.y + 16.5);
+    ctx.restore();
+    y += 28;
+  }
+}
+
+
 function textAt(str, x, y, size, align = "center", color = "#fff") {
   ctx.fillStyle = color;
-  ctx.strokeStyle = "#000";
-  ctx.lineWidth = Math.max(2, size / 9);
+  ctx.strokeStyle = "rgba(0,0,0,0.62)";
+  ctx.lineWidth = Math.max(1.6, size / 7);
   ctx.lineJoin = "round";
-  ctx.font = `bold ${size}px sans-serif`;
+  ctx.font = `800 ${size}px ${UI_FONT}`;
   ctx.textAlign = align;
   ctx.strokeText(str, x, y);
   ctx.fillText(str, x, y);
@@ -18,58 +73,70 @@ function text(str, y, size, align = "center", color = "#fff") {
 function drawButtons() {
   const menu = currentMenu();
   menu.items.forEach((item, i) => {
-    const r = btnRect(menu, i);
-    roundRect(r.x, r.y, r.w, r.h, 10);
-    ctx.fillStyle = i === sel ? "#1d70f5" : "rgba(0,0,0,0.6)";
-    ctx.fill();
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = i === sel ? "#fff" : "rgba(255,255,255,0.4)";
-    ctx.stroke();
-    ctx.fillStyle = "#fff";
-    ctx.font = item.big ? "bold 26px sans-serif" : "bold 19px sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    const lab = typeof item.label === "function" ? item.label() : item.label;
-    ctx.fillText(lab, W / 2, r.y + r.h / 2 + 1);
-    ctx.textBaseline = "alphabetic";
-    if (!onTouch() && lab) { // the button's own shortcut (Esc / B for Back, R / X for Retry), or Enter / A on the chosen one
-      const short = /^(Back|Resume|Menu)$/i.test(lab) ? "back" : /^(Retry|Restart)$/i.test(lab) ? "retry" : i === sel ? "confirm" : null;
-      if (short) { const s = Math.min(18, r.h - 12), g = glyphsFor(short)[0]; ctx.globalAlpha = i === sel ? 1 : 0.7; drawGlyph(g, r.x + r.w - glyphWidth(g, s) - 8, r.y + r.h / 2, s); ctx.globalAlpha = 1; }
+    const r0 = btnRect(menu, i), e = uiIn(60 + i * 45), r = { x: r0.x, y: r0.y + (1 - e) * 16, w: r0.w, h: r0.h };
+    const on = i === sel, lab = typeof item.label === "function" ? item.label() : item.label, rich = !lab, rad = Math.min(14, r.h * 0.36);
+    ctx.save(); ctx.globalAlpha *= e;
+    let ink = "#f3f6fb";
+    if (item.big) { // the main action (RACE, RETRY, NEXT CITY): accent gradient with dark text, like the Garage's Buy button
+      if (on) { ctx.shadowColor = `rgba(${UI_ACC_RGB},0.85)`; ctx.shadowBlur = 22; }
+      roundRect(r.x, r.y, r.w, r.h, rad); const g = ctx.createLinearGradient(0, r.y, 0, r.y + r.h); g.addColorStop(0, "#ffd98a"); g.addColorStop(0.5, UI_ACC); g.addColorStop(1, "#ff8a1a"); ctx.fillStyle = g; ctx.fill(); ctx.shadowBlur = 0;
+      if (on) { ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke(); }
+      ink = "#1a1006";
+    } else if (on && !rich) { // the chosen button: bright white, accent glow ring
+      ctx.shadowColor = `rgba(${UI_ACC_RGB},0.7)`; ctx.shadowBlur = 16;
+      roundRect(r.x, r.y, r.w, r.h, rad); const g = ctx.createLinearGradient(0, r.y, 0, r.y + r.h); g.addColorStop(0, "#ffffff"); g.addColorStop(1, "rgba(255,255,255,0.84)"); ctx.fillStyle = g; ctx.fill(); ctx.shadowBlur = 0;
+      ctx.strokeStyle = `rgba(${UI_ACC_RGB},0.95)`; ctx.lineWidth = 2; roundRect(r.x - 2, r.y - 2, r.w + 4, r.h + 4, rad + 2); ctx.stroke();
+      ink = "#0b0d12";
+    } else { // the rest: dark glass (rows drawn over by their own screen keep this look when chosen, with the accent ring)
+      roundRect(r.x, r.y, r.w, r.h, rad); ctx.fillStyle = on ? "rgba(40,46,66,0.9)" : "rgba(12,14,22,0.72)"; ctx.fill();
+      ctx.strokeStyle = on ? `rgba(${UI_ACC_RGB},0.95)` : "rgba(255,255,255,0.2)"; ctx.lineWidth = on ? 2 : 1; ctx.stroke();
+      if (on) { ctx.shadowColor = `rgba(${UI_ACC_RGB},0.55)`; ctx.shadowBlur = 14; ctx.stroke(); ctx.shadowBlur = 0; }
     }
+    if (lab) {
+      ctx.fillStyle = ink; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.font = item.big ? `italic 900 ${Math.min(24, r.h * 0.5)}px ${UI_FONT}` : `700 ${Math.min(17, r.h * 0.48)}px ${UI_FONT}`;
+      ctx.fillText(lab, W / 2, r.y + r.h / 2 + 1);
+      ctx.textBaseline = "alphabetic";
+      if (!onTouch()) { // the button's own shortcut (Esc / B for Back, R / X for Retry), or Enter / A on the chosen one
+        const short = /^(Back|Resume|Menu)$/i.test(lab) ? "back" : /^(Retry|Restart)$/i.test(lab) ? "retry" : on ? "confirm" : null;
+        if (short) { const s = Math.min(18, r.h - 14), g = glyphsFor(short)[0]; ctx.globalAlpha *= on ? 1 : 0.7; drawGlyph(g, r.x + r.w - glyphWidth(g, s) - 9, r.y + r.h / 2, s); }
+      }
+    }
+    ctx.restore();
   });
 }
 
 function drawTutorial() {
-  const tip = TIPS[tipIdx], pw = Math.min(W - 32, 340), px = (W - pw) / 2;
-  roundRect(px, 60, pw, 252, 16); ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fill();
-  ctx.strokeStyle = "rgba(255,255,255,0.25)"; ctx.lineWidth = 2; ctx.stroke();
-  textAt(`TIP ${tipIdx + 1} / ${TIPS.length}`, W / 2, 86, 12, "center", "#ffd23f");
-  textAt(tip.title, W / 2, 116, 24);
+  const tip = TIPS[tipIdx], pw = Math.min(W - 32, 360), px = (W - pw) / 2;
+  glass(px, 60, pw, 252, 16);
+  textAt(`TIP ${tipIdx + 1} / ${TIPS.length}`, W / 2, 84, 11, "center", UI_ACC);
+  heading(tip.title, 118, 22);
   ctx.save(); ctx.translate(W / 2, 186); tip.icon(); ctx.restore();
   const ls = onTouch() && tip.touch ? tip.touch : onPad() && tip.pad ? tip.pad : tip.lines;
-  ls.forEach((s, i) => textAt(s, W / 2, 264 + i * 20, 13, "center", "#ddd"));
+  ls.forEach((s, i) => textAt(s, W / 2, 264 + i * 20, 13, "center", "#dfe5ef"));
   if (tip.prompt) drawPrompt(tip.prompt, W / 2, 262 + ls.length * 20 + 4, 16);
 }
 
 function drawBrief() { // the city card between the map and the race
-  const i = mapIdx, st = ROUTE[i], tg = starTargets(i), stars = cityStars[i] || 0, pw = Math.min(W - 24, 360), px = (W - pw) / 2;
-  roundRect(px, 40, pw, 322, 14); ctx.fillStyle = "rgba(0,0,0,0.65)"; ctx.fill();
-  ctx.save(); ctx.translate(W / 2 - 30, 54); drawFlag(st.flag, 60, 38); ctx.restore();
-  text(st.venue.toUpperCase(), 124, 24); text(`${st.country}  -  ${roundLabel(st)}`, 146, 12, "center", "#ccc");
+  const i = mapIdx, st = ROUTE[i], tg = starTargets(i), stars = cityStars[i] || 0, pw = Math.min(W - 24, 380), px = (W - pw) / 2;
+  glass(px, 40, pw, 322, 16);
+  ctx.save(); ctx.translate(W / 2 - 30, 56); drawFlag(st.flag, 60, 38); ctx.restore();
+  heading(st.venue.toUpperCase(), 128, 26); text(`${st.country}  -  ${roundLabel(st)}`, 148, 11, "center", "rgba(255,255,255,0.65)");
   for (let k = 0; k < 3; k++) drawStar(W / 2 - 26 + k * 26, 172, 10, k < stars);
-  text(i === ROUTE.length - 1 ? `Win the final   2 stars ${tg[0]}   3 stars ${tg[1]}` : `2 stars: score ${tg[0]}     3 stars: score ${tg[1]}`, 204, 12, "center", "#ffd23f");
-  textAt("MISSIONS", px + 18, 236, 13, "left", "#7fffd4");
+  pill(W / 2 - Math.min(pw - 40, 300) / 2, 188, Math.min(pw - 40, 300), 24, "rgba(255,178,26,0.12)");
+  text(i === ROUTE.length - 1 ? `Win the final   2 stars ${tg[0]}   3 stars ${tg[1]}` : `TARGETS   2 stars: ${tg[0]}     3 stars: ${tg[1]}`, 205, 12, "center", "#ffd23f");
+  textAt("MISSIONS", px + 18, 238, 11, "left", "rgba(255,255,255,0.55)");
   cityMissions(i).forEach((m, k) => {
     const done = missionState(i)[k], y = 262 + k * 30;
-    roundRect(px + 18, y - 13, 16, 16, 4); ctx.fillStyle = done ? "#3dff6e" : "rgba(255,255,255,0.15)"; ctx.fill();
+    roundRect(px + 18, y - 13, 16, 16, 5); ctx.fillStyle = done ? "#7cfc9a" : "rgba(255,255,255,0.12)"; ctx.fill();
     if (done) { ctx.strokeStyle = "#0b2d14"; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(px + 22, y - 5); ctx.lineTo(px + 25, y - 1); ctx.lineTo(px + 31, y - 9); ctx.stroke(); } // tick
-    textAt(m.label, px + 44, y, 13, "left", done ? "#9be89b" : "#fff");
+    textAt(m.label, px + 44, y, 13, "left", done ? "#9be89b" : "#f3f6fb");
     textAt(done ? "done" : `+${missionReward(i)}c`, px + pw - 16, y, 12, "right", done ? "#9be89b" : "#ffd23f");
   });
 }
 
 function drawStats() { // lifetime numbers on top, the achievements underneath
-  text("STATS & AWARDS", 32, 24);
+  heading("STATS & AWARDS", 32, 24);
   const rows = [["Distance", `${stats.km.toFixed(1)} km`], ["Cars passed", stats.cars], ["Near misses", stats.nearMisses], ["Best combo", `x${stats.bestCombo}`],
     ["Top speed", `${stats.topSpeed} km/h`], ["Crashes", stats.crashes], ["Races", stats.races], ["Coins collected", stats.coins], ["Shields used", stats.shields]];
   const cw = Math.min(W - 24, 520), x0 = (W - cw) / 2, half = Math.ceil(rows.length / 2);
@@ -91,31 +158,36 @@ function drawStats() { // lifetime numbers on top, the achievements underneath
 }
 
 function drawMap() {
-  text("WORLD TOUR", 34, 26);
-  drawStar(W / 2 - 40, 49, 7, true); textAt(`${totalStars()} / ${ROUTE.length * 3}`, W / 2 - 28, 54, 13, "left", "#ffd23f");
+  heading("WORLD TOUR", 38, 26);
+  drawStar(W / 2 - 40, 53, 7, true); textAt(`${totalStars()} / ${ROUTE.length * 3}`, W / 2 - 28, 58, 13, "left", "#ffd23f");
   ROUTE.forEach((st, i) => {
-    const r = mapTile(i), open = unlocked(i), on = i === mapIdx, stars = cityStars[i] || 0;
-    roundRect(r.x, r.y, r.w, r.h, 7); ctx.fillStyle = on ? "#1d70f5" : open ? "rgba(0,0,0,0.62)" : "rgba(0,0,0,0.4)"; ctx.fill();
-    ctx.strokeStyle = on ? "#fff" : "rgba(255,255,255,0.25)"; ctx.lineWidth = on ? 2 : 1; ctx.stroke();
-    ctx.globalAlpha = open ? 1 : 0.45;
-    textAt(String(st.n), r.x + 14, r.y + 20, 11, "center", "#ccc");
+    const r0 = mapTile(i), open = unlocked(i), on = i === mapIdx, stars = cityStars[i] || 0, e = uiIn(Math.min(i, 21) * 12), r = { ...r0, x: r0.x + (1 - e) * (i < MAP_ROWS ? -18 : 18) };
+    ctx.save(); ctx.globalAlpha *= e;
+    roundRect(r.x, r.y, r.w, r.h, 9);
+    if (on) { ctx.shadowColor = `rgba(${UI_ACC_RGB},0.7)`; ctx.shadowBlur = 14; const g = ctx.createLinearGradient(0, r.y, 0, r.y + r.h); g.addColorStop(0, "rgba(255,255,255,0.22)"); g.addColorStop(1, "rgba(255,255,255,0.1)"); ctx.fillStyle = "rgba(14,16,26,0.9)"; ctx.fill(); ctx.fillStyle = g; ctx.fill(); ctx.shadowBlur = 0; }
+    else { ctx.fillStyle = open ? "rgba(12,14,22,0.74)" : "rgba(12,14,22,0.5)"; ctx.fill(); }
+    ctx.strokeStyle = on ? UI_ACC : "rgba(255,255,255,0.16)"; ctx.lineWidth = on ? 2 : 1; ctx.stroke();
+    ctx.globalAlpha *= open ? 1 : 0.45;
+    textAt(String(st.n), r.x + 14, r.y + 20, 11, "center", on ? UI_ACC : "rgba(255,255,255,0.55)");
     ctx.save(); ctx.translate(r.x + 26, r.y + 9); drawFlag(st.flag, 20, 13); ctx.restore();
     const room = r.w - 52 - (open ? 46 : 32); // shrink long names to fit between the flag and the stars, then shorten them if needed
     let nm = st.venue, fs = 12;
-    const fits = () => { ctx.font = `bold ${fs}px sans-serif`; return ctx.measureText(nm).width + 4 <= room; };
+    const fits = () => { ctx.font = `800 ${fs}px ${UI_FONT}`; return ctx.measureText(nm).width + 4 <= room; };
     while (!fits() && fs > 10) fs--;
     while (!fits() && nm.length > 4) nm = nm.slice(0, nm.endsWith(".") ? -2 : -1).trimEnd() + ".";
     textAt(nm, r.x + 52, r.y + 20, fs, "left", "#fff");
-    ctx.globalAlpha = 1;
+    ctx.restore();
+    ctx.save(); ctx.globalAlpha *= e;
     if (open) {
       for (let k = 0; k < 3; k++) drawStar(r.x + r.w - 40 + k * 13, r.y + r.h / 2 + 2, 5.5, k < stars);
-      missionState(i).forEach((d, k) => { ctx.fillStyle = d ? "#3dff6e" : "rgba(255,255,255,0.25)"; ctx.beginPath(); ctx.arc(r.x + r.w - 40 + k * 13, r.y + 5, 2.2, 0, TAU); ctx.fill(); }); // missions done
+      missionState(i).forEach((d, k) => { ctx.fillStyle = d ? "#7cfc9a" : "rgba(255,255,255,0.25)"; ctx.beginPath(); ctx.arc(r.x + r.w - 40 + k * 13, r.y + 5, 2.2, 0, TAU); ctx.fill(); }); // missions done
     }
     else { // a little padlock
       const lx = r.x + r.w - 22, ly = r.y + r.h / 2;
-      ctx.strokeStyle = "#aaa"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(lx, ly - 3, 4, Math.PI, TAU); ctx.stroke();
-      ctx.fillStyle = "#aaa"; ctx.fillRect(lx - 6, ly - 3, 12, 9);
+      ctx.strokeStyle = "#8a909c"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(lx, ly - 3, 4, Math.PI, TAU); ctx.stroke();
+      ctx.fillStyle = "#8a909c"; ctx.fillRect(lx - 6, ly - 3, 12, 9);
     }
+    ctx.restore();
   });
 }
 
@@ -143,9 +215,11 @@ function drawSliders() {
   OPTIONS_MENU.forEach((it, i) => {
     if (!it.slider) return;
     const r = btnRect(menu, i), b = sliderBar(r), v = settings[it.slider];
-    textAt(it.name, r.x + 14, r.y + r.h / 2 + 5, 15, "left");
-    roundRect(b.x, b.y, b.w, b.h, 5); ctx.fillStyle = "rgba(255,255,255,0.18)"; ctx.fill();
-    roundRect(b.x, b.y, Math.max(b.h, b.w * v), b.h, 5); ctx.fillStyle = "#3dff6e"; ctx.fill();
+    textAt(it.name, r.x + 14, r.y + r.h / 2 + 5, 14, "left");
+    roundRect(b.x, b.y + 2, b.w, b.h - 4, 4); ctx.fillStyle = "rgba(255,255,255,0.14)"; ctx.fill();
+    const g = ctx.createLinearGradient(b.x, 0, b.x + b.w, 0); g.addColorStop(0, "#ff8a1a"); g.addColorStop(1, "#ffd98a");
+    roundRect(b.x, b.y + 2, Math.max(b.h - 4, b.w * v), b.h - 4, 4); ctx.fillStyle = g; ctx.fill();
+    ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(b.x + Math.max(3, b.w * v), b.y + b.h / 2, 6, 0, TAU); ctx.fill(); // the handle
     textAt(`${Math.round(v * 100)}%`, r.x + r.w - 12, r.y + r.h / 2 + 5, 13, "right");
   });
 }
@@ -178,7 +252,7 @@ const CONTROL_PAGES = [
   ["TOUCH", () => [[[], "Tap the left / right half: change lane"], [[], "GAS and BRAKE pads at the bottom"], [[], "Hold both on the grid: launch"], [[], "Camera top-left, pause bottom-right"], [[], "Drag the car to turn it (Garage)"], [[], "Swipe the main menu cards"]]],
 ];
 function drawControls() {
-  text("CONTROLS", 40, 28);
+  heading("CONTROLS", 40, 28);
   const tw = Math.min(110, (W - 70) / 3), x0 = W / 2 - tw * 1.5;
   CONTROL_PAGES.forEach(([name], i) => { roundRect(x0 + i * tw + 2, 54, tw - 4, 24, 12); ctx.fillStyle = i === controlsTab ? "#1d70f5" : "rgba(0,0,0,0.5)"; ctx.fill(); textAt(name, x0 + i * tw + tw / 2, 71, 11, "center", i === controlsTab ? "#fff" : "#aaa"); });
   if (!onTouch()) { const a = onPad() ? "p:LB" : "k:←", b = onPad() ? "p:RB" : "k:→"; drawGlyph(a, x0 - glyphWidth(a, 16) - 4, 66, 16); drawGlyph(b, x0 + tw * 3 + 4, 66, 16); }
@@ -242,11 +316,11 @@ function drawCarousel() {
     }
     const ty = py + ph;
     ctx.save(); roundRect(c.x + 2, c.y, c.w - 4, c.h, 16); ctx.clip(); // side cards are narrower: keep their text inside
-    const room = c.w - 18 * c.s, fit = (str, size) => { ctx.font = `bold ${size}px sans-serif`; const w = ctx.measureText(str).width; return w > room ? size * room / w : size; }; // shrink text that would run past the card's edges
+    const room = c.w - 18 * c.s, fit = (str, size) => { ctx.font = `800 ${size}px ${UI_FONT}`; const w = ctx.measureText(str).width; return w > room ? size * room / w : size; }; // shrink text that would run past the card's edges
     const label = typeof item.label === "function" ? item.label() : item.label;
     textAt(label, c.x + c.w / 2, ty + 28 * c.s, fit(label, 19 * c.s), "center", "#fff");
     textAt(info.tag, c.x + c.w / 2, ty + 50 * c.s, fit(info.tag, 11 * c.s), "center", "#c8ced8");
-    const bt = info.badge(); ctx.font = `bold ${Math.round(11 * c.s)}px sans-serif`; const bw = ctx.measureText(bt).width + 18 * c.s;
+    const bt = info.badge(); ctx.font = `800 ${Math.round(11 * c.s)}px ${UI_FONT}`; const bw = ctx.measureText(bt).width + 18 * c.s;
     roundRect(c.x + c.w / 2 - bw / 2, ty + 62 * c.s, bw, 20 * c.s, 10 * c.s); ctx.fillStyle = shade(info.col, -0.35); ctx.fill();
     textAt(bt, c.x + c.w / 2, ty + 76 * c.s, 11 * c.s, "center", "#fff");
     ctx.restore();
@@ -386,7 +460,7 @@ function drawTitle(moy) {
   ctx.restore();
   drawTitleLogo(W / 2, 128, Math.min(1.05, (W - 24) / 400));
   // tagline between two thin rules
-  ctx.font = "bold 13px sans-serif"; ctx.textAlign = "center";
+  ctx.font = `800 13px ${UI_FONT}`; ctx.textAlign = "center";
   const tag = "22 CITIES   -   ONE WORLD TOUR", tw = (() => { let w = 0; for (const c of tag) w += ctx.measureText(c).width + 3; return w; })();
   ctx.fillStyle = "rgba(255,255,255,0.35)"; ctx.fillRect(W / 2 - tw / 2 - 52, 224, 40, 1); ctx.fillRect(W / 2 + tw / 2 + 12, 224, 40, 1);
   ctx.fillStyle = "#cfd8ff"; spaced(tag, W / 2, 229, 3, "fill");
@@ -401,12 +475,12 @@ function drawTitle(moy) {
   if (totalStars()) { drawStar(W - 60, 438, 6, true); textAt(`${totalStars()} / ${ROUTE.length * 3}`, W - 50, 442, 12, "left", "#ffd23f"); }
   // the prompt: breathing, with a little chevron
   const pulse = 0.6 + 0.4 * Math.sin(clock / 14);
-  ctx.globalAlpha = pulse; ctx.font = "bold 19px sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "#fff"; ctx.shadowColor = "rgba(255,255,255,0.7)"; ctx.shadowBlur = 12;
+  ctx.globalAlpha = pulse; ctx.font = `800 19px ${UI_FONT}`; ctx.textAlign = "center"; ctx.fillStyle = "#fff"; ctx.shadowColor = "rgba(255,255,255,0.7)"; ctx.shadowBlur = 12;
   spaced(onTouch() ? "TAP TO START" : onPad() || hasPad ? "PRESS ANY BUTTON" : "PRESS ANY KEY", W / 2, 398, 4, "fill"); ctx.shadowBlur = 0; ctx.globalAlpha = 1;
 }
 
 function drawUpgrades() {
-  text("UPGRADES", 46, 30);
+  heading("UPGRADES", 46, 30);
   text(`Coins ${wallet}`, 74, 16, "center", "#ffd23f");
 }
 function drawUpgradeRows() { // on top of the row buttons: name, what it does now (and next), level pips, next price
@@ -420,59 +494,66 @@ function drawUpgradeRows() { // on top of the row buttons: name, what it does no
   });
 }
 
-function drawGauge(r) {
-  const cx = 58, cy = H - 8, R = 40, f = clamp(effV(r) / NITRO_MAX, 0, 1);
-  ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.beginPath(); ctx.arc(cx, cy, R + 6, Math.PI, TAU); ctx.closePath(); ctx.fill();
-  ctx.lineWidth = 5; ctx.lineCap = "round";
-  ctx.strokeStyle = "rgba(255,255,255,0.18)"; ctx.beginPath(); ctx.arc(cx, cy, R - 4, Math.PI, TAU); ctx.stroke();
-  ctx.strokeStyle = r.nitro > 0 ? "#5fd4ff" : f < 0.45 ? "#4cd964" : f < 0.76 ? "#ffcc00" : "#ff3b30";
-  ctx.beginPath(); ctx.arc(cx, cy, R - 4, Math.PI, Math.PI + f * Math.PI); ctx.stroke();
-  ctx.lineCap = "butt";
-  ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.lineWidth = 1;
-  ctx.beginPath();
-  for (let i = 0; i <= 11; i++) { const a = Math.PI + i / 11 * Math.PI; ctx.moveTo(cx + Math.cos(a) * (R - 12), cy + Math.sin(a) * (R - 12)); ctx.lineTo(cx + Math.cos(a) * (R - 8), cy + Math.sin(a) * (R - 8)); }
+function drawGauge(r) { // the speedo: a half dial at the bottom left (low enough to sit under the touch pedals), the speed big inside it, the gear beside it
+  const cx = 60, cy = H - 8, R = 46, f = clamp(effV(r) / NITRO_MAX, 0, 1), nitro = r.nitro > 0;
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx, cy, R + 7, Math.PI, TAU); ctx.closePath();
+  const bg = ctx.createRadialGradient(cx, cy, 8, cx, cy, R + 7); bg.addColorStop(0, "rgba(8,10,17,0.9)"); bg.addColorStop(1, "rgba(22,26,40,0.78)"); ctx.fillStyle = bg; ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.16)"; ctx.lineWidth = 1; ctx.stroke();
+  ctx.lineCap = "round"; ctx.lineWidth = 6;
+  ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.beginPath(); ctx.arc(cx, cy, R - 3, Math.PI, TAU); ctx.stroke();
+  const g = ctx.createLinearGradient(cx - R, 0, cx + R, 0);
+  if (nitro) { g.addColorStop(0, "#2a7bff"); g.addColorStop(1, "#7fe8ff"); } else { g.addColorStop(0, "#4cd964"); g.addColorStop(0.55, "#ffd23f"); g.addColorStop(1, "#ff3b30"); }
+  ctx.strokeStyle = g; ctx.shadowColor = nitro ? "rgba(95,212,255,0.9)" : `rgba(${UI_ACC_RGB},0.6)`; ctx.shadowBlur = 10;
+  ctx.beginPath(); ctx.arc(cx, cy, R - 3, Math.PI, Math.PI + Math.max(0.02, f) * Math.PI); ctx.stroke(); ctx.shadowBlur = 0;
+  ctx.lineCap = "butt"; ctx.strokeStyle = "rgba(255,255,255,0.45)"; ctx.lineWidth = 1.2; ctx.beginPath();
+  for (let i = 0; i <= 10; i++) { const a = Math.PI + i / 10 * Math.PI, k = i % 5 ? 0 : 3; ctx.moveTo(cx + Math.cos(a) * (R - 10 - k), cy + Math.sin(a) * (R - 10 - k)); ctx.lineTo(cx + Math.cos(a) * (R - 8), cy + Math.sin(a) * (R - 8)); }
   ctx.stroke();
-  const a = Math.PI + f * Math.PI + (f > 0.98 ? Math.sin(clock * 1.9) * 0.035 + rnd(-0.015, 0.015) : 0); // pinned: the needle quivers
-  ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(a) * (R - 14), cy + Math.sin(a) * (R - 14)); ctx.stroke();
-  textAt(String(Math.round(r.v * 60)), cx, cy - 12, 15);
-  textAt("km/h", cx, cy - 1, 9, "center", "#ccc");
-  textAt(`G${gearOf(r.v)}`, cx + R + 10, cy - 6, 14, "left");
-  if (r.v >= 4.6) textAt("SLIPSTREAM", cx + R + 10, cy - 22, 11, "left", "#39ff14");
+  const a = Math.PI + f * Math.PI + (f > 0.98 ? Math.sin(clock * 1.9) * 0.035 + rnd(-0.015, 0.015) : 0); // pinned: the tip quivers
+  ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(cx + Math.cos(a) * (R - 3), cy + Math.sin(a) * (R - 3), 3.6, 0, TAU); ctx.fill();
+  ctx.textAlign = "center"; ctx.fillStyle = "#fff"; ctx.font = `italic 900 21px ${UI_FONT}`; ctx.fillText(String(Math.round(r.v * 60)), cx, cy - 11);
+  ctx.font = `700 8px ${UI_FONT}`; ctx.fillStyle = "rgba(255,255,255,0.6)"; try { ctx.letterSpacing = "1px"; } catch (e) {} ctx.fillText("KM/H", cx, cy - 1); try { ctx.letterSpacing = "0px"; } catch (e) {}
+  // the gear: a small glass tile
+  const gx = cx + R + 10, gy = cy - 34;
+  roundRect(gx, gy, 26, 30, 7); ctx.fillStyle = "rgba(10,12,20,0.72)"; ctx.fill(); ctx.strokeStyle = "rgba(255,255,255,0.18)"; ctx.stroke();
+  ctx.fillStyle = UI_ACC; ctx.fillRect(gx + 7, gy, 12, 2);
+  ctx.fillStyle = "#fff"; ctx.font = `italic 900 17px ${UI_FONT}`; ctx.fillText(String(gearOf(r.v)), gx + 13, gy + 20);
+  ctx.font = `700 6px ${UI_FONT}`; ctx.fillStyle = "rgba(255,255,255,0.55)"; ctx.fillText("GEAR", gx + 13, gy + 27);
+  ctx.restore();
+  if (r.v >= 4.6) textAt("SLIPSTREAM", gx, gy - 6, 10, "left", "#39ff14");
 }
 
 const roundLabel = st => level && level.daily && state !== "map" && state !== "brief" ? `DAILY CHALLENGE` : st.n === ROUTE.length ? `GRAND FINAL` : st.venue.toUpperCase() === st.country ? `ROUND ${st.n}` : `ROUND ${st.n}  -  ${st.venue.toUpperCase()}`; // no 'ABU DHABI - ABU DHABI'
-function drawStageBar() { // which city you're in, and how far through it: the white bar, with labelled halfway and finish points and your car
-  const st = ROUTE[stageIdx], x0 = 140, w = 150, y = H - 14;
-  ctx.font = "bold 12px sans-serif";
-  const tw = ctx.measureText(st.country).width, fw = 18, fx = W / 2 - (tw + fw + 6) / 2, top = level ? 24 : 0; // (the country line moves up to make room for the labels)
+function drawStageBar() { // which city you're in, and how far through it: a glass track between the speedo and the pause button, halfway and finish marked, your car on it
+  const st = ROUTE[stageIdx], x0 = Math.max(150, W / 2 - 140), x1 = Math.min(W - 52, W / 2 + 140), w = x1 - x0, y = H - 16, mid = (x0 + x1) / 2;
+  ctx.font = `800 12px ${UI_FONT}`;
+  const tw = ctx.measureText(st.country).width, fw = 18, fx = mid - (tw + fw + 6) / 2, top = level ? 22 : 0; // (the country line moves up to make room for the labels)
   ctx.save(); ctx.translate(fx, y - 30 - top); drawFlag(st.flag, fw, 12); ctx.restore();
   textAt(st.country, fx + fw + 6, y - 19 - top, 12, "left", "#fff");
-  ctx.fillStyle = "rgba(0,0,0,0.5)"; roundRect(x0, y - 4, w, 6, 3); ctx.fill();
-  ctx.fillStyle = "#fff"; roundRect(x0, y - 4, Math.max(6, w * stageFrac), 6, 3); ctx.fill();
+  pill(x0 - 2, y - 6, w + 4, 10, "rgba(10,12,20,0.7)");
+  const g = ctx.createLinearGradient(x0, 0, x1, 0); g.addColorStop(0, "#ff8a1a"); g.addColorStop(1, "#ffd98a");
+  ctx.save(); ctx.shadowColor = `rgba(${UI_ACC_RGB},0.8)`; ctx.shadowBlur = 8; roundRect(x0, y - 4, Math.max(6, w * clamp(stageFrac, 0, 1)), 6, 3); ctx.fillStyle = g; ctx.fill(); ctx.restore();
   if (level) {
-    const hx = x0 + w / 2, past = stageFrac >= 0.5, fx2 = x0 + w, carX = x0 + w * clamp(stageFrac, 0, 1), tcol = null;
-    // halfway: a tick and a label (green once you are past it)
-    ctx.fillStyle = past ? "#7CFC9A" : "#ffffff"; ctx.fillRect(hx - 1, y - 12, 2, 14);
-    textAt("HALFWAY", hx, y - 15, 9, "center", past ? "#7CFC9A" : "#ffffff");
-    // finish: a chequered flag on a pole, and a label
-    ctx.fillStyle = "#ffffff"; ctx.fillRect(fx2 - 1, y - 20, 1.5, 22);
+    const hx = x0 + w / 2, past = stageFrac >= 0.5, fx2 = x1, carX = x0 + w * clamp(stageFrac, 0, 1);
+    ctx.fillStyle = past ? "#7CFC9A" : "rgba(255,255,255,0.85)"; ctx.fillRect(hx - 1, y - 11, 2, 13); // halfway
+    textAt("HALFWAY", hx, y - 14, 8, "center", past ? "#7CFC9A" : "rgba(255,255,255,0.85)");
+    ctx.fillStyle = "#ffffff"; ctx.fillRect(fx2 - 1, y - 20, 1.5, 22); // finish: a chequered flag on a pole
     for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) { ctx.fillStyle = (i + j) % 2 ? "#ffffff" : "#111111"; ctx.fillRect(fx2 + 0.5 + i * 3, y - 20 + j * 3, 3, 3); }
-    textAt("FINISH", fx2 + 8, y - 25, 9, "center", "#ffffff");
-    // your car: a little car in your team's colour sitting on the bar, labelled
-    ctx.save(); ctx.translate(carX, y - 1); ctx.rotate(Math.PI / 2); ctx.scale(0.17, 0.17); drawCar(racers[0] ? racers[0].team : TEAMS[equipped], { slip: false }); ctx.restore(); // the same open-wheel car as yours, in your team colours, pointing along the road
-    if (Math.abs(carX - hx) > 24 && Math.abs(carX - fx2) > 24 && carX > x0 + 38) textAt("YOU", carX, y - 11, 8, "center", "#ffe11a"); else textAt("YOU", carX, y + 13, 8, "center", "#ffe11a");
+    textAt("FINISH", fx2 + 6, y - 24, 8, "center", "#ffffff");
+    ctx.save(); ctx.translate(carX, y - 1); ctx.rotate(Math.PI / 2); ctx.scale(0.17, 0.17); drawCar(racers[0] ? racers[0].team : TEAMS[equipped], { slip: false }); ctx.restore(); // your own car, in your colours
+    if (Math.abs(carX - hx) > 24 && Math.abs(carX - fx2) > 24 && carX > x0 + 38) textAt("YOU", carX, y - 10, 8, "center", "#ffe11a"); else textAt("YOU", carX, y + 13, 8, "center", "#ffe11a");
   }
-  textAt(`${st.n}/${ROUTE.length}   ${runKm()} km`, W / 2, y + 12, 11, "center", "#ddd");
+  textAt(`${st.n}/${ROUTE.length}   ${runKm()} km`, mid, y + 13, 10, "center", "rgba(255,255,255,0.75)");
 }
 
 function drawBanner() { // a small card that slides in from the left edge and leaves again, clear of the road
   const t = banner.t, st = ROUTE[banner.idx];
   const inK = smooth(Math.min(t, 24) / 24), outK = t > 170 ? smooth((t - 170) / 30) : 0;
   // fit the text: the card grows to the widest line, and a line that is still too wide shrinks (long names like "BRUSSELS" were spilling out of the box)
-  const line2 = roundLabel(st), fit = (s, size, max) => { ctx.font = `bold ${size}px sans-serif`; const w = ctx.measureText(s).width; return w > max ? Math.max(7, Math.floor(size * max / w)) : size; };
+  const line2 = roundLabel(st), fit = (s, size, max) => { ctx.font = `800 ${size}px ${UI_FONT}`; const w = ctx.measureText(s).width; return w > max ? Math.max(7, Math.floor(size * max / w)) : size; };
   const maxW = Math.min(W * 0.55, 230);
   const s1 = fit(st.country, 12, maxW - 58), s2 = fit(line2, 9, maxW - 58);
-  ctx.font = `bold ${s1}px sans-serif`; const w1 = ctx.measureText(st.country).width; ctx.font = `bold ${s2}px sans-serif`; const w2 = ctx.measureText(line2).width;
+  ctx.font = `800 ${s1}px ${UI_FONT}`; const w1 = ctx.measureText(st.country).width; ctx.font = `800 ${s2}px ${UI_FONT}`; const w2 = ctx.measureText(line2).width;
   const cardW = Math.max(150, 48 + Math.max(w1, w2) + 12);
   ctx.save();
   ctx.globalAlpha = clamp(1 - outK, 0, 1);
@@ -487,7 +568,7 @@ function drawBanner() { // a small card that slides in from the left edge and le
 function drawCameraIcon() {
   ctx.save();
   ctx.translate(24, 24);
-  ctx.fillStyle = "rgba(0,0,0,0.45)"; ctx.beginPath(); ctx.arc(0, 0, 15, 0, TAU); ctx.fill();
+  ctx.fillStyle = "rgba(10,12,20,0.6)"; ctx.beginPath(); ctx.arc(0, 0, 15, 0, TAU); ctx.fill(); ctx.strokeStyle = "rgba(255,255,255,0.18)"; ctx.lineWidth = 1; ctx.stroke();
   ctx.fillStyle = "#fff"; roundRect(-8, -4.5, 16, 11, 2.5); ctx.fill(); ctx.fillRect(-3.5, -7.5, 7, 4);
   ctx.fillStyle = "#222"; ctx.beginPath(); ctx.arc(0, 1, 3.6, 0, TAU); ctx.fill();
   ctx.fillStyle = "rgba(255,255,255,0.7)"; ctx.beginPath(); ctx.arc(-1, 0, 1, 0, TAU); ctx.fill();
@@ -540,14 +621,18 @@ function drawTargets() {
 function drawHud() {
   const p0 = racers[0];
   if (mode === "single" || mode === "tour" || mode === "daily") {
-    text(p0.score, 56, 36);
-    text(`Coins ${p0.coins}`, 30, 15, "left", "#ffd23f");
-    if (level && level.daily) { if (!grid.done) drawDailyCard(); else text(`Today's best ${dailyBest()}`, 78, 12, "center", "#9be89b"); }
+    if (grid.done || mode === "single") { // (on the grid there is no score yet: keep the start lights clear)
+      ctx.save(); ctx.font = `italic 900 34px ${UI_FONT}`; ctx.textAlign = "center"; try { ctx.letterSpacing = "1px"; } catch (e) {}
+      ctx.shadowColor = "rgba(0,0,0,0.7)"; ctx.shadowBlur = 10; ctx.shadowOffsetY = 2; ctx.fillStyle = "#fff"; ctx.fillText(String(p0.score), W / 2, 54); ctx.restore();
+    }
+    ctx.font = `800 14px ${UI_FONT}`; const cw = ctx.measureText(String(p0.coins)).width; pill(44, 13, cw + 38, 22); drawCoin(57, 24, 7, 1); textAt(String(p0.coins), 70, 29, 14, "left", "#ffd23f");
+    if (level && level.daily) { if (grid.done) text(`Today's best ${dailyBest()}`, 76, 12, "center", "#9be89b"); }
     else if (level) { // the next star to chase, right under the score
       const tg = starTargets(level.idx), next = p0.score < tg[0] ? [2, tg[0]] : p0.score < tg[1] ? [3, tg[1]] : null;
-      if (next) { for (let k = 0; k < next[0]; k++) drawStar(W / 2 - 38 + k * 12, 75, 5, true); textAt(`${next[1]}`, W / 2 - 38 + next[0] * 12, 80, 12, "left", "#ffd23f"); }
-      else { for (let k = 0; k < 3; k++) drawStar(W / 2 - 18 + k * 12, 75, 5, true); }
-      if (!grid.done) drawTargets();
+      if (grid.done) { // the next star to chase, in a small pill under the score
+        ctx.font = `800 12px ${UI_FONT}`; const n = next ? next[0] : 3, lab = next ? String(next[1]) : "", pw = n * 11 + (lab ? ctx.measureText(lab).width + 10 : 0) + 16;
+        pill(W / 2 - pw / 2, 64, pw, 18); for (let k = 0; k < n; k++) drawStar(W / 2 - pw / 2 + 13 + k * 11, 73, 4.5, true); if (lab) textAt(lab, W / 2 - pw / 2 + 10 + n * 11 + 4, 77.5, 12, "left", "#ffd23f");
+      }
       if (level.final) { // where the CPU really is: 1st / 2nd and the gap in seconds
         const c = racers[1], cy = c.trueY === undefined ? c.y : c.trueY, first = !c.alive || racers[0].y <= cy, gap = Math.abs(cy - racers[0].y) / Math.max(1, racers[0].v * 60);
         text(first ? "1st" : "2nd", 34, 20, "right", first ? "#3dff6e" : "#ff5a5a");
@@ -567,7 +652,7 @@ function drawHud() {
   }
   if (p0.shield && p0.alive) drawShieldIcon(24, 64, 11, clock); // shield ready (under the camera button)
   if (p0.comboT > 0 && p0.combo >= 2) { // the live combo and how long it has left
-    const y = level ? 104 : 86, k = p0.comboT / COMBO_T, pulse = 1 + 0.15 * Math.max(0, 1 - (COMBO_T - p0.comboT) / 10);
+    const y = level ? 104 : 88, k = p0.comboT / COMBO_T, pulse = 1 + 0.15 * Math.max(0, 1 - (COMBO_T - p0.comboT) / 10);
     textAt(`COMBO x${p0.combo}`, W / 2, y, 16 * pulse, "center", p0.combo >= 5 ? "#ff7a1a" : "#ffd23f");
     ctx.fillStyle = "rgba(0,0,0,0.5)"; roundRect(W / 2 - 40, y + 5, 80, 4, 2); ctx.fill();
     ctx.fillStyle = p0.combo >= 5 ? "#ff7a1a" : "#ffd23f"; roundRect(W / 2 - 40, y + 5, Math.max(4, 80 * k), 4, 2); ctx.fill();
@@ -579,7 +664,7 @@ function drawHud() {
     ctx.globalAlpha = 1;
   }
   if (p0.alive && p0.bypass) drawBypass(p0);
-  if (p0.alive && cam !== 2 && !p0.ai) drawTyreChip(p0);
+  if (p0.alive && cam !== 2 && !p0.ai && grid.done) drawTyreChip(p0); // (not on the grid: the tyre screen told you already)
   if (p0.alive && state === "playing" && !p0.launched && (!grid.done || p0.charging || p0.launchLocked) && !p0.ai) drawLaunchGauge(p0);
   if (p0.alive && p0.nitro > 0) { // nitro burn bar
     const w = 130, x = W / 2 - w / 2, y = 10, g = ctx.createLinearGradient(x, 0, x + w, 0);
@@ -587,20 +672,18 @@ function drawHud() {
     ctx.fillStyle = "rgba(0,0,0,0.55)"; roundRect(x - 2, y - 2, w + 4, 12, 6); ctx.fill();
     ctx.fillStyle = g; roundRect(x, y, Math.max(6, w * p0.nitro / (p0.nitroMax || NITRO_FRAMES)), 8, 4); ctx.fill();
   }
-  if (p0.alive && cam !== 2) drawGauge(p0);
-  if (cam === 2) text(`${ROUTE[stageIdx].country}  ${runKm()} km`, 48, 11, "left", "#fff"); // the wheel covers the bottom bar
+  const menuUp = state === "paused" || state === "camera"; // (a menu is open over the race: the bottom of the HUD steps aside for its prompts)
+  if (p0.alive && cam !== 2 && !menuUp) drawGauge(p0);
+  if (menuUp) {} else if (cam === 2) text(`${ROUTE[stageIdx].country}  ${runKm()} km`, 48, 11, "left", "#fff"); // the wheel covers the bottom bar
   else drawStageBar();
   if (state === "playing" && (!grid.done || frame < grid.goFrame + 120)) { // what to do, tucked low so it never covers the road
     const f = grid.done ? clamp((grid.goFrame + 120 - frame) / 30, 0, 1) : 1;
     ctx.globalAlpha = f;
-    if (onTouch() && mode !== "multi") { // short enough to sit between the two pedals on a phone
-      if (grid.done) text("Tap a side to steer", H - 78, 13);
-      else text("Hold GAS + BRAKE, let go in green", H - 60, 12);
-    } else if (grid.done) { if (mode === "multi") text("P1: Arrows    P2: W A S D", H - 78, 13); else drawPrompt([["steer", "Steer"], ["gas", "Gas"], ["brake", "Brake"], ["camNext", "Camera"]], W / 2, H - 84, 16); }
-    else if (mode === "multi") text("P1: Up + Down   P2: W + S - let go in the green", H - 60, 12);
+    // (on the grid the launch gauge carries the only hint; after the green, how to steer, up under the score and clear of the car)
+    if (grid.done) { if (onTouch() && mode !== "multi") text("Tap a side to steer", 100, 13); else if (mode === "multi") text("P1: Arrows    P2: W A S D", 100, 13); else drawPrompt([["steer", "Steer"], ["gas", "Gas"], ["brake", "Brake"], ["camNext", "Camera"]], W / 2, 96, 15); }
     ctx.globalAlpha = 1;
   }
-  if (banner && state === "playing") drawBanner();
+  if (banner && state === "playing" && grid.done) drawBanner(); // (the city card waits for the green: the tyre screen named the city)
   drawCameraIcon();
   if (hasTouch) { // touch pedals, only shown once the screen has actually been touched
     if (steerHint && state === "playing") drawSteerHint();
@@ -615,8 +698,8 @@ function drawHud() {
       textAt(label, cx, r.y + r.h - 12, 13);
     }
   }
-  ctx.fillStyle = "rgba(0,0,0,0.5)";
-  ctx.beginPath(); ctx.arc(W - 24, H - 24, 14, 0, TAU); ctx.fill();
+  ctx.fillStyle = "rgba(10,12,20,0.6)";
+  ctx.beginPath(); ctx.arc(W - 24, H - 24, 14, 0, TAU); ctx.fill(); ctx.strokeStyle = "rgba(255,255,255,0.18)"; ctx.lineWidth = 1; ctx.stroke();
   ctx.fillStyle = "#fff";
   ctx.fillRect(W - 29, H - 31, 4, 14); ctx.fillRect(W - 21, H - 31, 4, 14);
 }
@@ -632,13 +715,13 @@ function draw() {
 
   garageUI.sync(); // the Garage / Upgrades screens are HTML over the 3D showroom: shown, hidden and refreshed here
   const moy = menuOY(); // menus and overlays are laid out for a 480-high screen: centre them on taller ones
+  const uiKey = state + (state === "tutorial" ? tipIdx : "") + (state === "controls" ? controlsTab : ""); if (uiKey !== uiSeen) { uiSeen = uiKey; uiT0 = performance.now(); } // a new screen: its parts fade and slide in
   ctx.save(); ctx.translate(0, moy);
 
   if (state === "title" || state === "menu") { ctx.save(); ctx.translate(0, -moy); drawVersion(); ctx.restore(); }
   if (state === "title") drawTitle(moy);
   if (!domMenuActive() && (state === "menu" || state === "tutorial" || state === "difficulty" || state === "tyres" || state === "garage" || state === "upgrades" || state === "options" || state === "graphics" || state === "songs" || state === "controls" || state === "credits" || state === "map" || state === "brief" || state === "stats")) {
-    ctx.fillStyle = window.R3D && state === "garage" ? "rgba(15,15,20,0.0)" : "rgba(15,15,20,0.66)"; // fade the highway behind the title (the 3D showroom needs no fade)
-    ctx.fillRect(0, -moy, W, H);
+    if (!(window.R3D && state === "garage")) menuBackdrop(moy); // fade the road behind the menu (the 3D showroom needs no fade)
     if (state === "map") drawMap();
     else if (state === "stats") drawStats();
     else if (state === "brief") drawBrief();
@@ -646,18 +729,18 @@ function draw() {
     else if (state === "tyres") drawTyres();
     else if (state === "garage") drawGarage();
     else if (state === "upgrades") drawUpgrades();
-    else if (state === "graphics") { text("GRAPHICS", 46, 30); text(!window.R3D ? "3D is off here: showing the 2D game" : onTouch() ? "Tap a row to change it" : "", 64, 12, "center", "#ccc"); }
+    else if (state === "graphics") { heading("GRAPHICS", 46, 30); text(!window.R3D ? "3D is off here: showing the 2D game" : onTouch() ? "Tap a row to change it" : "", 64, 12, "center", "#ccc"); }
     else if (state === "options") {
-      text("SETTINGS", 46, 30);
+      heading("SETTINGS", 46, 30);
       text(`Now playing: ${music.playing ? music.name : "-"}`, 74, 12, "center", "#ccc");
     } else if (state === "credits") { drawCredits();
     } else if (state === "songs" || state === "controls") { // drawn after the buttons, below
     } else {
-      if (state === "difficulty") { drawLogo(W / 2, 84, Math.min(0.58, (W - 30) / 330)); text("VS Computer: pick a level", 175, 18); }
+      if (state === "difficulty") { drawTitleLogo(W / 2, 92, Math.min(0.62, (W - 24) / 400)); heading("VS COMPUTER", 180, 22); }
       else {
-        drawLogo(W / 2, 58, Math.min(0.45, (W - 30) / 330)); // smaller up top: the cards get the room
+        drawTitleLogo(W / 2, 54, Math.min(0.5, (W - 24) / 400)); // the title screen's logo, smaller up top: the cards get the room
         const line = `Coins ${wallet}     `, tail = `${totalStars()} / ${ROUTE.length * 3}`;
-        ctx.font = "bold 13px sans-serif";
+        ctx.font = `800 13px ${UI_FONT}`;
         const w1 = ctx.measureText(line).width, w2 = ctx.measureText(tail).width, x0 = W / 2 - (w1 + 16 + w2) / 2;
         textAt(line, x0, 112, 13, "left", "#ffd23f"); drawStar(x0 + w1 + 6, 107, 6, true); textAt(tail, x0 + w1 + 16, 112, 13, "left", "#ffd23f");
       }
@@ -666,20 +749,21 @@ function draw() {
     if (state === "upgrades") drawUpgradeRows();
     if (state === "tyres") drawTyreRows();
     if (state === "options") drawSliders();
-    if (state === "songs") { text("SONGS", 96, 30); text(`Now playing: ${music.playing ? music.name : "-"}`, 128, 12, "center", "#ccc"); }
+    if (state === "songs") { heading("SONGS", 96, 30); text(`Now playing: ${music.playing ? music.name : "-"}`, 128, 12, "center", "#ccc"); }
     if (state === "controls") drawControls();
     ctx.fillStyle = "#ccc";
-    ctx.font = "13px sans-serif";
+    ctx.font = `600 13px ${UI_FONT}`;
     ctx.textAlign = "center";
     const musicNote = music.on && sound.on ? (music.playing ? `Now playing: ${music.name}` : "Press any key to start the music") : "";
     if (state === "menu" && musicNote) { if (onTouch() || !music.playing) ctx.fillText(musicNote, W / 2, 448); else drawPrompt([[[], musicNote], ["song", "Next song"]], W / 2, 444, 14, "center", "#ccc"); }
     if (!onTouch()) { const fp = FOOTER[state]; if (fp) drawPrompt(fp, W / 2, 466, 15, "center", "#ddd"); }
-    else ctx.fillText(state === "menu" ? (hasTouch ? "Swipe or tap a card" : "Left / Right to choose, Enter to go") : state === "brief" || state === "stats" || state === "controls" || state === "credits" ? "" /* buttons sit there */ : state === "upgrades" ? (hasTouch ? "Tap an upgrade to buy its next level" : "Up / Down to choose, Enter to upgrade") : state === "tutorial" ? (hasTouch ? "Tap Next, or Skip to go straight in" : "Enter = next   Esc = skip") : state === "garage" ? "Left / Right to browse, Enter to pick" : state === "map" ? "" /* the map has its own Back button there */ : `Up / Down + Enter, or tap an option${hasPad ? "  |  Controller ready" : ""}`, W / 2, 470);
+    else ctx.fillText(state === "menu" ? (hasTouch ? "Swipe or tap a card" : "Left / Right to choose, Enter to go") : state === "brief" || state === "stats" || state === "controls" || state === "credits" ? "" /* buttons sit there */ : state === "upgrades" ? (hasTouch ? "Tap an upgrade to buy its next level" : "Up / Down to choose, Enter to upgrade") : state === "tutorial" ? (hasTouch ? "Tap Next, or Skip to go straight in" : "Enter = next   Esc = skip") : state === "garage" ? "Left / Right to browse, Enter to pick" : state === "map" ? "" /* the map has its own Back button there */ : "Tap an option", W / 2, 470);
   }
 
   if (state === "paused") {
-    ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.fillRect(0, -moy, W, H);
-    text("PAUSED", 200, 40);
+    ctx.fillStyle = "rgba(6,8,16,0.55)"; ctx.fillRect(0, -moy, W, H);
+    { const pw = Math.min(W - 24, 320), e = uiIn(); ctx.save(); ctx.globalAlpha = e; glass(W / 2 - pw / 2, 160 + (1 - e) * 12, pw, 284, 18); ctx.restore(); }
+    heading("PAUSED", 206, 36);
     if (!onTouch()) drawPrompt([...(window.R3D ? [["photo", "Photo mode"]] : []), ["retry", "Restart"], ["back", "Resume"]], W / 2, 458, 15, "center", "#ddd");
     if (sel === 1 && !onTouch()) drawPrompt([["change", "Change camera"]], W / 2, 231, 15, "center", "#ccc");
     else text(sel === 1 ? "Tap to change the camera" : CAMS[cam].desc, 235, 14, "center", "#ccc");
@@ -687,16 +771,17 @@ function draw() {
   }
 
   if (state === "camera") {
-    ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(0, -moy, W, H);
-    text("CAMERA", 140, 36);
+    ctx.fillStyle = "rgba(6,8,16,0.6)"; ctx.fillRect(0, -moy, W, H);
+    { const pw = Math.min(W - 24, 300); glass(W / 2 - pw / 2, 100, pw, 300, 18); }
+    heading("CAMERA", 144, 32);
     text(CAMS[sel] ? CAMS[sel].desc : "Back to the race", 175, 14, "center", "#ccc");
     drawButtons();
   }
 
-  if (state === "cleared") { ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(0, -moy, W, H); drawConfetti(-moy); }
+  if (state === "cleared") { menuBackdrop(moy); drawConfetti(-moy); const pw = Math.min(W - 20, 420), e = uiIn(); ctx.save(); ctx.globalAlpha = e; glass(W / 2 - pw / 2, 84 + (1 - e) * 14, pw, 214, 18, "#7cfc9a"); ctx.restore(); }
   if (state === "cleared" && level.daily) { // the Daily: score, today's best, streak
     const r = racers[0], s = Math.floor(levelTime);
-    text("DAILY COMPLETE", 118, Math.min(34, (W - 24) / 9.4), "center", "#ffd23f");
+    heading("DAILY COMPLETE", 124, Math.min(32, (W - 24) / 9.4));
     text(`${ROUTE[level.idx].venue}  -  ${dayKey()}`, 150, 14, "center", "#ddd");
     text(`Score ${r.score}`, 192, 24);
     text(`Time ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}   speed bonus +${level.bonus}`, 222, 13, "center", "#9be89b");
@@ -705,7 +790,7 @@ function draw() {
     drawButtons();
   } else if (state === "cleared") {
     const st = ROUTE[level.idx], r = racers[0], s = Math.floor(levelTime);
-    text(lastCity() ? "TOUR CHAMPION!" : "CITY COMPLETE", 118, Math.min(34, (W - 24) / 9.4), "center", "#ffd23f");
+    heading(lastCity() ? "TOUR CHAMPION!" : "CITY COMPLETE", 124, Math.min(32, (W - 24) / 9.4));
     text(`${st.venue}, ${st.country}  -  ${st.n} / ${ROUTE.length}`, 150, 14, "center", "#ddd");
     text(`Time ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`, 186, 20);
     text(`Score ${r.score}   Cars ${r.passed}   Coins +${r.coins}`, 214, 15);
@@ -721,10 +806,10 @@ function draw() {
   }
 
   if (state === "over" && !(window.R3D && performance.now() - overAt < R3D.overDelay())) { // (3D: the crash camera plays first)
-    ctx.fillStyle = "rgba(0,0,0,0.5)";
-    ctx.fillRect(0, -moy, W, H);
+    menuBackdrop(moy);
+    { const pw = Math.min(W - 20, 420), e = uiIn(); ctx.save(); ctx.globalAlpha = e; glass(W / 2 - pw / 2, 88 + (1 - e) * 14, pw, (mode === "daily" ? 240 : mode === "tour" ? 244 : mode === "single" ? 272 : 256) - 88, 18, "#ff5a4a"); ctx.restore(); }
     const reached = `Reached ${ROUTE[stageIdx].country}  -  ${runKm()} km`, rc = "#ffd23f";
-    text(result, 130, 38);
+    heading(String(result).toUpperCase(), 136, 34);
     if (mode === "daily") {
       const r = racers[0];
       text(`Score ${r.score}`, 170, 20);
@@ -749,16 +834,8 @@ function draw() {
     if (!onTouch()) drawPrompt([["retry", "Retry"], ["back", "Menu"]], W / 2, 466, 15, "center", "#ddd");
   }
 
-  if (toast) { // brief notices: controller connected, songs added...
-    const a = clamp(Math.min(toast.t / 10, (150 - toast.t) / 20), 0, 1);
-    ctx.globalAlpha = a;
-    ctx.font = "bold 13px sans-serif";
-    const w = ctx.measureText(toast.text).width + 24;
-    ctx.fillStyle = "rgba(0,0,0,0.7)"; roundRect(W / 2 - w / 2, 396, w, 26, 13); ctx.fill();
-    textAt(toast.text, W / 2, 414, 13);
-    ctx.globalAlpha = 1;
-  }
   ctx.restore();
+  drawToasts(); // (in screen space: the stack sits under the score in a race, at the top elsewhere)
   drawFps();
 }
 
@@ -790,7 +867,7 @@ function drawTyreIcon(cx, cy, r, tyre, rot) {
   ctx.fillStyle = "#101114"; ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill();
   ctx.strokeStyle = "#2a2c31"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, r - 1, 0, TAU); ctx.stroke();
   ctx.strokeStyle = tyre.band; ctx.lineWidth = Math.max(3, r * 0.07); ctx.beginPath(); ctx.arc(0, 0, r * 0.8, 0, TAU); ctx.stroke(); // the compound band
-  ctx.fillStyle = "rgba(255,255,255,0.8)"; ctx.font = `bold ${Math.max(7, r * 0.12)}px sans-serif`; ctx.textAlign = "center";
+  ctx.fillStyle = "rgba(255,255,255,0.8)"; ctx.font = `800 ${Math.max(7, r * 0.12)}px ${UI_FONT}`; ctx.textAlign = "center";
   for (let i = 0; i < 12; i++) { ctx.save(); ctx.rotate(rot * 0.3 + i / 12 * TAU); ctx.fillText("VELOCITA", 0, -r * 0.9); ctx.restore(); } // sidewall lettering
   ctx.rotate(rot);
   ctx.fillStyle = "#3a3d44"; ctx.beginPath(); ctx.arc(0, 0, r * 0.52, 0, TAU); ctx.fill();
@@ -807,22 +884,35 @@ function drawTreadStrip(x, y, w, h, key) {
   ctx.stroke();
 }
 function drawTyres() {
-  const st = ROUTE[tyreCity], w = cityWetness(st), sel_ = TYRES[Math.min(sel, TYRES.length - 1)], best = bestTyre(w);
-  text("TYRES", 50, 32);
-  const endless = pendingStart && pendingStart[0] === "single", line = endless ? "Weather changes as you travel" : `${st.venue.toUpperCase()}   -   ${wetLabel(w)}`;
-  text(line, 74, 14, "center", w < 0.12 ? "#ffd23f" : "#7fd4ff");
+  const st = ROUTE[tyreCity], w = cityWetness(st), sel_ = TYRES[Math.min(sel, TYRES.length - 1)];
+  heading("TYRES", 42, 28);
+  const p = pendingStart || [], endless = p[0] === "single", line = endless ? "Weather changes as you travel" : `${st.venue.toUpperCase()}   -   ${wetLabel(w)}`;
+  text(line, 66, 13, "center", w < 0.12 ? "#ffd23f" : "#7fd4ff");
   if (!endless) { // a little weather icon: sun, or cloud and rain
-    ctx.save(); ctx.translate(W / 2 + ctx.measureText(line).width / 2 + 20, 70);
+    ctx.save(); ctx.font = `800 13px ${UI_FONT}`; ctx.translate(W / 2 + ctx.measureText(line).width / 2 + 20, 62);
     if (w < 0.12) { ctx.fillStyle = "#ffd23f"; ctx.beginPath(); ctx.arc(0, 0, 6, 0, TAU); ctx.fill(); }
     else { ctx.fillStyle = "#c9d3de"; ctx.beginPath(); ctx.arc(-4, 0, 6, 0, TAU); ctx.arc(4, -1, 7, 0, TAU); ctx.fill(); ctx.strokeStyle = "#5fb4ff"; ctx.lineWidth = 2; for (let i = 0; i < (w > 0.75 ? 3 : 2); i++) { ctx.beginPath(); ctx.moveTo(-5 + i * 5, 8); ctx.lineTo(-7 + i * 5, 13); ctx.stroke(); } }
     ctx.restore();
   }
-  drawTyreIcon(W / 2, 148, 46, sel_, clock * 0.04);
-  drawTreadStrip(W / 2 - 46, 202, 92, 14, sel_.key);
-  text(sel_.name + " TYRES", 236, 17, "center", sel_.band);
-  const lines = []; ctx.font = "13px sans-serif"; { let cur = ""; for (const wd of sel_.blurb.split(" ")) { if (ctx.measureText(cur + wd).width > W - 60) { lines.push(cur); cur = ""; } cur += wd + " "; } lines.push(cur); }
-  // (the description sits just under the name, the rows below)
-  lines.slice(0, 1).forEach((s, i) => textAt(s.trim(), W / 2, 252 + i * 14, 11, "center", "#ccc"));
+  // what the race asks of you (shown here, not over the car on the grid): the conditions, and the city's star targets
+  const warn = endless ? "" : st.rain > 0.3 ? "Wet road: the right tyres matter - watch the grip bars" : st.night > 0.15 ? "Night race: distant cars show only their tail lights" : "";
+  if (warn) text(warn, 86, 11, "center", "#ffb347");
+  const tour = p[0] === "tour", isDaily = p[0] === "daily", idx = p[2] % ROUTE.length;
+  if (tour || isDaily) {
+    const pw = Math.min(W - 40, 330), px = W / 2 - pw / 2; pill(px, 96, pw, 22, "rgba(255,178,26,0.1)");
+    if (isDaily) textAt(`DAILY   Today's best ${dailyBest()}   -   streak ${daily.streak}`, W / 2, 111, 11, "center", "#ffd23f");
+    else {
+      const tg = starTargets(idx), final = idx === ROUTE.length - 1, items = [[1, final ? "beat the CPU" : "finish"], [2, String(tg[0])], [3, String(tg[1])]];
+      ctx.font = `800 11px ${UI_FONT}`; const iw = items.map(([n, l]) => n * 10 + 6 + ctx.measureText(l).width), tot = iw.reduce((a, b) => a + b, 0) + 22 * 2 + ctx.measureText("TARGETS").width + 14;
+      let x = W / 2 - tot / 2; textAt("TARGETS", x, 111, 11, "left", "rgba(255,255,255,0.6)"); x += ctx.measureText("TARGETS").width + 14;
+      items.forEach(([n, l], k) => { for (let s = 0; s < n; s++) drawStar(x + 5 + s * 10, 107, 4.5, true); textAt(l, x + n * 10 + 4, 111, 11, "left", (cityStars[idx] || 0) >= n ? "#9be89b" : "#fff"); x += iw[k] + 22; });
+    }
+  }
+  drawTyreIcon(W / 2, 166, 36, sel_, clock * 0.04);
+  drawTreadStrip(W / 2 - 40, 208, 80, 12, sel_.key);
+  text(sel_.name + " TYRES", 238, 16, "center", sel_.band);
+  const lines = []; ctx.font = `600 11px ${UI_FONT}`; { let cur = ""; for (const wd of sel_.blurb.split(" ")) { if (ctx.measureText(cur + wd).width > W - 60) { lines.push(cur); cur = ""; } cur += wd + " "; } lines.push(cur); }
+  lines.slice(0, 1).forEach((s, i) => textAt(s.trim(), W / 2, 254 + i * 14, 10, "center", "#c8ced8"));
 }
 function drawTyreRows() { // on top of the three buttons: the compound's colour, name, what it is for, how well it grips today and whether it is the sensible pick
   const menu = currentMenu(), st = ROUTE[tyreCity], w = cityWetness(st), best = bestTyre(w), endless = pendingStart && pendingStart[0] === "single";
@@ -842,17 +932,23 @@ function drawTyreRows() { // on top of the three buttons: the compound's colour,
 
 // ---------- the launch gauge (on the grid) ----------
 // A half dial: red / orange / green zones and a needle that sweeps up and down while you hold gas + brake together. Let go in the green.
-function drawLaunchGauge(r) {
-  const cx = W / 2, cy = H - 100, R = 52, a = n => Math.PI + n * Math.PI;
-  ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.beginPath(); ctx.arc(cx, cy, R + 8, Math.PI, TAU); ctx.closePath(); ctx.fill();
-  ctx.lineWidth = 10; ctx.lineCap = "butt";
-  for (const [from, to, col] of [[0, 0.5, "#e03a3a"], [0.5, 0.72, "#ffa31a"], [0.72, 0.88, "#39ff6a"], [0.88, 0.95, "#ffa31a"], [0.95, 1, "#e03a3a"]]) { ctx.strokeStyle = col; ctx.beginPath(); ctx.arc(cx, cy, R - 6, a(from), a(to)); ctx.stroke(); }
+function drawLaunchGauge(r) { // at the bottom right, clear of the car and the start lights; one short hint above it
+  const R = W < 420 ? 40 : 46, cx = W - R - 16, cy = hasTouch ? pedalRects().gas.y - 14 : H - 52, a = n => Math.PI + n * Math.PI;
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx, cy, R + 8, Math.PI, TAU); ctx.closePath(); ctx.fillStyle = "rgba(10,12,20,0.78)"; ctx.fill(); ctx.strokeStyle = "rgba(255,255,255,0.16)"; ctx.lineWidth = 1; ctx.stroke();
+  ctx.lineWidth = 9; ctx.lineCap = "butt";
+  for (const [from, to, col] of [[0, 0.5, "#e03a3a"], [0.5, 0.72, "#ffa31a"], [0.72, 0.88, "#39ff6a"], [0.88, 0.95, "#ffa31a"], [0.95, 1, "#e03a3a"]]) { ctx.strokeStyle = col; ctx.beginPath(); ctx.arc(cx, cy, R - 5, a(from), a(to)); ctx.stroke(); }
   const live = r.charging, n = live ? r.needle || 0 : r.launchLocked ? r.needle || 0 : 0;
-  ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.lineCap = "round"; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(a(n)) * (R - 2), cy + Math.sin(a(n)) * (R - 2)); ctx.stroke(); ctx.lineCap = "butt";
-  ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(cx, cy, 5, 0, TAU); ctx.fill();
-  if (r.launchLocked && r.launchZone) textAt(`${r.launchZone.name}  ${Math.round(r.launchZone.v * 60)} km/h`, cx, cy - R - 14, 14, "center", r.launchZone.color);
-  else if (!live) textAt(onPad() ? `HOLD ${FACE[padKind].RT} + ${FACE[padKind].LT}` : onTouch() ? "HOLD GAS + BRAKE" : "HOLD UP + DOWN", cx, cy - R - 14, 13, "center", "#fff");
-  else textAt("LET GO IN THE GREEN", cx, cy - R - 14, 13, "center", "#39ff6a");
+  ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.lineCap = "round"; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(a(n)) * (R - 2), cy + Math.sin(a(n)) * (R - 2)); ctx.stroke();
+  ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(cx, cy, 4.5, 0, TAU); ctx.fill();
+  ctx.restore();
+  const lx = W - 12, ly = cy - R - 16;
+  if (r.launchLocked && r.launchZone) textAt(`${r.launchZone.name}  ${Math.round(r.launchZone.v * 60)} km/h`, lx, ly, 13, "right", r.launchZone.color);
+  else if (live) textAt("LET GO IN THE GREEN", lx, ly, 12, "right", "#39ff6a");
+  else if (mode === "multi") textAt("P1 ↑+↓   P2 W+S", lx, ly, 12, "right", "#fff");
+  else if (onPad()) drawPrompt([[["p:RT", "+", "p:LT"], "HOLD"]], lx, ly - 4, 16, "right");
+  else if (onTouch()) textAt("HOLD GAS + BRAKE", lx, ly, 12, "right", "#fff");
+  else drawPrompt([[["k:↑", "+", "k:↓"], "HOLD"]], lx, ly - 4, 16, "right");
 }
 
 // ---------- the bypass prompt ----------
@@ -875,9 +971,9 @@ function drawBypass(r) {
 
 // a little chip showing your tyres and how well they grip right now (only when it matters)
 function drawTyreChip(r) {
-  const t = TYRES.find(x => x.key === (r.tyre || "dry")) || TYRES[0], g = gripNow(r), x = 12, y = H - 78;
+  const t = TYRES.find(x => x.key === (r.tyre || "dry")) || TYRES[0], g = gripNow(r), x = 12, y = hasTouch ? pedalRects().brake.y - 12 : H - 70; // (above the brake pad on a touch screen)
   if (g > 0.96 && wetnessNow() < 0.12) return; // dry tyres on a dry road: nothing to say
-  ctx.fillStyle = "rgba(0,0,0,0.55)"; roundRect(x, y - 13, 84, 20, 10); ctx.fill();
-  ctx.fillStyle = t.band; ctx.beginPath(); ctx.arc(x + 11, y - 3, 6, 0, TAU); ctx.fill(); ctx.strokeStyle = "#000"; ctx.lineWidth = 1.5; ctx.stroke();
+  pill(x, y - 13, 86, 20);
+  ctx.fillStyle = t.band; ctx.beginPath(); ctx.arc(x + 11, y - 3, 5.5, 0, TAU); ctx.fill(); ctx.strokeStyle = "#000"; ctx.lineWidth = 1.5; ctx.stroke();
   textAt(`GRIP ${Math.round(g * 100)}%`, x + 22, y + 1, 11, "left", g > 0.85 ? "#7CFC9A" : g > 0.68 ? "#ffd23f" : "#ff7b7b");
 }

@@ -76,7 +76,7 @@ requestAnimationFrame(loop);
 //   dev=garage / dev=menu / dev=pause  open that screen.  Modes: tour, single, vs, garage, menu, pause
 {
   const q = new URLSearchParams(location.search), dev = q.get("dev");
-  if (q.has("input")) { const v = q.get("input"); if (v === "ps" || v === "nin" || v === "xbox") { padKind = v; useDevice("pad"); } else useDevice(v); toast = null; } // input=kb|xbox|ps|nin|touch: show that device's prompts (testing)
+  if (q.has("input")) { const v = q.get("input"); if (v === "ps" || v === "nin" || v === "xbox") { padKind = v; useDevice("pad"); } else useDevice(v); toasts.length = 0; } // input=kb|xbox|ps|nin|touch: show that device's prompts (testing)
   if (dev) {
     const [m, c, k] = dev.split(",");
     if (m === "garage") { // garage,N: the Garage on team N.  &coins=N sets your coins, &own=all unlocks every car, &clean hides the 2D layer, &page=upgrades opens the Upgrades page, &buy=MS buys the car shown after MS ms

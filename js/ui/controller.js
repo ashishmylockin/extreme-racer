@@ -38,7 +38,7 @@ function pollPads() {
       padG[rid] = gas; padB[rid] = brake;
       if (edge("start")) pause();
       else if (edge("y") || edge("back")) openCamera();
-      else if (rid === 0 && (edge("lb") || edge("rb"))) { cycleCamera(edge("lb") ? -1 : 1); say(`Camera: ${CAMS[cam].name}`); } // shoulder buttons: next camera, straight away
+      else if (rid === 0 && (edge("lb") || edge("rb"))) { cycleCamera(edge("lb") ? -1 : 1); say(`Camera: ${CAMS[cam].name}`, { key: "camera" }); } // shoulder buttons: next camera, straight away
     } else if (k === 0 && state === "title") {
       if (Object.keys(now).some(n => edge(n))) leaveTitle();
     } else if (k === 0) {

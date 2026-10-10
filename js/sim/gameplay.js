@@ -392,8 +392,7 @@ function collect(r, k) {
   if (k.type === "curve") {
     if (r.ai) return;
     r.bypass = { state: "armed", lane: k.lane, side: k.lane === 0 ? -1 : 1, timeLeft: 600 }; // ten seconds to use it
-    pops.push({ r, text: k.lane === 0 ? "BYPASS READY: LEFT" : "BYPASS READY: RIGHT", t: 0 }); sound.tone(700, 1400, 0.25, "triangle", 0.08);
-    say(k.lane === 0 ? "Bypass! Steer LEFT to curve round the next vehicle" : "Bypass! Steer RIGHT to curve round the next vehicle");
+    sound.tone(700, 1400, 0.25, "triangle", 0.08); // (the HUD arrow says BYPASS: steer LEFT / RIGHT: no extra popups)
     burst(k.x, k.y, ["#7fffd4", "#ffffff", "#3ad0ff"], 18, 4);
     return;
   }

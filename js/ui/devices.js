@@ -15,7 +15,7 @@ function useDevice(d, padId) {
   inputDev = d;
   document.body.classList.toggle("dev-pad", d === "pad"); document.body.classList.toggle("dev-touch", d === "touch");
   const now = performance.now();
-  if (state !== "title" && now - devSwitchT > 2500) say(d === "pad" ? `${PAD_NAME[padKind]}: button prompts on` : d === "kb" ? "Keyboard: key prompts on" : "Touch controls on");
+  if (state !== "title" && now - devSwitchT > 2500) say(d === "pad" ? `${PAD_NAME[padKind]}: button prompts on` : d === "kb" ? "Keyboard: key prompts on" : "Touch controls on", { key: "device" });
   devSwitchT = now;
 }
 
@@ -51,7 +51,7 @@ const FACE = { // standard-mapping face buttons per family: [label, colour]
 };
 function glyphWidth(tok, s) {
   if (tok === "+" || tok === "/") return s * 0.55;
-  ctx.font = `bold ${Math.round(s * 0.56)}px sans-serif`;
+  ctx.font = `bold ${Math.round(s * 0.56)}px ${UI_FONT}`;
   if (tok.startsWith("k:")) { const l = tok.slice(2); return Math.max(s, ctx.measureText(l).width + s * 0.55); }
   const b = tok.slice(2), f = FACE[padKind][b];
   if (Array.isArray(f) || b === "LS" || b === "RS" || b.startsWith("D")) return s;
@@ -61,23 +61,23 @@ function glyphWidth(tok, s) {
 function drawGlyph(tok, x, y, s) {
   const w = glyphWidth(tok, s), h = s, top = y - h / 2;
   ctx.save(); ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  if (tok === "+" || tok === "/") { ctx.font = `bold ${Math.round(s * 0.62)}px sans-serif`; ctx.fillStyle = "#fff"; ctx.fillText(tok, x + w / 2, y + 1); ctx.restore(); return w; }
+  if (tok === "+" || tok === "/") { ctx.font = `bold ${Math.round(s * 0.62)}px ${UI_FONT}`; ctx.fillStyle = "#fff"; ctx.fillText(tok, x + w / 2, y + 1); ctx.restore(); return w; }
   if (tok.startsWith("k:")) { // a key cap: light, with a darker lip at the bottom
     const l = tok.slice(2);
     roundRect(x, top + 1.5, w, h, s * 0.22); ctx.fillStyle = "#8d929c"; ctx.fill();
     roundRect(x, top, w, h - 1.5, s * 0.22); ctx.fillStyle = "#f4f5f7"; ctx.fill();
-    ctx.font = `bold ${Math.round(s * (l.length > 2 ? 0.46 : 0.62))}px sans-serif`; ctx.fillStyle = "#17181c"; ctx.fillText(l, x + w / 2, y);
+    ctx.font = `bold ${Math.round(s * (l.length > 2 ? 0.46 : 0.62))}px ${UI_FONT}`; ctx.fillStyle = "#17181c"; ctx.fillText(l, x + w / 2, y);
     ctx.restore(); return w;
   }
   const b = tok.slice(2), f = FACE[padKind][b], cx = x + w / 2;
   if (Array.isArray(f)) { // a face button: dark disc, coloured symbol
     ctx.fillStyle = "#16181d"; ctx.beginPath(); ctx.arc(cx, y, h / 2, 0, TAU); ctx.fill();
     ctx.strokeStyle = f[1]; ctx.lineWidth = Math.max(1.5, s * 0.09); ctx.beginPath(); ctx.arc(cx, y, h / 2 - ctx.lineWidth / 2, 0, TAU); ctx.stroke();
-    ctx.fillStyle = f[1]; ctx.font = `bold ${Math.round(s * 0.6)}px sans-serif`; ctx.fillText(f[0], cx, y + (padKind === "ps" ? 0 : 1));
+    ctx.fillStyle = f[1]; ctx.font = `bold ${Math.round(s * 0.6)}px ${UI_FONT}`; ctx.fillText(f[0], cx, y + (padKind === "ps" ? 0 : 1));
   } else if (b === "LS" || b === "RS") { // a thumbstick: ring with a cap and its letter
     ctx.fillStyle = "#16181d"; ctx.beginPath(); ctx.arc(cx, y, h / 2, 0, TAU); ctx.fill();
     ctx.strokeStyle = "#cfd3da"; ctx.lineWidth = Math.max(1.2, s * 0.07); ctx.beginPath(); ctx.arc(cx, y, h * 0.32, 0, TAU); ctx.stroke();
-    ctx.fillStyle = "#fff"; ctx.font = `bold ${Math.round(s * 0.42)}px sans-serif`; ctx.fillText(b[0], cx, y + 1);
+    ctx.fillStyle = "#fff"; ctx.font = `bold ${Math.round(s * 0.42)}px ${UI_FONT}`; ctx.fillText(b[0], cx, y + 1);
   } else if (b.startsWith("D")) { // the d-pad, with the used directions lit
     const a = s * 0.17, L = s * 0.48, lit = b === "DPAD" ? "udlr" : b === "DLR" ? "lr" : "ud";
     ctx.fillStyle = "#16181d"; ctx.beginPath(); ctx.arc(cx, y, h / 2, 0, TAU); ctx.fill();
@@ -90,14 +90,14 @@ function drawGlyph(tok, x, y, s) {
     const trig = b === "LT" || b === "RT";
     roundRect(x, top, w, h, trig ? s * 0.18 : h / 2); ctx.fillStyle = "#16181d"; ctx.fill();
     ctx.strokeStyle = "#cfd3da"; ctx.lineWidth = 1.2; roundRect(x + 0.6, top + 0.6, w - 1.2, h - 1.2, trig ? s * 0.18 : h / 2); ctx.stroke();
-    ctx.fillStyle = "#fff"; ctx.font = `bold ${Math.round(s * (f.length > 3 ? 0.36 : 0.5))}px sans-serif`; ctx.fillText(f, cx, y + 1);
+    ctx.fillStyle = "#fff"; ctx.font = `bold ${Math.round(s * (f.length > 3 ? 0.36 : 0.5))}px ${UI_FONT}`; ctx.fillText(f, cx, y + 1);
   }
   ctx.restore(); return w;
 }
 // a prompt line: [[action or token list, "label"], ...] laid out as  [glyphs] label   [glyphs] label  around x (align "center" | "left" | "right")
 function promptWidth(parts, s) {
-  let w = 0; ctx.font = `bold ${Math.round(s * 0.78)}px sans-serif`;
-  parts.forEach(([g, label], i) => { const toks = typeof g === "string" ? glyphsFor(g) : g; toks.forEach(t => w += glyphWidth(t, s) + s * 0.18); ctx.font = `bold ${Math.round(s * 0.78)}px sans-serif`; w += label ? ctx.measureText(label).width + s * 0.2 : 0; if (i < parts.length - 1) w += s * 0.9; });
+  let w = 0; ctx.font = `bold ${Math.round(s * 0.78)}px ${UI_FONT}`;
+  parts.forEach(([g, label], i) => { const toks = typeof g === "string" ? glyphsFor(g) : g; toks.forEach(t => w += glyphWidth(t, s) + s * 0.18); ctx.font = `bold ${Math.round(s * 0.78)}px ${UI_FONT}`; w += label ? ctx.measureText(label).width + s * 0.2 : 0; if (i < parts.length - 1) w += s * 0.9; });
   return w;
 }
 function drawPrompt(parts, x, y, s = 18, align = "center", color = "#fff") {
@@ -106,7 +106,7 @@ function drawPrompt(parts, x, y, s = 18, align = "center", color = "#fff") {
   parts.forEach(([g, label], i) => {
     const toks = typeof g === "string" ? glyphsFor(g) : g;
     for (const t of toks) cx += drawGlyph(t, cx, y, s) + s * 0.18;
-    if (label) { ctx.font = `bold ${Math.round(s * 0.78)}px sans-serif`; const lw = ctx.measureText(label).width; textAt(label, cx + s * 0.06, y + s * 0.28, Math.round(s * 0.78), "left", color); cx += lw + s * 0.2; }
+    if (label) { ctx.font = `bold ${Math.round(s * 0.78)}px ${UI_FONT}`; const lw = ctx.measureText(label).width; textAt(label, cx + s * 0.06, y + s * 0.28, Math.round(s * 0.78), "left", color); cx += lw + s * 0.2; }
     cx += s * 0.9;
   });
   return total;

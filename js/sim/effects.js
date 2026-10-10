@@ -46,9 +46,9 @@ function updateFx() {
   if (bypassTrack) { bypassTrack.y0 += scroll; if (bypassTrack.y0 - bypassTrack.L > camRefY + 400 && !(racers[0] && racers[0].bypassing)) bypassTrack = null; }
   nitroFx += ((racers[0].alive && racers[0].nitro > 0 ? 1 : 0) - nitroFx) * 0.12;
   if (nitroFx > 0.3) shake = Math.max(shake, 1.6 * nitroFx);
-  if (banner && ++banner.t > 200) banner = null;
-  if (toast && ++toast.t > 150) toast = null;
-  if (!toast && toastQ.length) toast = { text: toastQ.shift(), t: 0 };
+  if (banner && (!grid || grid.done) && ++banner.t > 200) banner = null; // (the city card waits for the green light)
+  for (let i = 0; i < Math.min(3, toasts.length); i++) toasts[i].t++; // only the three on screen age; the rest wait their turn
+  if (toasts.length && toasts[0].t >= toasts[0].life) toasts = toasts.filter(t => t.t < t.life);
   menuCar += (sel - menuCar) * 0.16;
   if (statsDirty && clock % 600 === 0) saveStats();
   kickFx *= 0.93;

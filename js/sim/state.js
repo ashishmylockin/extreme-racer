@@ -64,8 +64,16 @@ const inRect = (p, r, pad = 8) => p.x >= r.x - pad && p.x <= r.x + r.w + pad && 
 const newGrid = done => ({ t: 0, lit: 0, hold: -1, done, goFrame: done ? -1000 : -1 });
 const aiGo = () => grid.done && frame >= grid.goFrame + AI_REACT;
 function laneX(lane) { return ROAD_L + lane * LANE_W + LANE_W / 2; }
-let toastQ = []; // toasts wait their turn instead of overwriting each other
-function say(text) { if (toast && toast.t < 60) toastQ.push(text); else toast = { text, t: 0 }; }
+// popups ("toasts"): one stack under the score, three at a time, the rest wait. The same words are never shown twice in a row:
+// a message already up (or shown in the last 30 s) is dropped; a keyed one (camera, controller) replaces its own earlier toast instead.
+let toasts = []; const toastSeen = new Map();
+function say(text, opt = {}) {
+  const now = performance.now();
+  if (opt.key) { const old = toasts.find(t => t.key === opt.key); if (old) { old.text = text; old.t = Math.min(old.t, 8); return; } }
+  else { if (toasts.some(t => t.text === text) || now - (toastSeen.get(text) || -1e9) < 30000) return; toastSeen.set(text, now); }
+  const col = /^ACHIEVEMENT/.test(text) ? "#ffd23f" : /^Mission complete/.test(text) ? "#7cfc9a" : opt.col;
+  toasts.push({ text, t: 0, life: opt.life || 170, key: opt.key, col });
+}
 
 // ---- lifetime stats and achievements ----
 let stats = Object.assign({ km: 0, cars: 0, nearMisses: 0, bestCombo: 0, topSpeed: 0, crashes: 0, races: 0, coins: 0, shields: 0 }, store.get("stats", {}));
