@@ -73,7 +73,7 @@ function openCamera() { if (state === "playing") { openMenu("camera", cam); touc
 function startBanner(i, quiet) {
   banner = { idx: i, t: 0 }; if (!quiet) sound.jingle(i);
   const st = ROUTE[i]; // these cities drive differently: say so on arrival
-  if (st.rain > 0.3) say("Wet road: slower lane changes, spray ahead");
+  if (st.rain > 0.3) say("Wet road: the right tyres matter - check your grip");
   else if (st.night > 0.15) say("Night: distant cars show only tail lights");
 }
 

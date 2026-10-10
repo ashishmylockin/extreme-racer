@@ -13,7 +13,7 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { SCALE, roadHalf } from "../mapping.js";
 import { rng, hash, noise2 } from "./rng.js";
-import { profileOf, ZONES, PALETTES } from "./profiles.js";
+import { profileOf, ZONES, PALETTES, FACADES } from "./profiles.js";
 import { SlotMesh } from "./slotmesh.js";
 import { unitBox, unitPlane, roofGeo, lampGeo, lampGlowGeo, personGeo, headGeo, hillGeo, treeGeos, yachtGeo, busStopGeo, carGeo, fenceTexture, flowerBedGeo } from "./geo.js";
 import { shared, buildingMaterial, solidMaterial, makeSignAtlas, signMaterial, signRect, SIGN_COUNT, makeBannerAtlas, groundMaterials } from "./materials.js";
@@ -189,10 +189,16 @@ export function createCity(scene) {
   const heroCache = new Map();
   function heroesOfChunk(k) {
     let list = heroCache.get(k); if (list) return list;
-    list = []; const ctx = chunkCtx(LH, k), q = Math.floor(ctx.rel / 4), r2 = rng(hash(ctx.city, q, 501)), lms = ctx.st.lms || [];
-    if (lms.length && (HERO_ALL || mod(ctx.rel, 4) === r2.int(0, 3))) { // one landmark roughly every 240 units
-      const key = lms[mod(q, lms.length)], side = r2.chance(0.5) ? -1 : 1, zi = ctx.zone(side), far = zi.water, u = r2.range(10, 50);
-      if (hasLandmark(key)) list.push({ kind: "lm", key, s: ctx.s0 + u, x: side * (far ? r2.range(400, 520) : r2.range(92, 150)), side, sc: far ? 3.2 : 2.2, ry: -side * 0.3, rad: far ? 60 : 26, range: 1500 });
+    list = []; const ctx = chunkCtx(LH, k), lms = ctx.st.lms || [];
+    // 1. the city's attractions, one every ~120 units, alternating sides and cycling through the list: big, close to the street, impossible to miss
+    if (lms.length && (HERO_ALL || mod(ctx.rel, 2) === 0)) {
+      const q = Math.floor(ctx.rel / 2), r2 = rng(hash(ctx.city, q, 501)), key = lms[mod(q, lms.length)], side = mod(q, 2) ? -1 : 1, zi = ctx.zone(side), far = zi.water, u = r2.range(10, 50);
+      if (hasLandmark(key)) list.push({ kind: "lm", key, s: ctx.s0 + u, x: side * (far ? r2.range(300, 400) : r2.range(70, 88)), side, sc: far ? 3.4 : 2.6, ry: -side * 0.3, rad: far ? 60 : 32, range: 1500 });
+    }
+    // 2. the city's signature on the skyline: the first attraction, huge, far off, so each city has a recognisable horizon
+    if (lms.length && (HERO_ALL || mod(ctx.rel, 7) === 3)) {
+      const r4 = rng(hash(ctx.city, Math.floor(ctx.rel / 7), 777)), key = lms[mod(Math.floor(ctx.rel / 7), Math.min(2, lms.length))], side = r4.chance(0.5) ? -1 : 1;
+      if (hasLandmark(key)) list.push({ kind: "lm", key, s: ctx.s0 + r4.range(10, 50), x: side * r4.range(430, 640), side, sc: 7.5, ry: -side * 0.4, rad: 70, range: 1500 });
     }
     const r3 = rng(hash(ctx.city, Math.floor(ctx.rel / 7), 502));
     if (HERO_ALL || mod(ctx.rel, 7) === r3.int(0, 6)) for (const side of [-1, 1]) { // grandstands with crowds
@@ -200,9 +206,14 @@ export function createCity(scene) {
       list.push({ kind: "stand", key: r3.chance(0.5) ? "grandStand" : "grandStandCovered", s: ctx.s0 + r3.range(14, 46), x: side * 39, side, sc: 18, ry: side > 0 ? -Math.PI / 2 : Math.PI / 2, rad: 12, range: 520 });
     }
     const rp = rng(hash(ctx.city, ctx.rel, 503)), props = ctx.st.props || [];
-    for (const side of [-1, 1]) { // country props in the quiet neighbourhoods
-      const zi = ctx.zone(side); if (zi.water || !["park", "country", "residential", "desert"].includes(zi.type) || !props.length) continue;
-      const n = rp.int(0, 2); for (let i = 0; i < n; i++) { const key = props[rp.int(0, props.length - 1)][0]; if (hasProp(key)) list.push({ kind: "prop", key, s: ctx.s0 + rp.range(2, 58), x: side * rp.range(28, 58), side, sc: 1.5, ry: -side * 0.5 + rp.range(-0.4, 0.4), rad: 7, range: 380 }); }
+    for (const side of [-1, 1]) { // the city's own roadside things: out in the quiet neighbourhoods, and along the pavement in the busy ones
+      const zi = ctx.zone(side); if (zi.water || !props.length) continue;
+      if (["park", "country", "residential", "desert"].includes(zi.type)) {
+        const n = rp.int(0, 2); for (let i = 0; i < n; i++) { const key = props[rp.int(0, props.length - 1)][0]; if (hasProp(key)) list.push({ kind: "prop", key, s: ctx.s0 + rp.range(2, 58), x: side * rp.range(28, 58), side, sc: 1.5, ry: -side * 0.5 + rp.range(-0.4, 0.4), rad: 7, range: 380 }); }
+      } else if (rp.chance(0.7)) { // street dressing: a lantern pole, phone box, neon sign... standing on the pavement
+        const near = props.filter(p => !p[2]); if (!near.length) continue;
+        const key = near[rp.int(0, near.length - 1)][0]; if (hasProp(key)) list.push({ kind: "prop", key, s: ctx.s0 + rp.range(4, 56), x: side * rp.range(21.8, 24.2), side, sc: 1.25, ry: side > 0 ? Math.PI / 2 : -Math.PI / 2, rad: 4, range: 300 });
+      }
     }
     heroCache.set(k, list); if (heroCache.size > 400) heroCache.delete(heroCache.keys().next().value);
     return list;
@@ -445,6 +456,7 @@ export function createCity(scene) {
         for (const gs of gslots) gs.chunk = NaN; heroCache.clear();
       }
       lastD = D;
+      { const fa = FACADES[st.venue] || [0, 0, 0, 0, 0]; shared.uStyleA.value.set(fa[0], fa[1], fa[2], fa[3]); shared.uStyleB.value.set(fa[4], 0, 0, 0); } // this city's facade character
       shared.uNight.value = night; shared.uSky.value.setRGB(Math.min(1, fogColor.r * 1.1 + 0.05), Math.min(1, fogColor.g * 1.1 + 0.07), Math.min(1, fogColor.b * 1.1 + 0.1));
       ensure(lay.F, D, 3); ensure(lay.B, D, 3); ensure(lay.S, D, 2); ensureG(D, 4);
       for (const L of Object.values(lay)) for (const m of L.meshes) m.flush();

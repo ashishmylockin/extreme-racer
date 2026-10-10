@@ -61,3 +61,12 @@ export const ZONES = {
   harbour:     { fh: [4, 10],  bh: [5, 18],  fw: [12, 22], occ: 0.7,  tree: 0.2,  ground: "city",  shops: 1 },
   desert:      { fh: [1, 5],   bh: [2, 10],  fw: [12, 20], occ: 0.25, tree: 0.15, ground: "sand",  shops: 0 },
 };
+
+// Facade character per city (read by the building shader): [brick, stone pilasters + cornices, coloured shutters, arched windows, pastel bands]
+export const FACADES = {
+  Sydney: [0, 0.35, 0, 0.2, 0], Shanghai: [0, 0, 0, 0, 0], Tokyo: [0, 0, 0, 0, 0], Miami: [0, 0, 0, 0.2, 1], Montreal: [0.9, 0.2, 0, 0.3, 0],
+  "Monte Carlo": [0, 0.4, 1, 0.8, 0], Barcelona: [0, 0.5, 0.7, 0.4, 0], Salzburg: [0, 0.3, 1, 0.6, 0], London: [1, 0.3, 0, 0.4, 0], Brussels: [1, 0.4, 0, 0.2, 0],
+  Budapest: [0, 1, 0, 1, 0], Amsterdam: [1, 0.2, 0, 0.5, 0], Rome: [0, 0.5, 1, 1, 0], Madrid: [0.3, 0.9, 0.4, 0.5, 0], Baku: [0, 0.7, 0, 0.8, 0],
+  Singapore: [0, 0, 0, 0, 0.5], Austin: [0.6, 0, 0, 0.2, 0], "Mexico City": [0, 0.3, 0.6, 0.5, 1], "Sao Paulo": [0, 0, 0, 0, 0], "Las Vegas": [0, 0, 0, 0, 0],
+  Doha: [0, 0.5, 0, 1, 0], "Abu Dhabi": [0, 0.4, 0, 0.9, 0],
+};

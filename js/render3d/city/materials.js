@@ -5,6 +5,8 @@ import * as THREE from "three";
 export const shared = {
   uNight: { value: 0 },                          // 0 day .. 1 night: how many windows are lit
   uSky: { value: new THREE.Color(0.5, 0.65, 0.85) }, // what window glass reflects by day
+  uStyleA: { value: new THREE.Vector4(0, 0, 0, 0) },  // facade character of the current city: x brick, y stone pilasters + cornices, z shutters, w arched windows
+  uStyleB: { value: new THREE.Vector4(0, 0, 0, 0) },  // x art-deco colour bands, y second window colour (tint of the shutters), z, w spare
 };
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -40,13 +42,19 @@ float winMask = 0.0; vec3 emitCol = vec3(0.0);
     if (ground) { lo = vec2(0.05, 0.07); hi = vec2(0.95, 0.66); }                  // shop windows
     float inX = step(lo.x, f.x) * step(f.x, hi.x), inY = step(lo.y, f.y) * step(f.y, hi.y);
     float edge = step(1.0, u) * step(u, faceW - 1.0);                              // no windows on the corners
-    float win = inX * inY * edge;
+    float arch = 1.0; if (!ground && uStyleA.w > 0.01 && sty > 0.3) { float mid = hi.y - 0.28, ax = (f.x - 0.5) / max(0.5 * (hi.x - lo.x), 0.01); float ay = (f.y - mid) / max(hi.y - mid, 0.01); arch = mix(1.0, step(f.y, mid) + step(mid, f.y) * step(ax * ax + ay * ay, 1.0), uStyleA.w); } // arched window heads
+    float win = inX * inY * edge * arch;
     // when the windows get smaller than a pixel (far away, or a glancing view) blur the pattern into its average
     float aa = clamp(max(fwidth(u / CW), fwidth(v / FH)) * 2.2, 0.0, 1.0);
     float avg = ground ? 0.5 * edge : (hi.x - lo.x) * (hi.y - lo.y) * edge;
     winMask = mix(win, avg, aa);
     float slab = smoothstep(0.0, 0.07, f.y) * (1.0 - smoothstep(0.93, 1.0, f.y));
     vec3 wallc = wall * (0.9 + 0.1 * slab) * (0.8 + 0.2 * smoothstep(0.0, 14.0, v));
+    float fine = 1.0 - aa; // (the fine detail fades out with distance)
+    if (uStyleA.x > 0.01) { float by = v / 0.55, bx = u / 1.25 + 0.5 * mod(floor(by), 2.0); float mortar = max(step(0.9, fract(by)), step(0.95, fract(bx))), tone = fract(sin(dot(vec2(floor(bx), floor(by)), vec2(12.9, 78.2))) * 43758.5); wallc *= 1.0 - uStyleA.x * fine * (0.2 * mortar + 0.14 * tone); } // brick courses
+    if (uStyleA.y > 0.01) { float pil = step(f.x, 0.06) + step(0.94, f.x); float cor = step(0.9, f.y) * 0.8; wallc = mix(wallc, min(wallc * 1.22 + 0.04, vec3(1.0)), uStyleA.y * fine * max(pil * 0.8, cor)); } // pale pilasters and cornices
+    if (uStyleA.z > 0.01 && !ground) { float sh = (step(lo.x - 0.16, f.x) * step(f.x, lo.x) + step(hi.x, f.x) * step(f.x, hi.x + 0.16)) * inY; vec3 shc = fract(sd * 3.0) < 0.5 ? vec3(0.22, 0.45, 0.32) : (fract(sd * 3.0) < 0.8 ? vec3(0.25, 0.4, 0.62) : vec3(0.45, 0.3, 0.22)); wallc = mix(wallc, shc, uStyleA.z * fine * sh); } // coloured shutters
+    if (uStyleB.x > 0.01) { float band = step(0.5, fract(floor(v / FH) * 0.5)); wallc = mix(wallc, wallc * vec3(1.12, 0.96, 0.9) + vec3(0.04, 0.0, 0.02), uStyleB.x * band * fine); } // alternating pastel floors
     if (!ground && sty > 0.62 && sty < 0.82) { float rail = step(f.y, 0.17) * inX; wallc = mix(wallc, wallc * 0.45, rail * (1.0 - aa)); } // balcony rails
     if (ground) { float band = step(0.74, f.y) * step(f.y, 0.92); wallc = mix(wallc, wallc * vec3(0.6, 0.55, 0.55), band * (1.0 - aa)); }   // sign band over the shops
     float rnd = fract(sin(dot(cell + vec2(sd * 91.7, alongZ ? 17.0 : 3.0), vec2(127.1, 311.7))) * 43758.5453);
@@ -63,14 +71,14 @@ float winMask = 0.0; vec3 emitCol = vec3(0.0);
 export function buildingMaterial() {
   const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.86, metalness: 0.0 });
   m.onBeforeCompile = sh => {
-    sh.uniforms.uNight = shared.uNight; sh.uniforms.uSky = shared.uSky;
+    sh.uniforms.uNight = shared.uNight; sh.uniforms.uSky = shared.uSky; sh.uniforms.uStyleA = shared.uStyleA; sh.uniforms.uStyleB = shared.uStyleB;
     sh.vertexShader = sh.vertexShader
       .replace("#include <common>", "#include <common>\nattribute float aSeed; varying vec3 vOP; varying vec3 vON; varying vec3 vSz; varying float vSd;")
       .replace("#include <begin_vertex>", `#include <begin_vertex>
         vec3 sc_ = vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz));
         vOP = position * sc_; vON = normal; vSz = sc_; vSd = aSeed;`);
     sh.fragmentShader = sh.fragmentShader
-      .replace("#include <common>", "#include <common>\nuniform float uNight; uniform vec3 uSky; varying vec3 vOP; varying vec3 vON; varying vec3 vSz; varying float vSd;")
+      .replace("#include <common>", "#include <common>\nuniform float uNight; uniform vec3 uSky; uniform vec4 uStyleA, uStyleB; varying vec3 vOP; varying vec3 vON; varying vec3 vSz; varying float vSd;")
       .replace("#include <color_fragment>", "#include <color_fragment>\n" + FACADE)
       .replace("#include <metalnessmap_fragment>", `#include <metalnessmap_fragment>
         roughnessFactor = mix(roughnessFactor, 0.12, winMask); metalnessFactor = mix(metalnessFactor, 0.5, winMask * (1.0 - 0.7 * uNight));`)
