@@ -5,6 +5,8 @@ import { SCALE } from "./mapping.js";
 import { hasModel, cloneModel, fitModel } from "./assets.js";
 import { makeLandmark, hasLandmark } from "./landmarks.js";
 import { makeProp, hasProp } from "./props.js";
+import { makeProRaceCar, setCarDetail } from "./car/racecar.js";
+export { setCarDetail };
 
 const geoCache = new Map();
 const matCache = new Map();
@@ -187,6 +189,7 @@ function liveryMats(team) {
 }
 
 export function makeRaceCar(team) {
+  try { return makeProRaceCar(team); } catch (e) { console.warn("detailed race car failed, using the model car instead", e); } // (the old Kenney car below is the fallback)
   if (!hasModel("raceCarRed")) return phRaceCar(team);
   const root = cloneModel("raceCarRed"), L = liveryMats(team), wheels = [], front = [];
   tint(root, o => { const k = o.material.name; if (L[k]) o.material = L[k]; });

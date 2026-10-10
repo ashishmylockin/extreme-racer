@@ -61,7 +61,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
     renderer.shadowMap.enabled = Q.shadows > 0; world.sun.castShadow = Q.shadows > 0;
     if (world.sun.shadow.mapSize.x !== Q.shadows && Q.shadows > 0) { world.sun.shadow.mapSize.set(Q.shadows, Q.shadows); if (world.sun.shadow.map) { world.sun.shadow.map.dispose(); world.sun.shadow.map = null; } }
     renderer.shadowMap.needsUpdate = true;
-    fx.setDensity(Q.particles); reflect.enable(Q.reflect); city.setQuality({ ahead: Q.cityAhead * Q.dist, density: Q.cityDensity });
+    fx.setDensity(Q.particles); reflect.enable(Q.reflect); city.setQuality({ ahead: Q.cityAhead * Q.dist, density: Q.cityDensity }); M.setCarDetail(Q.carLod ?? 1);
     post.bloom.enabled = Q.bloom; post.fx.enabled = Q.grade; post.smaa.enabled = Q.smaa; post.fxaa.enabled = Q.fxaa;
     for (const t of [post.composer.renderTarget1, post.composer.renderTarget2]) if (t.samples !== Q.msaa) { t.samples = Q.msaa; t.dispose(); }
     for (const m of rig.mirrors) m.rt.setSize(Q.mirrorRes, Q.mirrorRes / 2);
@@ -172,6 +172,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
       for (const w of ud.wheels) w.rotation.x -= spin;
       for (const f of ud.front) f.rotation.y = -Math.max(-0.5, Math.min(0.5, tilt * 1.4));
       ud.brake.material.emissiveIntensity = r.braking ? 3 : 0.15;
+      if (ud.discMat) { const goal = r.alive ? (r.hardBrake ? 3.5 : r.braking ? 1.4 : 0) : 0, d = ud.discMat; d.emissiveIntensity += (goal - d.emissiveIntensity) * Math.min(1, dt * (goal > d.emissiveIntensity ? 14 : 3)); } // brake discs glow orange when you brake, and cool slowly
       if (!ud.beam) { ud.beam = nightFx.makeBeam(); o.add(ud.beam); ud.flame = fx.makeFlame(); o.add(ud.flame); }
       ud.beam.visible = pal.dark > 0.012 && r.alive;
       ud.flame.visible = r.alive && r.nitro > 0; fx.flameMat.uniforms.time.value = time;

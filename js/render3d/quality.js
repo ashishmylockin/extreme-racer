@@ -7,12 +7,13 @@ export const LEVELS = ["low", "medium", "high", "ultra"];
 //   scale     render resolution (1 = the window's real pixels); shadows = shadow-map size (0 = off); msaa = multisampling samples
 //   fxaa/smaa the anti-aliasing used;  bloom/grade = the post-processing passes;  flare/ca/dof = lens effects
 //   particles = how many sparks / smoke puffs (0..1.5);  rain = how many raindrops;  dist = draw distance (0..1)
+//   carLod = how far away the race cars keep their detail (1 = normal, smaller = cheaper models sooner)
 //   ibl = lighting from the sky image (off = a cheap fixed ambient);  mirrorRes = cockpit mirror size;  reflect = planar road reflections
 export const PRESETS = {
-  low:    { scale: 0.75, shadows: 0,    msaa: 0, fxaa: true,  smaa: false, bloom: false, grade: false, flare: false, ca: false, dof: false, particles: 0.3, rain: 0.45, dist: 0.7, ibl: false, mirrorRes: 128, reflect: false, trails: false, cityAhead: 0.5, cityDensity: 0.5 },
-  medium: { scale: 1.0,  shadows: 1024, msaa: 0, fxaa: true,  smaa: false, bloom: true,  grade: true,  flare: false, ca: true,  dof: false, particles: 0.6, rain: 0.7,  dist: 0.85, ibl: true, mirrorRes: 192, reflect: false, trails: true, cityAhead: 0.75, cityDensity: 0.75 },
-  high:   { scale: 1.0,  shadows: 2048, msaa: 4, fxaa: false, smaa: false, bloom: true,  grade: true,  flare: true,  ca: true,  dof: true,  particles: 1.0, rain: 1.0,  dist: 1.0, ibl: true, mirrorRes: 256, reflect: false, trails: true, cityAhead: 1, cityDensity: 1 },
-  ultra:  { scale: 1.25, shadows: 4096, msaa: 4, fxaa: false, smaa: true,  bloom: true,  grade: true,  flare: true,  ca: true,  dof: true,  particles: 1.4, rain: 1.0,  dist: 1.0, ibl: true, mirrorRes: 512, reflect: true,  trails: true, cityAhead: 1, cityDensity: 1 },
+  low:    { scale: 0.75, shadows: 0,    msaa: 0, fxaa: true,  smaa: false, bloom: false, grade: false, flare: false, ca: false, dof: false, particles: 0.3, rain: 0.45, dist: 0.7, ibl: false, mirrorRes: 128, reflect: false, trails: false, cityAhead: 0.5, cityDensity: 0.5, carLod: 0.45 },
+  medium: { scale: 1.0,  shadows: 1024, msaa: 0, fxaa: true,  smaa: false, bloom: true,  grade: true,  flare: false, ca: true,  dof: false, particles: 0.6, rain: 0.7,  dist: 0.85, ibl: true, mirrorRes: 192, reflect: false, trails: true, cityAhead: 0.75, cityDensity: 0.75, carLod: 0.8 },
+  high:   { scale: 1.0,  shadows: 2048, msaa: 4, fxaa: false, smaa: false, bloom: true,  grade: true,  flare: true,  ca: true,  dof: true,  particles: 1.0, rain: 1.0,  dist: 1.0, ibl: true, mirrorRes: 256, reflect: false, trails: true, cityAhead: 1, cityDensity: 1, carLod: 1 },
+  ultra:  { scale: 1.25, shadows: 4096, msaa: 4, fxaa: false, smaa: true,  bloom: true,  grade: true,  flare: true,  ca: true,  dof: true,  particles: 1.4, rain: 1.0,  dist: 1.0, ibl: true, mirrorRes: 512, reflect: true,  trails: true, cityAhead: 1, cityDensity: 1, carLod: 1.7 },
 };
 
 const SCALES = [0.5, 0.75, 1, 1.25, 1.5];

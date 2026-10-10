@@ -54,6 +54,8 @@ requestAnimationFrame(loop);
     else {
       cam = +k || 0; startGame(m === "pause" || m === "camerapick" ? "tour" : m || "single", "medium", +c || 0); held.add("ArrowUp");
       if (q.has("god")) racers[0].ghost = 1e9; // god: crashes are ignored
+      if (q.has("clean")) document.getElementById("game").style.visibility = "hidden"; // clean: hide the 2D HUD for screenshots
+      if (q.has("team")) racers[0].team = TEAMS[+q.get("team") % TEAMS.length]; // team=N: drive that team's car
       for (let i = +q.get("ff") || 0; i > 0; i--) update(); // ff=600 fast-forwards 600 sim ticks (10 s)
       if (q.has("crash")) { racers[0].alive = false; racers[0].drift = 1.5; racers[0].ghost = 0; endRound(); }
       if (q.has("finish") && level) finishLevel();

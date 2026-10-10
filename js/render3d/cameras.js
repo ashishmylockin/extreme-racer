@@ -94,7 +94,7 @@ export function createCameraRig(scene) {
       camera.position.copy(fx.photo.pos); camera.rotation.set(fx.photo.pitch, fx.photo.yaw, 0, "YXZ"); fovGoal = fx.photo.fov;
     } else if (mode === "inspect") {
       const q = new URLSearchParams(location.search).get("inspect");
-      const o = q === "front" ? [5, 2.5, -9] : q === "top" ? [0.5, 14, 2] : q === "rear" ? [4, 3, 9] : [9, 3, 1];
+      const zm = +new URLSearchParams(location.search).get("zoom") || 1, o = (q === "front" ? [5, 2.5, -9] : q === "top" ? [0.5, 14, 2] : q === "rear" ? [4, 3, 9] : q === "q34" ? [7.5, 3.4, -7.5] : q === "q34r" ? [-7.5, 3.4, 8] : [9, 3, 1]).map(v => v * zm);
       camera.position.set(t.x + o[0], o[1], t.z + o[2]); camera.lookAt(t.x, 1, t.z - 0.5); fovGoal = 45;
     } else { // menu: a slow, low sweep round the demo race
       rig.camX += (t.x - rig.camX) * sm(3);
