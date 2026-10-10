@@ -149,7 +149,9 @@ export function createCity(scene) {
   // ---- bookkeeping per layer ----
   const mkLayer = (id, L, n, meshes) => ({ id, L, n, meshes, chunk: new Float64Array(n).fill(NaN), city: new Int32Array(n).fill(-1), start: new Float64Array(n), data: Array.from({ length: n }, () => ({})) });
   const lay = { F: mkLayer("F", LF, nF, listF), B: mkLayer("B", LB, nB, listB), S: mkLayer("S", LS, nS, listS) };
-  let sBase = 0, lastD = 0, quality = { ahead: 1, density: 1 };
+  let sBase = 0, lastD = 0, quality = { ahead: 1, density: 1 }, bypassClear = null;
+  let maskZ = 0; const maskFn = (x, z) => inClearing(x, z + maskZ);
+  const inClearing = (x, wz) => { const t = bypassClear; return !!t && x * t.side > 17 && x * t.side < 28.6 && wz < t.zBack + 12 && wz > t.zFront - 14; }; // world z: the track runs from zBack (where it starts) up the road to zFront
   const lamps = []; let lampCount = 0;
 
   // ---- which city / neighbourhood is at a place on the route ----
@@ -238,7 +240,7 @@ export function createCity(scene) {
         const h = list[i], z = D - h.s; if (z < -h.range * Math.min(1, ahead / 1000 + 0.3)) continue;
         const id = k * 16 + i; let a = heroActive.get(id);
         if (!a) { const key = h.kind + ":" + h.key, p = heroPool.get(key), obj = p && p.pop() || makeHero(h); obj.userData.poolKey = key; obj.scale.setScalar(h.sc); obj.rotation.y = h.ry; obj.position.x = h.x; gH.add(obj); a = { obj, stamp: 0 }; heroActive.set(id, a); }
-        a.stamp = heroStamp; a.obj.position.z = z;
+        a.stamp = heroStamp; a.obj.position.z = z; a.obj.visible = !(h.kind === "prop" && inClearing(h.x, z)); // (street dressing in the way of the bypass track is hidden)
       }
     }
     for (const [id, a] of heroActive) if (a.stamp !== heroStamp) { gH.remove(a.obj); const key = a.obj.userData.poolKey; (heroPool.get(key) || heroPool.set(key, []).get(key)).push(a.obj); heroActive.delete(id); }
@@ -446,6 +448,8 @@ export function createCity(scene) {
     root, ground, lamps, get lampCount() { return lampCount; },
     setQuality(q) { quality = { ahead: q.ahead ?? 1, density: q.density ?? 1 }; },
     setSignStyle(style) { signMat.map = signTex[style] || signTex.paint; },
+    // clear everything beside the road along the bypass track (barrier, lamps, trees, parked cars, people, signs, props): you should see only the track
+    setBypass(track) { bypassClear = track || null; },
     // is the point at distance D along the route (world units) inside a tunnel?
     inTunnel(s) { const c = cityForS(s); return tunnelAt(profileOf(ROUTE[c.idx].venue), s - c.start); },
     // D = how far along the route the car is (world units); st = the current city's sim data; camZ = where the camera is
@@ -459,6 +463,7 @@ export function createCity(scene) {
       { const fa = FACADES[st.venue] || [0, 0, 0, 0, 0]; shared.uStyleA.value.set(fa[0], fa[1], fa[2], fa[3]); shared.uStyleB.value.set(fa[4], 0, 0, 0); } // this city's facade character
       shared.uNight.value = night; shared.uSky.value.setRGB(Math.min(1, fogColor.r * 1.1 + 0.05), Math.min(1, fogColor.g * 1.1 + 0.07), Math.min(1, fogColor.b * 1.1 + 0.1));
       ensure(lay.F, D, 3); ensure(lay.B, D, 3); ensure(lay.S, D, 2); ensureG(D, 4);
+      maskZ = D - sBase; { const on = bypassClear ? maskFn : null; for (const m of listF) m.setMask(on); } // clear the street front beside the bypass track
       for (const L of Object.values(lay)) for (const m of L.meshes) m.flush();
       const z = D - sBase; gF.position.z = gB.position.z = gS.position.z = z;
       updateHeroes(D, 1500 * quality.ahead);
@@ -473,7 +478,7 @@ export function createCity(scene) {
       setCrowd(st.crowd); for (const w of windowMats) w.emissiveIntensity = 1.4 * night; // grandstand crowds wear the city's colours; Kenney windows light up
       // the street lamps near the car, for the night lighting
       lampCount = 0; const kc = Math.floor(D / LF);
-      for (let k = kc - 2; k <= kc + 8; k++) { const sl = lay.F.chunk[mod(k, lay.F.n)] === k ? lay.F.data[mod(k, lay.F.n)] : null; if (!sl || !sl.lamps) continue; for (const l of sl.lamps) { const o = lamps[lampCount] || (lamps[lampCount] = { hx: 0, z: 0, side: 1 }); o.hx = l.hx; o.z = D - l.s; o.side = l.side; lampCount++; } }
+      for (let k = kc - 2; k <= kc + 8; k++) { const sl = lay.F.chunk[mod(k, lay.F.n)] === k ? lay.F.data[mod(k, lay.F.n)] : null; if (!sl || !sl.lamps) continue; for (const l of sl.lamps) { if (inClearing(l.hx, D - l.s)) continue; const o = lamps[lampCount] || (lamps[lampCount] = { hx: 0, z: 0, side: 1 }); o.hx = l.hx; o.z = D - l.s; o.side = l.side; lampCount++; } }
     },
   };
 }

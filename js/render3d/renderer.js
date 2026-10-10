@@ -44,7 +44,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
   const nightFx = createNight(scene);
   const city = createCity(scene); // the buildings, ground and water around the road
   const post = createPost(renderer, scene, camera);
-  const fx = createFX(scene, M.makeWheelDebris), bypass = createBypass(scene);
+  const fx = createFX(scene, M.makeWheelDebris), bypass = createBypass(scene), bypassWin = { side: 1, zBack: 0, zFront: 0 };
   const reflect = createReflection(renderer, scene, camera, world.groundMeshes, world.reflectMats); // wet-road reflections (Ultra)
   const photo = createPhoto();
   let showroom = null;
@@ -172,7 +172,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
     const fxDt = (state === "paused" || state === "camera" || photo.active) ? 0 : dt;
     for (const [r, rec] of racersT.recs) {
       const o = rec.obj, x = lerp(rec.px, rec.cx, alpha), z = lerp(rec.pz, rec.cz, alpha), tilt = lerp(rec.pe, rec.ce, alpha);
-      o.rotation.order = "YXZ"; o.position.set(x, 0, z); o.rotation.y = -tilt; // (yaw first, then nose up / down, then roll: so a tumbling wreck turns about its own axes)
+      o.rotation.order = "YXZ"; o.position.set(x, r.bypassing ? 0.28 * (r.bypassK || 0) : 0, z); o.rotation.y = -tilt; // (yaw first, then nose up / down, then roll: so a tumbling wreck turns about its own axes)
       if (!r.alive && rec.wreck && fxDt > 0) { // a wreck: it hops off what it hit, rolls over once if the impact was fast, and settles on its wheels
         const w = rec.wreck; w.vy -= 30 * fxDt; w.h += w.vy * fxDt;
         if (w.h < 0) { w.h = 0; w.vy = w.vy < -2 ? -w.vy * 0.28 : 0; w.rollV *= 0.8; }
@@ -273,7 +273,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
     }
     // near miss: a streak of air
     const lp = pops.length ? pops[pops.length - 1] : null; if (lp && lp !== seenPop) { seenPop = lp; nearPulse = 1; if (rec0 && fxDt > 0) fx.nearMiss(camTarget.x, camTarget.z); } nearPulse *= Math.pow(0.04, dt);
-    bypass.update(typeof bypassTrack === "undefined" ? null : bypassTrack, alpha, time);
+    { const bt = typeof bypassTrack === "undefined" ? null : bypassTrack; bypass.update(bt, alpha, time); if (bt) { bypassWin.side = bt.side; bypassWin.zBack = simZ(bt.y0); bypassWin.zFront = bypassWin.zBack - bt.L * SCALE; city.setBypass(bypassWin); } else city.setBypass(null); }
     fx.update(fxDt * (time - crashAt < 1.0 && crashAt >= 0 && state === "over" ? 0.6 : 1), shiftZ, renderer.getDrawingBufferSize(sizeV).y / (2 * Math.tan(camera.fov * Math.PI / 360)));
 
     // ---- post-processing settings for this frame ----
@@ -285,9 +285,9 @@ export function createRenderer3D(canvas2d, glCanvas) {
       const ta = gA.tint || [1, 1, 1], tb = gB.tint || [1, 1, 1];
       U.tint.value.setRGB(ta[0] + (tb[0] - ta[0]) * stBlend, ta[1] + (tb[1] - ta[1]) * stBlend, ta[2] + (tb[2] - ta[2]) * stBlend);
       const sk = pal.tint; if (sk[3] > 0.005) U.tint.value.multiply(pTmpC.setRGB(1 + (sk[0] / 255 - 0.5) * sk[3] * 2, 1 + (sk[1] / 255 - 0.5) * sk[3] * 2, 1 + (sk[2] / 255 - 0.5) * sk[3] * 2));
-      U.time.value = time; U.vig.value = 0.3 + 0.18 * nf + 0.1 * night;
-      U.blur.value = Math.min(1, Math.max(0, (kmh - 220) / 380) * 0.55 + nf * 0.55 + kickFx * 0.6 + nearPulse * 0.45) * (mode === "menu" || mode === "title" || mode === "photo" || mode === "crash" || mode === "grid" ? 0 : 1);
-      U.aberr.value = Q.ca ? nf * 0.012 + kickFx * 0.01 : 0;   // chromatic aberration only while nitro burns
+      U.time.value = time; U.vig.value = 0.26 + 0.06 * nf + 0.08 * night;
+      U.blur.value = Math.min(0.1, Math.max(0, (kmh - 300) / 1200) + nf * 0.05) * (mode === "menu" || mode === "title" || mode === "photo" || mode === "crash" || mode === "grid" ? 0 : 1);
+      U.aberr.value = Q.ca ? nf * 0.003 : 0;   // (the picture stays clean and sharp at speed: only the faintest hint of speed blur, none from near misses or the nitro kick)
       U.heat.value = stA.desert ? (1 - night) * 0.9 : 0;       // heat shimmer in the desert cities by day
       U.fmode.value = photo.active ? photo.filter : 0; U.grain.value = photo.active && photo.filter === 2 ? 0.05 : 0;
       post.bloom.strength = 0.12 + 0.3 * night + flash * 0.6 + nf * 0.2; post.bloom.threshold = 1.5 - 0.3 * night; post.bloom.radius = 0.45 + 0.1 * night; // (a soft, relaxed glow: no blinding halos)

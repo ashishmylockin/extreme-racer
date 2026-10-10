@@ -22,9 +22,9 @@ function disable3D(why) {
 function tick3D() { try { R3D.tick(); } catch (e) { disable3D(e); } }
 const FILM = new URLSearchParams(location.search).get("film"); let filmT = null; const filmShots = []; // testing: film=0.2,0.6,1.2 captures the 3D view that many seconds after the crash and shows the shots side by side
 function filmFrame() {
-  if (!FILM || state !== "over" || racers[0].alive) return; const want = FILM.split(",").map(Number); if (filmT === null) filmT = performance.now();
-  const t = (performance.now() - filmT) / 1000; if (filmShots.length < want.length && t >= want[filmShots.length]) { const c = document.createElement("canvas"); c.width = 520; c.height = 300; c.getContext("2d").drawImage(R3D.renderer.domElement, 0, 0, 520, 300); filmShots.push(c); }
-  if (filmShots.length === want.length && !document.getElementById("film")) { const d = document.createElement("div"); d.id = "film"; d.style.cssText = "position:fixed;inset:0;background:#111;z-index:99;display:flex;flex-wrap:wrap;gap:4px"; filmShots.forEach((c, i) => { c.style.width = "calc(50% - 4px)"; d.appendChild(c); }); document.body.appendChild(d); }
+  if (!FILM || !(state === "title" || (state === "over" && !racers[0].alive))) return; const want = FILM.split(",").map(Number); if (filmT === null) filmT = clock;
+  const t = (clock - filmT) / 60; if (filmShots.length < want.length && t >= want[filmShots.length]) { const c = document.createElement("canvas"); c.width = 520; c.height = 300; c.getContext("2d").drawImage(R3D.renderer.domElement, 0, 0, 520, 300); filmShots.push(c); }
+  if (filmShots.length === want.length && !document.getElementById("film")) { const d = document.createElement("div"); d.id = "film"; d.style.cssText = "position:fixed;inset:0;background:#111;z-index:99;display:flex;flex-wrap:wrap;gap:4px"; filmShots.forEach((c, i) => { c.style.width = "calc(33% - 4px)"; d.appendChild(c); }); document.body.appendChild(d); }
 }
 let infoN = 0; const SHOW_STATS = new URLSearchParams(location.search).has("info"); // testing: ?info logs draw calls and triangles after 40 frames
 function render3D(alpha) { try { R3D.render(alpha); filmFrame(); if (SHOW_STATS && ++infoN === 40) { const i = R3D.renderer.info; console.info("INFO calls=" + i.render.calls + " triangles=" + i.render.triangles + " geometries=" + i.memory.geometries + " textures=" + i.memory.textures); } } catch (e) { disable3D(e); } }
@@ -51,6 +51,20 @@ songDB.all().then(rows => { for (const r of rows || []) music.addBlob(r.name, r.
 fit();
 grabFocus();
 initDemo(); jumpTo(3, 0.3); // the title scene: Miami at its best (warm light), with your own car leading
+{ // testing: demotest=N runs the title / menu demo for N ticks and counts how often cars overlap
+  const n = +new URLSearchParams(location.search).get("demotest");
+  if (n) {
+    let rE = 0, rR = 0, worst = 0;
+    for (let i = 0; i < n; i++) {
+      update();
+      for (const r of racers) {
+        for (const e of enemies) { const reach = (lenOf(e) + CAR_H) / 2; const vis = (lenOf(e) + 86) / 2; if (Math.abs(e.x - r.x) < 38 && Math.abs(e.y - r.y) < vis) { rE++; worst = Math.max(worst, vis - Math.abs(e.y - r.y)); } }
+        for (const o of racers) if (o !== r && Math.abs(o.x - r.x) < CAR_W - 4 && Math.abs(o.y - r.y) < 86) rR++;
+      }
+    }
+    console.info("DEMOTEST " + JSON.stringify({ ticks: n, racerThroughTraffic: rE, racerThroughRacer: rR, worstOverlap: Math.round(worst), enemies: enemies.length }));
+  }
+}
 requestAnimationFrame(loop);
 
 // Developer shortcut for testing and screenshots (not linked from anywhere in the game):

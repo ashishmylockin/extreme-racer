@@ -104,7 +104,7 @@ function stepBypass(r) {
   }
   b.d += speed; // distance covered on the side track
   const k = clamp(b.d / BYPASS_RAMP, 0, 1), kOut = smooth(Math.min(k, clamp((b.L - b.d) / BYPASS_RAMP, 0, 1)));
-  r.bypassX = laneX(b.lane) + b.side * BYPASS_OFF * kOut; // the car follows the curved track exactly
+  r.bypassX = laneX(b.lane) + b.side * BYPASS_OFF * kOut; r.bypassK = kOut; // the car follows the curved track exactly (bypassK: how far up the ramp it is)
   r.x = r.bypassX;
   if (b.d >= b.L) { r.bypassing = false; r.bypass = null; bypassTrack = null; r.x = laneX(r.lane); r.ghost = Math.max(r.ghost || 0, 90); r.bypassX = undefined; } // back on the road; a moment of grace in case
 }
@@ -289,7 +289,13 @@ function stepRacers() {
 function updateDemo() {
   frame++;
   speed = scroll = 2.8;
-  for (const r of racers) { r.v = 2.8; if (r.ai) aiThink(r); } // (only the demo CPUs think; a finished race's player car has no AI)
+  for (const r of racers) {
+    r.v = 2.8; if (r.ai) aiThink(r); // (only the demo CPUs think; a finished race's player car has no AI)
+    for (const e of enemies) { // never drive into the back of anything: ease down to its speed as the gap closes (the 3D car is longer than its hit box, so leave a margin)
+      const gap = r.y - e.y - ((lenOf(e) + 86) / 2 + 8);
+      if (e.y < r.y && Math.abs(e.x - r.x) < CAR_W + 16 && gap < 90) r.v = Math.min(r.v, e.cur + (2.8 - e.cur) * clamp(gap / 90, 0, 1));
+    }
+  }
   dist += speed;
   spawnAcc += speed;
   if (spawnAcc > 170) { spawnAcc = 0; spawnEnemy(); }

@@ -9,7 +9,7 @@ import * as THREE from "three";
 export class SlotMesh {
   // opt: color (per-instance tint), seed (per-instance random number for the shader), rect (per-instance texture rectangle), shadow
   constructor(parent, geometry, material, slots, cap, opt = {}) {
-    this.cap = cap; this.slots = slots; this.used = new Int32Array(slots); this.n = 0; this.base = 0; this.slot = -1; this.dirty = false;
+    this.cap = cap; this.slots = slots; this.used = new Int32Array(slots); this.n = 0; this.base = 0; this.slot = -1; this.dirty = false; this.mask = null;
     const total = slots * cap, geo = opt.seed || opt.rect ? geometry.clone() : geometry;
     this.stage = new Float32Array(total * 16);
     if (opt.color) this.stageC = new Float32Array(total * 3).fill(1);
@@ -36,6 +36,8 @@ export class SlotMesh {
     return true;
   }
   end() { this.used[this.slot] = this.n; this.dirty = true; }
+  // hide every instance for which fn(x, z) is true (instance positions as stored: the layer's own coordinates), or null to show them all again
+  setMask(fn) { if (fn !== this.mask) this.dirty = true; this.mask = fn; if (fn) this.dirty = true; }
   clear(slot) { if (this.used[slot]) { this.used[slot] = 0; this.dirty = true; } }
   // pack the used instances of every slot together and upload them
   flush() {
@@ -46,6 +48,7 @@ export class SlotMesh {
     for (let s = 0; s < this.slots; s++) {
       const u = this.used[s]; if (!u) continue; const from = s * cap;
       dm.set(this.stage.subarray(from * 16, (from + u) * 16), o * 16);
+      if (this.mask) for (let i = 0; i < u; i++) { const q = (from + i) * 16; if (this.mask(this.stage[q + 12], this.stage[q + 14])) dm.fill(0, (o + i) * 16, (o + i) * 16 + 16); } // (a zeroed matrix draws nothing)
       if (dc) dc.set(this.stageC.subarray(from * 3, (from + u) * 3), o * 3);
       if (ds) ds.set(this.stageS.subarray(from, from + u), o);
       if (dr) dr.set(this.stageR.subarray(from * 4, (from + u) * 4), o * 4);
