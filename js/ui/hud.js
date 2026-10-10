@@ -319,24 +319,63 @@ function drawLogo(cx, cy, k) {
   word("RACER", 44, 46, "#ffffff");
   ctx.restore();
 }
+// ---- the title screen: your car gliding through a golden-hour city, a big glowing logo, and nothing else in the way ----
+const TITLE_FONT = `900 italic %spx "Arial Black", Impact, "Helvetica Neue", sans-serif`;
+function spaced(s, x, y, gap, mode) { // text drawn letter by letter with extra spacing, centred on x; mode "stroke" | "fill"
+  let w = 0; for (const c of s) w += ctx.measureText(c).width + gap; w -= gap; let px = x - w / 2;
+  ctx.textAlign = "left"; for (const c of s) { if (mode === "stroke") ctx.strokeText(c, px, y); else ctx.fillText(c, px, y); px += ctx.measureText(c).width + gap; }
+  return w;
+}
+function drawTitleLogo(cx, cy, k) {
+  ctx.save(); ctx.translate(cx, cy + Math.sin(clock / 45) * 2); ctx.scale(k, k); ctx.transform(1, 0, -0.16, 1, 0, 0); ctx.lineJoin = "round"; ctx.textBaseline = "alphabetic";
+  // racing stripes either side of RACER
+  for (let i = 0; i < 3; i++) for (const s of [-1, 1]) { ctx.fillStyle = ["#ff3b30", "#ff9500", "#ffd60a"][i]; ctx.globalAlpha = 0.95 - i * 0.12; ctx.save(); ctx.scale(s, 1); ctx.beginPath(); ctx.moveTo(86 + i * 9, 30 + i * 9); ctx.lineTo(210 + i * 9, 30 + i * 9); ctx.lineTo(200 + i * 9, 38 + i * 9); ctx.lineTo(80 + i * 9, 38 + i * 9); ctx.closePath(); ctx.fill(); ctx.restore(); }
+  ctx.globalAlpha = 1;
+  // EXTREME: warm metal gradient, a dark edge, an orange glow
+  ctx.font = TITLE_FONT.replace("%s", 70);
+  const g = ctx.createLinearGradient(0, -62, 0, 6); g.addColorStop(0, "#fffbe8"); g.addColorStop(0.45, "#ffd84a"); g.addColorStop(1, "#ff5a14");
+  ctx.shadowColor = "rgba(255,120,30,0.65)"; ctx.shadowBlur = 28; ctx.lineWidth = 12; ctx.strokeStyle = "#1a0b05"; spaced("EXTREME", 0, 0, 2, "stroke"); ctx.shadowBlur = 0;
+  ctx.fillStyle = g; const w = spaced("EXTREME", 0, 0, 2, "fill");
+  // a bright glint sweeping across the word every few seconds
+  const cyc = (clock % 260) / 260, px = (cyc * 1.6 - 0.3) * w - w / 2; if (cyc < 0.6) { const sh = ctx.createLinearGradient(px - 40, -60, px + 40, 10); sh.addColorStop(0, "rgba(255,255,255,0)"); sh.addColorStop(0.5, "rgba(255,255,255,0.85)"); sh.addColorStop(1, "rgba(255,255,255,0)"); ctx.fillStyle = sh; spaced("EXTREME", 0, 0, 2, "fill"); }
+  // RACER: crisp white, wide-set
+  ctx.font = TITLE_FONT.replace("%s", 56); ctx.lineWidth = 10; ctx.strokeStyle = "#0d0f1c"; ctx.shadowColor = "rgba(120,170,255,0.5)"; ctx.shadowBlur = 20; spaced("RACER", 0, 62, 14, "stroke"); ctx.shadowBlur = 0;
+  const g2 = ctx.createLinearGradient(0, 20, 0, 66); g2.addColorStop(0, "#ffffff"); g2.addColorStop(1, "#b9d4ff"); ctx.fillStyle = g2; spaced("RACER", 0, 62, 14, "fill");
+  ctx.restore();
+}
 function drawTitle(moy) {
-  ctx.fillStyle = "rgba(10,10,16,0.45)"; ctx.fillRect(0, -moy, W, H);
-  ctx.save(); ctx.globalCompositeOperation = "lighter"; // speed streaks rushing past behind the logo
-  for (let i = 0; i < (settings.lowfx ? 8 : 22); i++) {
-    const y = 120 + ((i * 37) % 120), len = 60 + (i % 5) * 30, x = W - ((clock * (6 + (i % 4) * 2) + i * 97) % (W + len * 2));
-    ctx.strokeStyle = `rgba(255,${150 + (i % 3) * 40},60,${0.18 + (i % 4) * 0.06})`; ctx.lineWidth = 1 + (i % 3);
-    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + len, y); ctx.stroke();
+  const top = -moy, bot = H - moy;
+  // light, cinematic grading: dark at the top and bottom, clear in the middle where the car is
+  let g = ctx.createLinearGradient(0, top, 0, bot); g.addColorStop(0, "rgba(6,8,20,0.78)"); g.addColorStop(0.3, "rgba(6,8,20,0.18)"); g.addColorStop(0.62, "rgba(6,8,20,0.05)"); g.addColorStop(1, "rgba(6,8,20,0.88)");
+  ctx.fillStyle = g; ctx.fillRect(0, top, W, H);
+  // thin golden letterbox lines
+  ctx.fillStyle = "rgba(255,200,90,0.55)"; ctx.fillRect(0, top + 14, W, 1); ctx.fillRect(0, bot - 14, W, 1);
+  // warm light motes drifting up
+  ctx.save(); ctx.globalCompositeOperation = "lighter";
+  for (let i = 0; i < (settings.lowfx ? 10 : 34); i++) {
+    const sp = 0.15 + (i % 5) * 0.07, x = (i * 97 + Math.sin(clock / 90 + i) * 14) % W, y = bot - ((clock * sp + i * 53) % (H + 40)), r = 1 + (i % 3) * 0.9;
+    ctx.fillStyle = `rgba(255,${190 + (i % 4) * 15},120,${0.12 + (i % 4) * 0.05})`; ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
   }
   ctx.restore();
-  drawLogo(W / 2, 190, Math.min(1, (W - 30) / 330));
-  text("WORLD TOUR", 262, 16, "center", "#ff5a5a");
-  const next = Math.min(tourCleared, ROUTE.length - 1), st = ROUTE[next];
-  const prog = tourCleared >= ROUTE.length ? "Tour complete!" : `Next stop: ${st.venue}  -  city ${st.n} of ${ROUTE.length}`;
-  text(prog, 296, 14, "center", "#ddd");
-  if (totalStars()) { drawStar(W / 2 - 34, 318, 7, true); textAt(`${totalStars()} / ${ROUTE.length * 3}`, W / 2 - 22, 323, 13, "left", "#ffd23f"); }
-  ctx.globalAlpha = 0.55 + 0.45 * Math.sin(clock / 12);
-  text(hasTouch ? "TAP TO START" : "PRESS ANY KEY", 392, 20, "center", "#fff");
+  drawTitleLogo(W / 2, 128, Math.min(1.05, (W - 24) / 400));
+  // tagline between two thin rules
+  ctx.font = "bold 13px sans-serif"; ctx.textAlign = "center";
+  const tag = "22 CITIES   -   ONE WORLD TOUR", tw = (() => { let w = 0; for (const c of tag) w += ctx.measureText(c).width + 3; return w; })();
+  ctx.fillStyle = "rgba(255,255,255,0.35)"; ctx.fillRect(W / 2 - tw / 2 - 52, 224, 40, 1); ctx.fillRect(W / 2 + tw / 2 + 12, 224, 40, 1);
+  ctx.fillStyle = "#cfd8ff"; spaced(tag, W / 2, 229, 3, "fill");
+  // where you are in the tour
+  const next = Math.min(tourCleared, ROUTE.length - 1), st = ROUTE[next], done = tourCleared >= ROUTE.length;
+  textAt(done ? "TOUR COMPLETE" : `NEXT STOP  ${st.venue.toUpperCase()}`, W / 2 + (done ? 0 : 12), 438, 13, "center", "#ffd23f");
+  if (!done) { ctx.save(); ctx.translate(W / 2 - ctx.measureText(`NEXT STOP  ${st.venue.toUpperCase()}`).width / 2 - 10, 427); drawFlag(st.flag, 18, 12); ctx.restore(); }
+  // the 22 flags: the ones you have raced bright, the rest dim
+  const fw = Math.min(17, (W - 40) / ROUTE.length - 3), fh = fw * 0.66, x0 = W / 2 - (ROUTE.length * (fw + 3) - 3) / 2;
+  ROUTE.forEach((c, i) => { ctx.globalAlpha = i < tourCleared ? 1 : i === tourCleared ? 0.85 : 0.32; ctx.save(); ctx.translate(x0 + i * (fw + 3), 452); drawFlag(c.flag, fw, fh); ctx.restore(); });
   ctx.globalAlpha = 1;
+  if (totalStars()) { drawStar(W - 60, 438, 6, true); textAt(`${totalStars()} / ${ROUTE.length * 3}`, W - 50, 442, 12, "left", "#ffd23f"); }
+  // the prompt: breathing, with a little chevron
+  const pulse = 0.6 + 0.4 * Math.sin(clock / 14);
+  ctx.globalAlpha = pulse; ctx.font = "bold 19px sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "#fff"; ctx.shadowColor = "rgba(255,255,255,0.7)"; ctx.shadowBlur = 12;
+  spaced(hasTouch ? "TAP TO START" : "PRESS ANY KEY", W / 2, 398, 4, "fill"); ctx.shadowBlur = 0; ctx.globalAlpha = 1;
 }
 
 function drawUpgrades() {

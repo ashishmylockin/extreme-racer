@@ -324,8 +324,10 @@ function menuAction(a) {
 let tyreChoice = store.get("tyre", "dry"), pendingStart = null, tyreBack = "menu", tyreCity = 0;
 const TYRE_KEYS = TYRES.map(t => t.key);
 function startGame(m, d, stage = 0) { // asks for tyres first; the tyre menu then starts the race
-  pendingStart = [m, d, stage]; tyreBack = ["brief", "over", "cleared", "difficulty", "menu"].includes(state) ? state : "menu";
+  pendingStart = [m, d, stage]; tyreBack = ["brief", "difficulty", "menu"].includes(state) ? state : "menu"; // (after a race, Back means the main menu: the finished race is gone)
+  if (!racers || racers.some(r => !r.ai)) initDemo(); // coming from a real race (Next city, Retry): the menu needs its demo traffic back, not the finished race
   tyreCity = stage % ROUTE.length;
+  if ((m === "tour" || m === "daily") && stage) jumpTo(tyreCity, 0.3); // the road behind the menu shows the city you are about to race
   const rec = bestTyre(cityWetness(ROUTE[tyreCity]));
   openMenu("tyres", TYRE_KEYS.indexOf(store.get("tyreSeen", false) ? tyreChoice : rec)); // the first time the sensible one is pre-selected, after that your last choice
 }

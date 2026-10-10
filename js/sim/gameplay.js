@@ -289,7 +289,7 @@ function stepRacers() {
 function updateDemo() {
   frame++;
   speed = scroll = 2.8;
-  for (const r of racers) { r.v = 2.8; aiThink(r); }
+  for (const r of racers) { r.v = 2.8; if (r.ai) aiThink(r); } // (only the demo CPUs think; a finished race's player car has no AI)
   dist += speed;
   spawnAcc += speed;
   if (spawnAcc > 170) { spawnAcc = 0; spawnEnemy(); }

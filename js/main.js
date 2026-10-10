@@ -29,21 +29,28 @@ function filmFrame() {
 let infoN = 0; const SHOW_STATS = new URLSearchParams(location.search).has("info"); // testing: ?info logs draw calls and triangles after 40 frames
 function render3D(alpha) { try { R3D.render(alpha); filmFrame(); if (SHOW_STATS && ++infoN === 40) { const i = R3D.renderer.info; console.info("INFO calls=" + i.render.calls + " triangles=" + i.render.triangles + " geometries=" + i.memory.geometries + " textures=" + i.memory.textures); } } catch (e) { disable3D(e); } }
 
+let errorsRecently = 0;
 function loop(now) {
-  if (window.R3D_PENDING) { lastTime = now; requestAnimationFrame(loop); return; } // still loading the 3D assets: hold the game
-  if (!window.R3D) perfGuard(now - lastTime); // (the 2D renderer's "reduce effects" watchdog; the 3D renderer has its own Auto quality)
-  acc += Math.min(100, now - lastTime);
-  lastTime = now;
-  while (acc >= STEP) { if (ticksLeft > 0) { update(); ticksLeft--; if (window.R3D) tick3D(); } acc -= STEP; }
-  draw();
-  if (window.R3D) render3D(acc / STEP); // acc / STEP = how far we are between two sim ticks (smooth motion on fast screens)
-  requestAnimationFrame(loop);
+  requestAnimationFrame(loop); // (scheduled first: whatever goes wrong below, the game keeps running instead of freezing)
+  if (window.R3D_PENDING) { lastTime = now; return; } // still loading the 3D assets: hold the game
+  try {
+    if (!window.R3D) perfGuard(now - lastTime); // (the 2D renderer's "reduce effects" watchdog; the 3D renderer has its own Auto quality)
+    acc += Math.min(100, now - lastTime);
+    lastTime = now;
+    while (acc >= STEP) { if (ticksLeft > 0) { update(); ticksLeft--; if (window.R3D) tick3D(); } acc -= STEP; }
+    draw();
+    if (window.R3D) render3D(acc / STEP); // acc / STEP = how far we are between two sim ticks (smooth motion on fast screens)
+    if (errorsRecently > 0 && Math.random() < 0.002) errorsRecently--;
+  } catch (e) { // a bug must never freeze the game: log it and drop back to a clean main menu (once or twice; if it keeps happening, stop trying)
+    console.error("Game error:", e); acc = 0; lastTime = now;
+    if (++errorsRecently <= 3) { try { toMenu(); } catch (e2) { console.error(e2); } }
+  }
 }
 
 songDB.all().then(rows => { for (const r of rows || []) music.addBlob(r.name, r.blob); }).catch(() => {});
 fit();
 grabFocus();
-initDemo();
+initDemo(); jumpTo(3, 0.3); // the title scene: Miami at its best (warm light), with your own car leading
 requestAnimationFrame(loop);
 
 // Developer shortcut for testing and screenshots (not linked from anywhere in the game):
@@ -87,6 +94,10 @@ requestAnimationFrame(loop);
       }
       if (q.has("crash")) { racers[0].ghost = 0; const r0 = racers[0]; enemies.push({ kind: "car", model: "sedan", lane: r0.lane, x: r0.x, y: r0.y - 100, len: CAR_H, v: 1.67, cur: 1.67, col: "#2f5fa8", passed: {}, miss: {} }); } // crash: a car appears just ahead, so the real crash physics plays out
       if (q.has("finish") && level) finishLevel();
+      if (q.has("next")) { // testing: after finishing / crashing, choose the first menu button (Next city / Retry) and run the sim to see whether anything throws
+        try { for (let i = 0; i < 5; i++) update(); const menu = currentMenu(); console.info("NEXT state=" + state); menu.items[0].go(); console.info("NEXT after click state=" + state); for (let i = 0; i < 200; i++) update(); console.info("NEXT survived 200 ticks, state=" + state); if (q.has("pick")) { TYRES_MENU[+q.get("pick")].go(); for (let i = 0; i < 700; i++) update(); console.info("NEXT raced: state=" + state + " mode=" + mode + " city=" + (level && level.idx) + " tyre=" + racers[0].tyre + " v=" + Math.round(racers[0].v * 60)); } }
+        catch (e) { console.info("NEXT THREW " + e.message + " | " + (e.stack || "").split("\n")[1]); }
+      }
       if (m === "pause") state = "paused";
       if (m === "camerapick") openMenu("camera", cam);
     }

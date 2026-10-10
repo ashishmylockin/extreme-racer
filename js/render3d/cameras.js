@@ -96,6 +96,10 @@ export function createCameraRig(scene) {
       const q = new URLSearchParams(location.search).get("inspect");
       const zm = +new URLSearchParams(location.search).get("zoom") || 1, o = (q === "front" ? [5, 2.5, -9] : q === "top" ? [0.5, 14, 2] : q === "rear" ? [4, 3, 9] : q === "q34" ? [7.5, 3.4, -7.5] : q === "q34r" ? [-7.5, 3.4, 8] : [9, 3, 1]).map(v => v * zm);
       camera.position.set(t.x + o[0], o[1], t.z + o[2]); camera.lookAt(t.x, 1, t.z - 0.5); fovGoal = 45;
+    } else if (mode === "title") { // the opening shot: a low, slow glide round your own car, from just behind it, with the city ahead
+      const a = fx.time * 0.11;
+      camera.position.set(t.x + Math.sin(a + 0.6) * 6.5, 1.5 + 0.5 * (0.5 + 0.5 * Math.sin(a * 1.6)), t.z + 13.5 + Math.cos(a * 0.8) * 1.8);
+      camera.lookAt(t.x + Math.sin(a + 0.6) * 0.8, 3.7, t.z - 7); fovGoal = 40;
     } else { // menu: a slow, low sweep round the demo race
       rig.camX += (t.x - rig.camX) * sm(3);
       const a = fx.time * 0.18;

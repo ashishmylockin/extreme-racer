@@ -22,7 +22,7 @@ function initWorld() {
 
 function initDemo() {
   initWorld();
-  racers = [10, 8, 9].map((t, i) => { const lane = [1, 0, 2][i], y = H - 100 - i * 90; return makeRacer(i, { team: TEAMS[t], ai: DEMO_AI, lane, x: laneX(lane), y, ty: y, v: 2.8, fromLane: lane, rolling: true }); });
+  racers = [equipped, ...[10, 8, 9, 7].filter(t => t !== equipped).slice(0, 2)].map((t, i) => { const lane = [1, 0, 2][i], y = H - 100 - i * 90; return makeRacer(i, { team: TEAMS[t], ai: DEMO_AI, lane, x: laneX(lane), y, ty: y, v: 2.8, fromLane: lane, rolling: true }); }); // (the lead car is yours: it is what the title and menu cameras follow)
   seedTraffic();
 }
 

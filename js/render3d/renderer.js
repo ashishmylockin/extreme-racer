@@ -152,6 +152,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
     if (state === "playing" && grid && !grid.done && R.cinematic !== false) return "grid";
     if (state === "over" && racers[0] && !racers[0].alive && crashAt >= 0) return "crash";
     if (state === "cleared") return "finish";
+    if (state === "title") return "title";
     return RACE_STATES.has(state) ? MODES[cam] : "menu";
   }
   R.overDelay = () => (state === "over" && racers[0] && !racers[0].alive && R.cinematic !== false ? 1700 : 0); // ms the crash camera plays before the Game Over screen
@@ -285,7 +286,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
       U.tint.value.setRGB(ta[0] + (tb[0] - ta[0]) * stBlend, ta[1] + (tb[1] - ta[1]) * stBlend, ta[2] + (tb[2] - ta[2]) * stBlend);
       const sk = pal.tint; if (sk[3] > 0.005) U.tint.value.multiply(pTmpC.setRGB(1 + (sk[0] / 255 - 0.5) * sk[3] * 2, 1 + (sk[1] / 255 - 0.5) * sk[3] * 2, 1 + (sk[2] / 255 - 0.5) * sk[3] * 2));
       U.time.value = time; U.vig.value = 0.3 + 0.18 * nf + 0.1 * night;
-      U.blur.value = Math.min(1, Math.max(0, (kmh - 220) / 380) * 0.55 + nf * 0.55 + kickFx * 0.6 + nearPulse * 0.45) * (mode === "menu" || mode === "photo" || mode === "crash" || mode === "grid" ? 0 : 1);
+      U.blur.value = Math.min(1, Math.max(0, (kmh - 220) / 380) * 0.55 + nf * 0.55 + kickFx * 0.6 + nearPulse * 0.45) * (mode === "menu" || mode === "title" || mode === "photo" || mode === "crash" || mode === "grid" ? 0 : 1);
       U.aberr.value = Q.ca ? nf * 0.012 + kickFx * 0.01 : 0;   // chromatic aberration only while nitro burns
       U.heat.value = stA.desert ? (1 - night) * 0.9 : 0;       // heat shimmer in the desert cities by day
       U.fmode.value = photo.active ? photo.filter : 0; U.grain.value = photo.active && photo.filter === 2 ? 0.05 : 0;
@@ -297,7 +298,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
       U.flareAmt.value = sunUp ? Math.min(1, (facing - 0.55) * 3) * Math.min(1, world.sun.intensity / 3) * (1 - rainI) * (1 - night) * 0.45 : 0;
       U.flarePos.value.set(sunP.x * 0.5 + 0.5, sunP.y * 0.5 + 0.5);
       // depth of field behind the menus and in photo mode
-      post.bokeh.enabled = Q.dof && (mode === "menu" || (photo.active && photo.dof));
+      post.bokeh.enabled = Q.dof && (mode === "menu" || mode === "title" || (photo.active && photo.dof));
       if (post.bokeh.enabled) { post.bokeh.uniforms.focus.value = camera.position.distanceTo(pTmp.set(target.x, 1, target.z)); post.bokeh.uniforms.aperture.value = photo.active ? photo.aperture : 0.0012; }
     }
     // mirrors first (cockpit view only), without the cockpit in them
@@ -308,7 +309,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
       renderer.shadowMap.autoUpdate = au;
       renderer.setRenderTarget(null); rig.cockpit.visible = true;
     }
-    if (Q.reflect && wet > 0.12 && mode !== "menu") reflect.render(Math.min(1, wet * 1.3)); // Ultra: reflections on a wet road
+    if (Q.reflect && wet > 0.12 && mode !== "menu" && mode !== "title") reflect.render(Math.min(1, wet * 1.3)); // Ultra: reflections on a wet road
     post.render(dt);
     if (photo.capture) capture();
   }
