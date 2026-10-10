@@ -13,7 +13,8 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { SCALE, roadHalf } from "../mapping.js";
 import { rng, hash, noise2 } from "./rng.js";
-import { profileOf, ZONES, PALETTES, FACADES, LANDMARKS_3D } from "./profiles.js";
+import { profileOf, ZONES, PALETTES, FACADES, LANDMARKS_3D, cityColors } from "./profiles.js";
+import { makeGate } from "../gate.js";
 import { SlotMesh } from "./slotmesh.js";
 import { MAX_CITY_AHEAD } from "../quality.js";
 import { unitBox, unitPlane, roofGeo, lampGeo, lampGlowGeo, personGeo, headGeo, hillGeo, treeGeos, yachtGeo, busStopGeo, carGeo, fenceTexture, flowerBedGeo } from "./geo.js";
@@ -36,12 +37,13 @@ const PAL = Object.fromEntries(Object.entries(PALETTES).map(([k, v]) => [k, v.ma
 const AWNINGS = ["#c8372d", "#2d6fb5", "#2e8b57", "#e0a526", "#7a3f9d", "#e9e9e4", "#d9622b"].map(lin);
 const ROOF_KIT = ["#8b9096", "#6f757c", "#a7abb0", "#5d6269"].map(lin);
 const BOAT = ["#f4f4f2", "#f4f4f2", "#1c2a3a", "#c8d4dc", "#e8e2d0"].map(lin);
-const CAP = { F: { boxes: 36, solid: 110, signs: 34, banners: 14, lamps: 6, glow: 6, light: 10, trees: 16, people: 24, cars: 4, stops: 2, fence: 12, models: 6, flowers: 6 },
+const CAP = { F: { boxes: 36, solid: 150, signs: 34, banners: 14, lamps: 6, glow: 6, light: 10, trees: 16, people: 24, cars: 4, stops: 2, fence: 12, models: 6, flowers: 6 },
   B: { boxes: 64, solid: 96, trees: 40, houses: 26, yachts: 8, models: 12 }, S: { boxes: 64, hills: 18 } };
 const CAR_MODELS = ["sedan", "sedan-sports", "hatchback-sports", "suv", "taxi", "van"];
 const BUILD_MODELS = ["building-a", "building-d", "building-i", "building-skyscraper-a", "building-skyscraper-d"];
 
 const mod = (a, n) => ((a % n) + n) % n;
+const ccCache = []; const ccOf = idx => ccCache[idx] || (ccCache[idx] = cityColors(ROUTE[idx].venue).map(lin)); // a city's colours, linear RGB
 // a hillside (Monaco): the ground rises from 52 units out on the hill's side, and the city climbs it
 const HILL_TOP = 150, hy = x => Math.min(HILL_TOP, Math.max(0, (x - 52) * 0.42));
 const hillY = (prof, side, x) => prof.hill && (prof.hill === "L" ? -1 : 1) === side ? hy(x) : 0;
@@ -209,6 +211,8 @@ export function createCity(scene) {
     // 0. a landmark built over the track itself (Abu Dhabi's Yas hotel): every ~800 units
     const span = ctx.prof.span && hasLandmark(ctx.prof.span) && (HERO_ALL || mod(ctx.rel, 13) === 6);
     if (span) list.push({ kind: "lm", key: ctx.prof.span, s: ctx.s0 + 30, x: 0, side: 0, sc: 1, ry: 0, rad: 30, radX: 58, range: 1500 });
+    // 0b. a welcome gantry over the road in the city's colours: soon after you arrive (clear of the start lights), then every ~900 units
+    if (!span && ((HERO_ALL && mod(ctx.rel, 4) === 1) || (ctx.rel >= 6 && mod(ctx.rel - 6, 15) === 0))) list.push({ kind: "gate", key: ctx.st.venue, city: ctx.city, s: ctx.s0 + 30, x: 0, side: 0, sc: 1, ry: 0, rad: 3, radX: 24, range: 1500 });
     // 1. the city's attractions, one every ~120 units, alternating sides and cycling through the list: big, close to the street, impossible to miss
     //    (the street front around each one is kept low-rise, so you can see it coming: see lmNear)
     if (lms.length && !span && (HERO_ALL || mod(ctx.rel, 2) === 0)) {
@@ -216,9 +220,9 @@ export function createCity(scene) {
       if (hasLandmark(key)) list.push({ kind: "lm", key, s: ctx.s0 + u, x: side * (far ? r2.range(300, 400) : r2.range(68, 84)), side, sc: far ? 3.6 : 3.2, ry: -side * 0.3, rad: far ? 60 : 34, range: 1500 });
     }
     // 2. the city's signature on the skyline: the first attraction, huge, far off, so each city has a recognisable horizon
-    if (lms.length && (HERO_ALL || mod(ctx.rel, 7) === 3)) {
-      const r4 = rng(hash(ctx.city, Math.floor(ctx.rel / 7), 777)), key = lms[mod(Math.floor(ctx.rel / 7), Math.min(2, lms.length))], side = r4.chance(0.5) ? -1 : 1;
-      if (hasLandmark(key)) list.push({ kind: "lm", key, s: ctx.s0 + r4.range(10, 50), x: side * r4.range(430, 640), side, sc: 7.5, ry: -side * 0.4, rad: 70, range: 1500 });
+    if (lms.length && (HERO_ALL || mod(ctx.rel, 5) === 3)) { // (every ~300 units, huge, close enough to read clearly through the haze)
+      const r4 = rng(hash(ctx.city, Math.floor(ctx.rel / 5), 777)), key = lms[mod(Math.floor(ctx.rel / 5), Math.min(2, lms.length))], side = r4.chance(0.5) ? -1 : 1;
+      if (hasLandmark(key)) list.push({ kind: "lm", key, s: ctx.s0 + r4.range(10, 50), x: side * r4.range(300, 440), side, sc: 9, ry: -side * 0.4, rad: 70, range: 1500 });
     }
     const r3 = rng(hash(ctx.city, Math.floor(ctx.rel / 7), 502));
     if (HERO_ALL || mod(ctx.rel, 7) === r3.int(0, 6)) for (const side of [-1, 1]) { // grandstands with crowds
@@ -253,6 +257,7 @@ export function createCity(scene) {
   function makeHero(h) {
     if (h.kind === "lm") return mergeStatic(makeLandmark(h.key, 9));
     if (h.kind === "prop") return mergeStatic(makeProp(h.key));
+    if (h.kind === "gate") return makeGate(ROUTE[h.city], cityColors(ROUTE[h.city].venue));
     const m = cloneModel(h.key); m.traverse(o => { if (o.isMesh) { o.castShadow = true; if (o.material.name === "red") o.material = crowdMat; } });
     return fitModel(m, { width: 1 });
   }
@@ -282,15 +287,14 @@ export function createCity(scene) {
     for (const side of [-1, 1]) {
       const zi = side < 0 ? zl0 : zr0, Z = ZONES[zi.type], r = rng(hash(ctx.city, ctx.rel, 100 + (side > 0 ? 1 : 0))), neon = prof.sign === "neon";
       const faceRot = side < 0 ? Math.PI / 2 : -Math.PI / 2, built = Z.fh[1] > 0 && !zi.water, urbanish = Z.shops || zi.type === "harbour";
-      // barrier along the track (plain red and white: no banners)
-      for (let u = 4; u < LF; u += 8) {
-        const odd = Math.floor((ctx.s0 + u) / 8) % 2;
-        F.solid.add(side * 18.8, 0, zl(u), 1.0, 1.05, 8, 0, odd ? 0.8 : 0.9, odd ? 0.1 : 0.9, odd ? 0.08 : 0.9);
-      }
+      // barrier along the track, painted in the city's colours (no banners)
+      const cc = ccOf(ctx.city);
+      for (let u = 4; u < LF; u += 8) { const c = cc[mod(Math.floor((ctx.s0 + u) / 8), cc.length)]; F.solid.add(side * 18.8, 0, zl(u), 1.0, 1.05, 8, 0, c[0], c[1], c[2]); }
       if (urbanish && !tun && r.chance(0.3)) for (let u = 4; u < LF; u += 8) F.fence.add(side * 19.3, 3.45, zl(u), 8, 4.8, 1, faceRot); // catch fencing
       // street lamps (every 20 units, staggered between the two sides)
       if ((zi.type !== "country" || r.chance(0.4)) && !tun) for (let u = side < 0 ? 7 : 17; u < LF; u += 20) {
         F.lamps.add(side * 20.2, 0, zl(u), 1, 1, 1, side > 0 ? Math.PI : 0); F.glow.add(side * 20.2, 0, zl(u), 1, 1, 1, side > 0 ? Math.PI : 0);
+        for (let i = 0; i < 3; i++) { const c = cc[i % cc.length]; F.solid.add(side * 19.45, 7.3 - i * 1.15, zl(u), 1.4, 1.15, 0.07, 0, c[0], c[1], c[2]); } // a banner in the city's colours, hanging off the post towards the road
         data.lamps.push({ s: ctx.s0 + u, hx: side * (20.2 - 2.4), side });
       }
       if (zi.beach) { // a beach: palms along the sand and people out on it

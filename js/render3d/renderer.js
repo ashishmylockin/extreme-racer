@@ -49,7 +49,31 @@ export function createRenderer3D(canvas2d, glCanvas) {
   const reflect = createReflection(renderer, scene, camera, world.groundMeshes, world.reflectMats); // wet-road reflections (Ultra)
   const photo = createPhoto();
   let showroom = null, showWas = false, menuFrames = 0; const inShowroom = () => state === "garage" || state === "upgrades";
-  const GRADE = { Miami: { sat: 1.2, tint: [1.05, 0.97, 1.03] }, Shanghai: { sat: 0.85, tint: [0.95, 1, 1.06] }, London: { sat: 0.8 }, Brussels: { sat: 0.78 }, "Sao Paulo": { sat: 0.92 }, "Las Vegas": { sat: 1.2, contrast: 1.14 }, Singapore: { sat: 1.15, contrast: 1.1 }, Doha: { sat: 1.1, tint: [1.05, 1, 0.92] }, "Abu Dhabi": { sat: 1.15, tint: [1.08, 0.98, 0.9] }, Tokyo: { sat: 1.1, tint: [1.02, 0.99, 1.03] }, Austin: { tint: [1.06, 1, 0.93] }, "Mexico City": { sat: 1.12 }, Barcelona: { tint: [1.04, 1, 0.95] }, Salzburg: { sat: 1.06, tint: [0.97, 1, 1.03] }, Baku: { sat: 1.1, tint: [1.04, 0.98, 0.98] } };
+  // each city's own colour grade (saturation, contrast, a tint): together with its sky, the thing that makes it feel like a different place
+  const GRADE = {
+    Sydney: { sat: 1.18, contrast: 1.08, tint: [0.98, 1.02, 1.06] },        // clean harbour blue
+    Shanghai: { sat: 0.9, contrast: 1.1, tint: [0.96, 1.0, 1.07] },         // cool steel haze
+    Tokyo: { sat: 1.15, contrast: 1.1, tint: [1.03, 0.98, 1.05] },          // soft blossom pink
+    Miami: { sat: 1.32, contrast: 1.08, tint: [1.08, 0.95, 1.06] },         // hot pink sunset
+    Montreal: { sat: 1.05, contrast: 1.12, tint: [1.04, 1.0, 0.95] },       // crisp autumn
+    "Monte Carlo": { sat: 1.22, contrast: 1.08, tint: [1.02, 1.0, 1.04] },  // Riviera blue
+    Barcelona: { sat: 1.2, contrast: 1.1, tint: [1.07, 1.0, 0.92] },        // warm terracotta
+    Salzburg: { sat: 1.08, contrast: 1.06, tint: [0.97, 1.02, 1.04] },      // fresh alpine
+    London: { sat: 0.78, contrast: 1.12, tint: [0.96, 0.99, 1.04] },        // grey and moody
+    Brussels: { sat: 0.82, contrast: 1.1, tint: [1.02, 1.0, 0.96] },       // old brick and drizzle
+    Budapest: { sat: 1.1, contrast: 1.1, tint: [1.06, 1.0, 0.94] },         // golden Danube morning
+    Amsterdam: { sat: 1.12, contrast: 1.06, tint: [1.0, 1.02, 1.0] },       // canal green
+    Rome: { sat: 1.18, contrast: 1.12, tint: [1.1, 1.0, 0.88] },            // golden hour on stone
+    Madrid: { sat: 1.12, contrast: 1.14, tint: [1.06, 1.0, 0.93] },         // dry hot light
+    Baku: { sat: 1.15, contrast: 1.1, tint: [1.06, 0.97, 0.98] },           // Caspian dusk
+    Singapore: { sat: 1.22, contrast: 1.12, tint: [0.97, 1.0, 1.08] },      // electric night
+    Austin: { sat: 1.08, contrast: 1.1, tint: [1.08, 1.0, 0.9] },           // Texas sun
+    "Mexico City": { sat: 1.25, contrast: 1.08, tint: [1.05, 1.0, 0.95] },  // bright colour
+    "Sao Paulo": { sat: 0.95, contrast: 1.1, tint: [0.98, 1.02, 1.0] },     // humid green-grey
+    "Las Vegas": { sat: 1.3, contrast: 1.16, tint: [1.06, 0.96, 1.08] },    // neon magenta
+    Doha: { sat: 1.15, contrast: 1.1, tint: [1.06, 1.0, 0.9] },             // amber night
+    "Abu Dhabi": { sat: 1.2, contrast: 1.1, tint: [1.1, 0.98, 0.88] },      // desert sunset
+  };
   let nearPulse = 0, seenPop = null, tunnelK = 0;
 
   // ---------- graphics quality ----------

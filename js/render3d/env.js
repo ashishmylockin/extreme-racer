@@ -7,7 +7,7 @@ export const TODS = ["morning", "midday", "sunset", "night", "overcast"];
 // which sky each of the 22 cities gets (by venue name)
 export const CITY_TOD = {
   Sydney: "morning", Shanghai: "midday", Tokyo: "morning", Miami: "sunset", Montreal: "midday", "Monte Carlo": "midday", Barcelona: "midday", Salzburg: "morning",
-  London: "overcast", Brussels: "overcast", Budapest: "midday", Amsterdam: "midday", Rome: "midday", Madrid: "midday", Baku: "sunset", Singapore: "night",
+  London: "overcast", Brussels: "overcast", Budapest: "morning", Amsterdam: "morning", Rome: "sunset", Madrid: "midday", Baku: "sunset", Singapore: "night",
   Austin: "midday", "Mexico City": "midday", "Sao Paulo": "overcast", "Las Vegas": "night", Doha: "night", "Abu Dhabi": "sunset",
 };
 // sun / moon direction (azimuth: 0 = straight ahead, positive to the right; elevation in degrees), light colour and strength,

@@ -86,3 +86,31 @@ export const FACADES = {
   Singapore: [0, 0, 0, 0, 0.5], Austin: [0.6, 0, 0, 0.2, 0], "Mexico City": [0, 0.3, 0.6, 0.5, 1, 1], "Sao Paulo": [0, 0, 0, 0, 0], "Las Vegas": [0, 0, 0, 0, 0],
   Doha: [0, 0.5, 0, 1, 0], "Abu Dhabi": [0, 0.4, 0, 0.9, 0],
 };
+
+// Each city's colours (mostly its flag; a few use the colours the place is known for): the kerbs, the trackside barriers, the banners
+// on the lamp posts and the welcome gantries over the road are all painted in them, so you can tell where you are at a glance.
+export const CITY_COLORS = {
+  Sydney: ["#00843d", "#ffcd00"],                       // green and gold
+  Shanghai: ["#de2910", "#ffde00"],
+  Tokyo: ["#bc002d", "#f4f4f2"],
+  Miami: ["#13c4c4", "#ff5fa2"],                        // Miami Vice teal and pink
+  Montreal: ["#d52b1e", "#f4f4f2"],
+  "Monte Carlo": ["#ce1126", "#f4f4f2"],
+  Barcelona: ["#a50044", "#004d98", "#edbb00"],         // claret, blue and gold
+  Salzburg: ["#c8102e", "#f4f4f2", "#c8102e"],
+  London: ["#c8102e", "#f4f4f2", "#012169"],
+  Brussels: ["#1a1a1a", "#fdda24", "#ef3340"],
+  Budapest: ["#ce2939", "#f4f4f2", "#477050"],
+  Amsterdam: ["#ff7f00", "#f4f4f2"],                    // Dutch orange
+  Rome: ["#009246", "#f4f4f2", "#ce2b37"],
+  Madrid: ["#c60b1e", "#ffc400"],
+  Baku: ["#00b5e2", "#ef3340", "#509e2f"],
+  Singapore: ["#ef3340", "#f4f4f2"],
+  Austin: ["#bf5700", "#f4f4f2"],                       // burnt orange
+  "Mexico City": ["#006847", "#f4f4f2", "#ce1126"],
+  "Sao Paulo": ["#009c3b", "#ffdf00", "#002776"],
+  "Las Vegas": ["#d4af37", "#141414"],                  // casino gold and black
+  Doha: ["#8a1538", "#f4f4f2"],
+  "Abu Dhabi": ["#00732f", "#f4f4f2", "#141414", "#ff0000"],
+};
+export const cityColors = venue => CITY_COLORS[venue] || ["#c9261c", "#ededed"];

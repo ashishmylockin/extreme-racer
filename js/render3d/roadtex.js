@@ -91,11 +91,15 @@ export function linesTexture() {
 }
 
 // ---- the red and white kerb stripes (4 stripes per repeat), scuffed ----
-export function kerbTexture() {
-  const [c, g] = canvas(128, 512), rnd = rngOf(55), R = (a, b) => a + rnd() * (b - a);
-  for (let i = 0; i < 4; i++) { g.fillStyle = i % 2 ? "#ededed" : "#c9261c"; g.fillRect(0, i * 128, 128, 128); }
+// cols = the stripe colours (each city paints its kerbs in its own colours: two alternate, three go a-b-c-b, four in order); pass the
+// texture back as `into` to repaint it in place when the city changes
+export function kerbTexture(cols = ["#c9261c", "#ededed"], into = null) {
+  const [c, g] = into ? [into.image, into.image.getContext("2d")] : canvas(128, 512), rnd = rngOf(55), R = (a, b) => a + rnd() * (b - a);
+  const seq = cols.length === 2 ? [cols[0], cols[1], cols[0], cols[1]] : cols.length === 3 ? [cols[0], cols[1], cols[2], cols[1]] : cols.slice(0, 4);
+  for (let i = 0; i < 4; i++) { g.fillStyle = seq[i]; g.fillRect(0, i * 128, 128, 128); }
   for (let i = 0; i < 1400; i++) { g.fillStyle = `rgba(${rnd() < 0.5 ? "0,0,0" : "255,255,255"},${R(0.04, 0.16)})`; g.fillRect(R(0, 128), R(0, 512), R(1, 4), R(1, 6)); }
   const e = g.createLinearGradient(0, 0, 128, 0); e.addColorStop(0, "rgba(0,0,0,0.35)"); e.addColorStop(0.08, "rgba(0,0,0,0)"); e.addColorStop(0.92, "rgba(0,0,0,0)"); e.addColorStop(1, "rgba(0,0,0,0.3)"); g.fillStyle = e; g.fillRect(0, 0, 128, 512);
+  if (into) { into.needsUpdate = true; return into; }
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; return t;
 }
 

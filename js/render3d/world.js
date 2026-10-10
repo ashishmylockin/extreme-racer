@@ -4,6 +4,7 @@ import * as THREE from "three";
 import { roadHalf, arrToHex, setCol } from "./mapping.js";
 import { LOOK, CITY_TOD, NIGHT_SKY, skyOf, createSkyDome, sunSpot } from "./env.js";
 import { wearTexture, linesTexture, kerbTexture, kerbGeometry, WEAR_W, WEAR_LEN } from "./roadtex.js";
+import { cityColors } from "./city/profiles.js";
 
 const ROAD_TILE = 16, KERB_TILE = 4.8, ASPH_TILE = 6; // world units of road covered by one repeat of each texture
 const LEN = 1700, Z_START = 80;                         // the road runs from Z = +80 (behind the car) to Z = -1620, out to the horizon
@@ -56,7 +57,7 @@ export function createWorld(scene) {
   lineMesh.position.set(0, 0.02, Z_START - LEN / 2); scene.add(lineMesh);
 
   // --- red and white kerbs along both edges, with real height ---
-  const kerbTex = kerbTexture();
+  const kerbTex = kerbTexture(); let kerbVenue = "";
   kerbTex.repeat.set(1, LEN / KERB_TILE);
   const kerbMat = new THREE.MeshStandardMaterial({ map: kerbTex, roughness: 0.7 });
   for (const s of [-1, 1]) { const m = new THREE.Mesh(kerbGeometry(s, LEN, KERB_TILE), kerbMat); m.position.set(s * RH, 0, Z_START - LEN / 2); m.receiveShadow = true; m.castShadow = true; scene.add(m); }
@@ -104,6 +105,7 @@ export function createWorld(scene) {
       for (const t of [asphalt, asphaltN, asphaltR]) t.offset.y = (scrollWu / ASPH_TILE) % 1; lines.offset.y = (scrollWu / ROAD_TILE) % 1;
       roadU.uD.value = scrollWu % WEAR_LEN; roadU.uD2.value = scrollWu % 103.6; roadU.uRoadWet.value = wetness;
       kerbTex.offset.y = (scrollWu / KERB_TILE) % 1;
+      const kv = b < 0.5 ? stA.venue : stB.venue; if (kv !== kerbVenue) { kerbVenue = kv; kerbTexture(cityColors(kv), kerbTex); } // the kerbs in this city's colours
 
       setCol(roadMat.color, pal.road[0], pal.road[1], pal.road[2], 2.3 - 0.7 * wetness); // (the asphalt picture is mid grey: the city's road colour is brightened to match)
       roadMat.metalness = 0.25 * wetness; lineMat.roughness = 0.6 - 0.3 * wetness; // wet asphalt shines (the shader lowers the roughness)
