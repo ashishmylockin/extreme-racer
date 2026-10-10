@@ -48,7 +48,7 @@ function steer(r, dir) {
 
 const KEYS = {
   p1: { up: ["ArrowUp"], down: ["ArrowDown"] },
-  shared: { up: ["ArrowUp", "KeyW"], down: ["ArrowDown", "KeyS"] },
+  shared: { up: ["ArrowUp", "KeyW"], down: ["ArrowDown", "KeyS", "Space"] }, // (Space brakes too, like a handbrake)
   p2: { up: ["KeyW"], down: ["KeyS"] },
 };
 

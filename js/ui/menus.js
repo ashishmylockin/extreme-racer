@@ -60,7 +60,7 @@ const OPTIONS_MENU = [
   { label: () => `Screen shake: ${settings.shake ? "ON" : "OFF"}`, w: 300, go: () => { settings.shake = !settings.shake; saveSettings(); } },
   { label: "Graphics...", w: 300, go: () => openMenu("graphics") },
   { label: () => `Fullscreen: ${document.fullscreenElement || document.webkitFullscreenElement ? "ON" : "OFF"}`, w: 300, go: () => toggleFullscreen() },
-  { label: "Controls", w: 300, go: () => openMenu("controls") },
+  { label: "Controls", w: 300, go: () => { controlsTab = onPad() ? 1 : onTouch() ? 2 : 0; openMenu("controls"); } }, // opens on the page for what you are holding
   { label: "Credits", w: 300, go: () => openMenu("credits") },
   { label: () => `Songs...${music.userCount ? ` (${music.userCount} of yours)` : ""}`, w: 300, go: () => openMenu("songs") },
   { label: "Back", go: () => openMenu("menu", 7) },
@@ -94,6 +94,7 @@ const SONGS_MENU = [
 ];
 const CREDITS_MENU = [{ label: "Back", go: () => openMenu("options", 7) }];
 const CONTROLS_MENU = [{ label: "Back", go: () => openMenu("options", 6) }];
+let controlsTab = 0; // 0 keyboard, 1 controller, 2 touch
 const DIFF_MENU = [
   { label: "Easy", go: () => startGame("vs", "easy") },
   { label: "Medium", go: () => startGame("vs", "medium") },
@@ -159,8 +160,10 @@ function cycleCamera(dir) { cam = (cam + CAMS.length + dir) % CAMS.length; store
 const PAUSE_MENU = [
   { label: "Resume", go: () => { state = "playing"; } },
   { label: () => `Camera: ${CAMS[cam].name}`, go: () => cycleCamera(1) }, // the paused race behind previews it
+  { label: "Restart", go: () => restartRace() },
   { label: "Quit to Menu", go: toMenu },
 ];
+function restartRace() { if (state === "paused" || state === "camera") startGame(mode, difficulty, runStage); } // the same race again from the grid (tyres first, as always)
 const CAMERA_MENU = [
   ...CAMS.map((c, i) => ({ label: c.name, go: () => { cam = i; store.set("camera", cam); state = "playing"; } })),
   { label: "Resume", go: () => { state = "playing"; } },
@@ -168,13 +171,13 @@ const CAMERA_MENU = [
 // first-run tips, shown once before the first Single Player race
 let tipIdx = 0;
 const TIPS = [
-  { title: "CHANGE LANES", lines: ["Press Left / Right to switch lanes", "and dodge the traffic"], touch: ["Tap the left or right side", "of the screen to switch lanes"], icon: () => {
+  { title: "CHANGE LANES", lines: ["Switch lanes and dodge the traffic"], prompt: [["steer", "Change lane"]], pad: ["Push the stick or the d-pad", "to switch lanes and dodge the traffic"], touch: ["Tap the left or right side", "of the screen to switch lanes"], icon: () => {
     ctx.fillStyle = "#3a3c42"; ctx.fillRect(-66, -42, 132, 84);
     ctx.fillStyle = "#eee"; for (const x of [-22, 22]) for (let y = -40; y < 42; y += 18) ctx.fillRect(x - 1, y, 2, 9);
     ctx.save(); ctx.scale(0.55, 0.55); drawCar(TEAMS[equipped]); ctx.restore();
     ctx.fillStyle = "#ffd23f"; for (const s of [-1, 1]) poly([[s * 74, -14], [s * 74, 14], [s * 94, 0]]);
   } },
-  { title: "LAUNCH START", lines: ["Hold GAS + BRAKE (RT + LT) on the grid,", "let go with the needle in the GREEN: 300 km/h!", "Orange = 200, red = 100."], icon: () => {
+  { title: "LAUNCH START", lines: ["Hold GAS + BRAKE on the grid, let go with", "the needle in the GREEN: 300 km/h! Orange 200, red 100."], prompt: [["launch", "Hold, let go in the green"]], touch: ["Hold GAS + BRAKE on the grid, let go with", "the needle in the GREEN: 300 km/h! Orange 200, red 100."], icon: () => {
     for (const [y, col] of [[-16, "#ff2a2a"], [18, "#39ff6a"]]) for (let i = 0; i < 5; i++) {
       ctx.fillStyle = "#111"; ctx.beginPath(); ctx.arc(-56 + i * 28, y, 12, 0, TAU); ctx.fill();
       ctx.fillStyle = col; ctx.beginPath(); ctx.arc(-56 + i * 28, y, 8, 0, TAU); ctx.fill();
@@ -230,7 +233,7 @@ function currentMenu() {
     case "difficulty": return { items: DIFF_MENU, top: 200, h: 40, gap: 10 };
     case "garage": return { items: GARAGE_MENU, top: 336, h: 36, gap: 6 };
     case "upgrades": return { items: UPGRADE_MENU, top: 92, h: 36, gap: 8 };
-    case "paused": return { items: PAUSE_MENU, top: 262, h: 44, gap: 14 };
+    case "paused": return { items: PAUSE_MENU, top: 252, h: 38, gap: 9 };
     case "camera": return { items: CAMERA_MENU, top: 205, h: 44, gap: 10 };
     case "tutorial": return { items: TUTORIAL_MENU, top: 330, h: 44, gap: 10 };
     case "tyres": return { items: TYRES_MENU, top: 262, h: 48, gap: 6 };
@@ -292,6 +295,8 @@ function menuAction(a) {
     const k = OPTIONS_MENU[sel].slider; setSlider(k, settings[k] + (a === "left" ? -0.1 : 0.1));
   } else if (state === "tyres" && (a === "left" || a === "right")) { // left / right step through the tyres too
     sel = clamp(sel + (a === "left" ? -1 : 1), 0, TYRES.length - 1); sound.tone(520, 520, 0.04, "square", 0.03);
+  } else if (state === "controls" && (a === "left" || a === "right")) { // the Keyboard / Controller / Touch pages
+    controlsTab = (controlsTab + (a === "left" ? 2 : 1)) % 3; sound.tone(520, 520, 0.04, "square", 0.03);
   } else if (state === "tutorial" && (a === "left" || a === "right")) { // flick between the tip cards
     if (a === "right") nextTip(); else { tipIdx = Math.max(0, tipIdx - 1); sel = 0; }
   } else if (state === "paused" && sel === 1 && (a === "left" || a === "right")) { // flick through the cameras

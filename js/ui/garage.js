@@ -22,7 +22,7 @@ const GX_STATS = [
   { key: "han", name: "Handling", base: () => 0.5, bonus: () => 0.1 * upLvl("handling"), text: () => upLvl("handling") ? `+${upLvl("handling") * 8}% turn` : "Standard", short: () => upLvl("handling") ? `+${upLvl("handling") * 8}%` : "Std" },
   { key: "nit", name: "Nitro", base: () => 0.5, bonus: () => 0.1 * upLvl("nitro"), text: () => `${nitroSecs()} s burn`, short: () => `${nitroSecs()} s` },
 ];
-const gxHint = () => hasPad ? "D-pad / stick browse   A confirm   B back   Right stick rotate" : hasTouch ? "Drag the car to rotate it" : "← → browse   ↑ ↓ choose   Enter confirm   Esc back   Drag to rotate";
+const gxHint = () => promptHTML(state === "upgrades" ? [["change", "Choose"], ["confirm", "Upgrade"], ["back", "Back"]] : [["browse", "Browse"], ["confirm", "Select"], ["spin", "Turn"], ["back", "Back"]]); // follows the device you are using (keys, Xbox / PlayStation buttons, or touch)
 
 const garageUI = (() => {
   let root, el = {}, ok = false, shown = false, key = "", idx = -1, lvls = {}, hideTimer = 0, drag = null;
@@ -122,7 +122,7 @@ const garageUI = (() => {
   function update() {
     const upg = state === "upgrades";
     root.dataset.page = upg ? "upgrades" : "garage"; el.sub.textContent = upg ? "Upgrades" : "Choose your car";
-    el.wallet.textContent = wallet; el.hints.forEach(h => { h.textContent = gxHint(); });
+    el.wallet.textContent = wallet; el.hints.forEach(h => { h.innerHTML = gxHint(); });
     for (const b of el.items) b.classList.toggle("sel", +b.dataset.i === sel);
     const t = TEAMS[garageIdx]; setColour(teamAccent(t));
     if (upg) { updateUpgrades(); return; }
@@ -172,7 +172,7 @@ const garageUI = (() => {
       const want = !!window.R3D && (state === "garage" || state === "upgrades");
       if (!want) { if (shown) hide(); return; }
       if (!shown) show();
-      const k = [state, garageIdx, equipped, wallet, owned.length, sel, hasTouch, hasPad, upLvl("handling"), upLvl("nitro"), upLvl("magnet"), upLvl("shield")].join("|");
+      const k = [state, garageIdx, equipped, wallet, owned.length, sel, inputDev, padKind, upLvl("handling"), upLvl("nitro"), upLvl("magnet"), upLvl("shield")].join("|");
       if (k !== key) { const w = el.wallet.textContent; key = k; update(); if (w !== String(wallet) && w !== "0") retrigger(el.coins, "pop"); }
     },
     flash() { el.flash.animate([{ opacity: 0.95 }, { opacity: 0 }], { duration: 750, easing: "ease-out" }); retrigger(el.coins, "pop"); },

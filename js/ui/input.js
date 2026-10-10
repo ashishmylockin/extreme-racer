@@ -3,6 +3,7 @@
 const MENU_KEYS = { ArrowUp: "up", KeyW: "up", ArrowDown: "down", KeyS: "down", ArrowLeft: "left", KeyA: "left", ArrowRight: "right", KeyD: "right", Enter: "confirm", Space: "confirm", Escape: "back", KeyP: "back", KeyN: "next" };
 
 document.addEventListener("keydown", e => {
+  useDevice("kb"); // a key was pressed: prompts show keys
   if (window.R3D && R3D.photo.active) { e.preventDefault(); R3D.photo.key(e, true); return; } // photo mode owns the keyboard
   const c = e.code;
   if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Space"].includes(c)) e.preventDefault();
@@ -10,6 +11,7 @@ document.addEventListener("keydown", e => {
   sound.ensure();
   if (state === "title") { if (!e.repeat) leaveTitle(); return; }
   if (state === "paused" && c === "KeyP" && window.R3D) { R3D.photo.enter(R3D.camera); return; } // P while paused: photo mode
+  if (state === "paused" && c === "KeyR") { if (!e.repeat) restartRace(); return; } // R while paused: restart this race
   if (c === "KeyM") { sound.toggle(); return; }
   if (c === "KeyF") { toggleFullscreen(); return; }
   if (state === "over" && c === "KeyR") { if (!e.repeat) activate(0); return; } // instant retry (activate ignores it for 0.6s after a crash)
@@ -25,10 +27,14 @@ document.addEventListener("keydown", e => {
     }
     if (c === "Escape" || c === "KeyP") pause();
     else if (c === "KeyC") openCamera();
+    else if (c === "KeyV") { cycleCamera(e.shiftKey ? -1 : 1); say(`Camera: ${CAMS[cam].name}`); } // V: next camera straight away (Shift+V: previous)
+    else if (/^Digit[1-9]$/.test(c) && +c.slice(5) <= CAMS.length) { cam = +c.slice(5) - 1; store.set("camera", cam); say(`Camera: ${CAMS[cam].name}`); } // 1 / 2 / 3: pick a camera
     return;
   }
   if (state === "camera" && c === "KeyC") { state = "playing"; return; }
   if ((state === "garage" || state === "paused" || state === "tutorial") && e.repeat && (c === "ArrowLeft" || c === "ArrowRight" || c === "KeyA" || c === "KeyD")) return;
+  if (e.repeat && MENU_KEYS[c] === "confirm") return; // (a key still held from the race, e.g. Space as the brake, must not press Retry by itself)
+  if (state === "controls" && c === "Tab") { e.preventDefault(); menuAction("right"); return; } // Tab: next page of the controls
   if (MENU_KEYS[c]) menuAction(MENU_KEYS[c]);
 });
 
@@ -39,7 +45,9 @@ for (const ev of ["touchend", "click"]) document.addEventListener(ev, () => soun
 canvas.addEventListener("contextmenu", e => e.preventDefault()); // no long-press / right-click menu over the game
 window.addEventListener("resize", fit);
 document.addEventListener("fullscreenchange", fit);
-window.addEventListener("gamepadconnected", () => { hasPad = true; say("Controller connected"); });
+window.addEventListener("gamepadconnected", e => { hasPad = true; padKind = padKindOf(e.gamepad && e.gamepad.id); say(`${PAD_NAME[padKind]} connected`); });
+window.addEventListener("gamepaddisconnected", () => { if (inputDev === "pad") useDevice("kb"); say("Controller disconnected"); });
+canvas.addEventListener("wheel", e => { if (window.R3D && R3D.photo.active) { e.preventDefault(); R3D.photo.wheel(e.deltaY); } }, { passive: false }); // photo mode: wheel zooms
 document.addEventListener("visibilitychange", () => { // hidden tab: pause and go quiet; back again: sound resumes
   if (document.hidden) { pause(); try { if (sound.ac) sound.ac.suspend(); } catch (e) {} }
   else try { if (sound.ac) sound.ac.resume(); } catch (e) {}
@@ -63,7 +71,7 @@ canvas.addEventListener("pointerdown", e => {
   if (window.R3D && R3D.photo.active) return; // photo mode: no hidden buttons to hit
   const p = canvasPoint(e);
   sound.ensure();
-  if (e.pointerType === "touch") hasTouch = true;
+  useDevice(e.pointerType === "touch" ? "touch" : "kb"); // (a mouse counts as the keyboard: you are at a computer)
   if (state === "title") { leaveTitle(); return; }
   if (state === "playing") {
     const pr = pedalRects();

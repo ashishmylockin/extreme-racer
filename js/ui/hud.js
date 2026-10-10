@@ -29,8 +29,13 @@ function drawButtons() {
     ctx.font = item.big ? "bold 26px sans-serif" : "bold 19px sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(typeof item.label === "function" ? item.label() : item.label, W / 2, r.y + r.h / 2 + 1);
+    const lab = typeof item.label === "function" ? item.label() : item.label;
+    ctx.fillText(lab, W / 2, r.y + r.h / 2 + 1);
     ctx.textBaseline = "alphabetic";
+    if (!onTouch() && lab) { // the button's own shortcut (Esc / B for Back, R / X for Retry), or Enter / A on the chosen one
+      const short = /^(Back|Resume|Menu)$/i.test(lab) ? "back" : /^(Retry|Restart)$/i.test(lab) ? "retry" : i === sel ? "confirm" : null;
+      if (short) { const s = Math.min(18, r.h - 12), g = glyphsFor(short)[0]; ctx.globalAlpha = i === sel ? 1 : 0.7; drawGlyph(g, r.x + r.w - glyphWidth(g, s) - 8, r.y + r.h / 2, s); ctx.globalAlpha = 1; }
+    }
   });
 }
 
@@ -41,7 +46,9 @@ function drawTutorial() {
   textAt(`TIP ${tipIdx + 1} / ${TIPS.length}`, W / 2, 86, 12, "center", "#ffd23f");
   textAt(tip.title, W / 2, 116, 24);
   ctx.save(); ctx.translate(W / 2, 186); tip.icon(); ctx.restore();
-  (hasTouch && tip.touch ? tip.touch : tip.lines).forEach((s, i) => textAt(s, W / 2, 264 + i * 20, 13, "center", "#ddd"));
+  const ls = onTouch() && tip.touch ? tip.touch : onPad() && tip.pad ? tip.pad : tip.lines;
+  ls.forEach((s, i) => textAt(s, W / 2, 264 + i * 20, 13, "center", "#ddd"));
+  if (tip.prompt) drawPrompt(tip.prompt, W / 2, 262 + ls.length * 20 + 4, 16);
 }
 
 function drawBrief() { // the city card between the map and the race
@@ -153,20 +160,40 @@ function drawCredits() {
 }
 const drawVersion = () => textAt(`v${VERSION}`, W - 14, H - 10, 10, "right", "rgba(255,255,255,0.55)"); // bottom-right of the title and main menu
 
-function drawControls() { // every way to play, on one page
+// footer prompts per menu screen (keyboard / controller; touch keeps its own words)
+const FOOTER = {
+  menu: [["change", "Choose"], ["confirm", "Go"]], tutorial: [["confirm", "Next"], ["back", "Skip"]], garage: [["browse", "Browse"], ["confirm", "Pick"], ["back", "Back"]],
+  upgrades: [["change", "Choose"], ["confirm", "Upgrade"], ["back", "Back"]], graphics: [["choose", "Setting"], ["change", "Change"], ["back", "Back"]],
+  options: [["choose", "Choose"], ["change", "Adjust"], ["confirm", "Select"], ["back", "Back"]], tyres: [["change", "Tyre"], ["confirm", "Race"], ["back", "Back"]],
+  difficulty: [["choose", "Choose"], ["confirm", "Select"], ["back", "Back"]], songs: [["choose", "Choose"], ["confirm", "Select"], ["back", "Back"]],
+};
+// every way to play: three pages (Keyboard, Controller, Touch); Left / Right flips between them, and it opens on the one you are using
+const CONTROL_PAGES = [
+  ["KEYBOARD", () => [[["k:←", "k:→", "/", "k:A", "k:D"], "Change lane"], [["k:↑", "/", "k:W"], "Gas"], [["k:↓", "/", "k:S", "/", "k:Space"], "Brake"], [["k:↑", "+", "k:↓"], "Hold on the grid: launch"],
+    [["k:C"], "Camera menu"], [["k:V", "/", "k:1", "k:2", "k:3"], "Next camera / pick one"], [["k:Esc", "/", "k:P"], "Pause"], [["k:R"], "Restart (paused) / retry"], [["k:P"], "Photo mode (paused)"],
+    [["k:Q", "k:E"], "Turn the car (Garage)"], [["k:M", "k:F", "k:N"], "Mute / fullscreen / song"], [[], "Multiplayer: P1 arrows, P2 W A S D"]]],
+  ["CONTROLLER", () => [[["p:LS", "/", "p:DLR"], "Change lane"], [["p:RT", "/", "p:A"], "Gas"], [["p:LT", "/", "p:B", "/", "p:X"], "Brake"], [["p:RT", "+", "p:LT"], "Hold on the grid: launch"],
+    [["p:Y", "/", "p:VIEW"], "Camera menu"], [["p:LB", "p:RB"], "Next camera"], [["p:START"], "Pause"], [["p:X"], "Restart (paused) / retry"], [["p:Y"], "Photo mode (paused)"],
+    [["p:RS"], "Turn the car (Garage)"], [["p:LB", "p:RB"], "Browse cars (Garage)"], [["p:Y"], "Next song (menus)"]]],
+  ["TOUCH", () => [[[], "Tap the left / right half: change lane"], [[], "GAS and BRAKE pads at the bottom"], [[], "Hold both on the grid: launch"], [[], "Camera top-left, pause bottom-right"], [[], "Drag the car to turn it (Garage)"], [[], "Swipe the main menu cards"]]],
+];
+function drawControls() {
   text("CONTROLS", 40, 28);
-  const cols = [
-    ["KEYBOARD", ["Left / Right or A / D: change lane", "Up / W: gas    Down / S: brake", "C: camera    P / Esc: pause", "P again (paused): photo mode", "F: fullscreen    M: mute    N: next song", "R: retry after a crash"]],
-    ["MULTIPLAYER", ["P1: arrow keys    P2: W A S D"]],
-    ["CONTROLLER", ["Stick / D-pad: change lane", "RT or A: gas    LT, B or X: brake", "Y / Back: camera", "Start: pause"]],
-    ["TOUCH", ["Tap left / right half: change lane", "GAS and BRAKE pads", "Camera top-left, pause bottom-right"]],
-  ];
-  let y = 70;
-  for (const [title, lines] of cols) {
-    textAt(title, W / 2, y, 13, "center", "#ffd23f"); y += 18;
-    for (const l of lines) { textAt(l, W / 2, y, 11, "center", "#ddd"); y += 15; }
-    y += 8;
-  }
+  const tw = Math.min(110, (W - 70) / 3), x0 = W / 2 - tw * 1.5;
+  CONTROL_PAGES.forEach(([name], i) => { roundRect(x0 + i * tw + 2, 54, tw - 4, 24, 12); ctx.fillStyle = i === controlsTab ? "#1d70f5" : "rgba(0,0,0,0.5)"; ctx.fill(); textAt(name, x0 + i * tw + tw / 2, 71, 11, "center", i === controlsTab ? "#fff" : "#aaa"); });
+  if (!onTouch()) { const a = onPad() ? "p:LB" : "k:←", b = onPad() ? "p:RB" : "k:→"; drawGlyph(a, x0 - glyphWidth(a, 16) - 4, 66, 16); drawGlyph(b, x0 + tw * 3 + 4, 66, 16); }
+  const using = onPad() ? PAD_NAME[padKind] : onTouch() ? "the touch screen" : "the keyboard";
+  text(`You are using ${using}`, 96, 11, "center", "#7fffd4");
+  const rows = CONTROL_PAGES[controlsTab][1](), lx = W / 2 - 20;
+  const was = inputDev; if (controlsTab === 1) inputDev = "pad"; else if (controlsTab === 0) inputDev = "kb"; // (each page draws its own device's glyphs, whatever you hold)
+  rows.forEach(([toks, label], i) => {
+    const y = 120 + i * 25;
+    if (!toks.length) { textAt(label, W / 2, y + 4, 12, "center", "#ddd"); return; }
+    let w = 0; toks.forEach(t => w += glyphWidth(t, 18) + 3); let x = lx - w;
+    for (const t of toks) x += drawGlyph(t, x, y, 18) + 3;
+    textAt(label, lx + 8, y + 4, 12, "left", "#ddd");
+  });
+  inputDev = was;
 }
 
 // ---- main menu carousel: cards side by side, each with a live little preview of what it is ----
@@ -375,7 +402,7 @@ function drawTitle(moy) {
   // the prompt: breathing, with a little chevron
   const pulse = 0.6 + 0.4 * Math.sin(clock / 14);
   ctx.globalAlpha = pulse; ctx.font = "bold 19px sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "#fff"; ctx.shadowColor = "rgba(255,255,255,0.7)"; ctx.shadowBlur = 12;
-  spaced(hasTouch ? "TAP TO START" : "PRESS ANY KEY", W / 2, 398, 4, "fill"); ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+  spaced(onTouch() ? "TAP TO START" : onPad() || hasPad ? "PRESS ANY BUTTON" : "PRESS ANY KEY", W / 2, 398, 4, "fill"); ctx.shadowBlur = 0; ctx.globalAlpha = 1;
 }
 
 function drawUpgrades() {
@@ -566,13 +593,11 @@ function drawHud() {
   if (state === "playing" && (!grid.done || frame < grid.goFrame + 120)) { // what to do, tucked low so it never covers the road
     const f = grid.done ? clamp((grid.goFrame + 120 - frame) / 30, 0, 1) : 1;
     ctx.globalAlpha = f;
-    if (hasTouch && mode !== "multi") { // short enough to sit between the two pedals on a phone
+    if (onTouch() && mode !== "multi") { // short enough to sit between the two pedals on a phone
       if (grid.done) text("Tap a side to steer", H - 78, 13);
       else text("Hold GAS + BRAKE, let go in green", H - 60, 12);
-    } else if (grid.done) text(mode === "multi" ? "P1: Arrows    P2: W A S D" : "Left/Right steer   Up/Down speed", H - 78, 13);
-    else {
-      text(mode === "multi" ? "P1: Up + Down   P2: W + S - let go in the green" : hasPad ? "Hold RT + LT, let go in the green" : "Hold Up + Down, let go in the green", H - 60, 12);
-    }
+    } else if (grid.done) { if (mode === "multi") text("P1: Arrows    P2: W A S D", H - 78, 13); else drawPrompt([["steer", "Steer"], ["gas", "Gas"], ["brake", "Brake"], ["camNext", "Camera"]], W / 2, H - 84, 16); }
+    else if (mode === "multi") text("P1: Up + Down   P2: W + S - let go in the green", H - 60, 12);
     ctx.globalAlpha = 1;
   }
   if (banner && state === "playing") drawBanner();
@@ -621,7 +646,7 @@ function draw() {
     else if (state === "tyres") drawTyres();
     else if (state === "garage") drawGarage();
     else if (state === "upgrades") drawUpgrades();
-    else if (state === "graphics") { text("GRAPHICS", 46, 30); text(window.R3D ? "Left / Right or Enter to change" : "3D is off here: showing the 2D game", 64, 12, "center", "#ccc"); }
+    else if (state === "graphics") { text("GRAPHICS", 46, 30); text(!window.R3D ? "3D is off here: showing the 2D game" : onTouch() ? "Tap a row to change it" : "", 64, 12, "center", "#ccc"); }
     else if (state === "options") {
       text("SETTINGS", 46, 30);
       text(`Now playing: ${music.playing ? music.name : "-"}`, 74, 12, "center", "#ccc");
@@ -646,16 +671,18 @@ function draw() {
     ctx.fillStyle = "#ccc";
     ctx.font = "13px sans-serif";
     ctx.textAlign = "center";
-    const musicNote = music.on && sound.on ? (music.playing ? `Now playing: ${music.name}   (N = next)` : "Press any key to start the music") : "";
-    if (state === "menu" && musicNote) ctx.fillText(musicNote, W / 2, 448);
-    ctx.fillText(state === "menu" ? (hasTouch ? "Swipe or tap a card" : "Left / Right to choose, Enter to go") : state === "brief" || state === "stats" || state === "controls" || state === "credits" ? "" /* buttons sit there */ : state === "upgrades" ? (hasTouch ? "Tap an upgrade to buy its next level" : "Up / Down to choose, Enter to upgrade") : state === "tutorial" ? (hasTouch ? "Tap Next, or Skip to go straight in" : "Enter = next   Esc = skip") : state === "garage" ? "Left / Right to browse, Enter to pick" : state === "map" ? "" /* the map has its own Back button there */ : `Up / Down + Enter, or tap an option${hasPad ? "  |  Controller ready" : ""}`, W / 2, 470);
+    const musicNote = music.on && sound.on ? (music.playing ? `Now playing: ${music.name}` : "Press any key to start the music") : "";
+    if (state === "menu" && musicNote) { if (onTouch() || !music.playing) ctx.fillText(musicNote, W / 2, 448); else drawPrompt([[[], musicNote], ["song", "Next song"]], W / 2, 444, 14, "center", "#ccc"); }
+    if (!onTouch()) { const fp = FOOTER[state]; if (fp) drawPrompt(fp, W / 2, 466, 15, "center", "#ddd"); }
+    else ctx.fillText(state === "menu" ? (hasTouch ? "Swipe or tap a card" : "Left / Right to choose, Enter to go") : state === "brief" || state === "stats" || state === "controls" || state === "credits" ? "" /* buttons sit there */ : state === "upgrades" ? (hasTouch ? "Tap an upgrade to buy its next level" : "Up / Down to choose, Enter to upgrade") : state === "tutorial" ? (hasTouch ? "Tap Next, or Skip to go straight in" : "Enter = next   Esc = skip") : state === "garage" ? "Left / Right to browse, Enter to pick" : state === "map" ? "" /* the map has its own Back button there */ : `Up / Down + Enter, or tap an option${hasPad ? "  |  Controller ready" : ""}`, W / 2, 470);
   }
 
   if (state === "paused") {
     ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.fillRect(0, -moy, W, H);
     text("PAUSED", 200, 40);
-    if (window.R3D) textAt("Press P for photo mode", W / 2, 462, 12, "center", "#bbb");
-    text(sel === 1 ? "Left / Right or tap to change the camera" : CAMS[cam].desc, 235, 14, "center", "#ccc");
+    if (!onTouch()) drawPrompt([...(window.R3D ? [["photo", "Photo mode"]] : []), ["retry", "Restart"], ["back", "Resume"]], W / 2, 458, 15, "center", "#ddd");
+    if (sel === 1 && !onTouch()) drawPrompt([["change", "Change camera"]], W / 2, 231, 15, "center", "#ccc");
+    else text(sel === 1 ? "Tap to change the camera" : CAMS[cam].desc, 235, 14, "center", "#ccc");
     drawButtons();
   }
 
@@ -719,7 +746,7 @@ function draw() {
       text(reached, 240, 14, "center", rc);
     }
     drawButtons();
-    if (!hasTouch) text(hasPad ? "R or A to retry" : "R to retry", 470, 12, "center", "#bbb");
+    if (!onTouch()) drawPrompt([["retry", "Retry"], ["back", "Menu"]], W / 2, 466, 15, "center", "#ddd");
   }
 
   if (toast) { // brief notices: controller connected, songs added...
@@ -740,9 +767,12 @@ function drawPhotoHint() {
   const ph = R3D.photo;
   if (ph.hideHud) return;
   ctx.save(); ctx.textAlign = "center";
-  ctx.fillStyle = "rgba(0,0,0,0.55)"; roundRect(W / 2 - 215, H - 58, 430, 44, 10); ctx.fill();
-  textAt("PHOTO MODE   Enter = save picture   P / Esc = back", W / 2, H - 40, 13, "center", "#fff");
-  textAt("WASD move   Q/E down/up   drag = look   Z/X zoom   V filter   B blur   H hide this", W / 2, H - 22, 11, "center", "#ccc");
+  const pw = Math.min(W - 16, 470);
+  ctx.fillStyle = "rgba(0,0,0,0.55)"; roundRect(W / 2 - pw / 2, H - 84, pw, 76, 10); ctx.fill();
+  const pad = onPad(), P = (...t) => t.map(x => (pad ? "p:" : "k:") + x);
+  drawPrompt([[[], "PHOTO MODE"], [P(pad ? "A" : "Enter"), "Save picture"], [P(pad ? "B" : "Esc"), "Back"]], W / 2, H - 70, 15);
+  drawPrompt(pad ? [[P("LS"), "Move"], [P("RS"), "Look"], [P("LT", "RT"), "Down / up"], [P("LB", "RB"), "Zoom"]] : [[P("W", "A", "S", "D"), "Move"], [P("←", "→", "↑", "↓"), "Look"], [P("Q", "E"), "Down / up"], [P("Z", "X"), "Zoom"]], W / 2, H - 46, 13, "center", "#ddd");
+  drawPrompt(pad ? [[P("X"), "Filter"], [P("Y"), "Blur"], [P("DUD"), "Hide this"]] : [[P("V"), "Filter"], [P("B"), "Blur"], [P("H"), "Hide this"], [[], "Drag: look, wheel: zoom"]], W / 2, H - 24, 13, "center", "#ddd");
   if (ph.note) { textAt(ph.note, W / 2, 30, 15, "center", "#ffd23f"); }
   ctx.restore();
 }
@@ -821,7 +851,7 @@ function drawLaunchGauge(r) {
   ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.lineCap = "round"; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(a(n)) * (R - 2), cy + Math.sin(a(n)) * (R - 2)); ctx.stroke(); ctx.lineCap = "butt";
   ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(cx, cy, 5, 0, TAU); ctx.fill();
   if (r.launchLocked && r.launchZone) textAt(`${r.launchZone.name}  ${Math.round(r.launchZone.v * 60)} km/h`, cx, cy - R - 14, 14, "center", r.launchZone.color);
-  else if (!live) textAt(hasPad ? "HOLD RT + LT" : hasTouch ? "HOLD GAS + BRAKE" : "HOLD UP + DOWN", cx, cy - R - 14, 13, "center", "#fff");
+  else if (!live) textAt(onPad() ? `HOLD ${FACE[padKind].RT} + ${FACE[padKind].LT}` : onTouch() ? "HOLD GAS + BRAKE" : "HOLD UP + DOWN", cx, cy - R - 14, 13, "center", "#fff");
   else textAt("LET GO IN THE GREEN", cx, cy - R - 14, 13, "center", "#39ff6a");
 }
 
@@ -835,6 +865,7 @@ function drawBypass(r) {
     poly(left ? [[x + 14, y - 22], [x - 14, y], [x + 14, y + 22]] : [[x - 14, y - 22], [x + 14, y], [x - 14, y + 22]]);
     ctx.globalAlpha = 1;
     textAt(`BYPASS: steer ${left ? "LEFT" : "RIGHT"}`, W / 2, 128, 15, "center", "#7fffd4");
+    if (!onTouch()) { const g = onPad() ? "p:DLR" : left ? "k:←" : "k:→"; drawGlyph(g, W / 2 + 92, 123, 18); }
     ctx.fillStyle = "rgba(0,0,0,0.5)"; roundRect(W / 2 - 40, 134, 80, 4, 2); ctx.fill(); ctx.fillStyle = "#7fffd4"; roundRect(W / 2 - 40, 134, Math.max(4, 80 * b.timeLeft / 600), 4, 2); ctx.fill();
   } else {
     textAt("BYPASS", W / 2, 128, 15, "center", "#7fffd4");
