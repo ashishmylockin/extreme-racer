@@ -69,15 +69,16 @@ export function createWeather(scene, camera) {
   // cherry-blossom petals drifting down
   const petals = new THREE.Points(makePoints(900, 1), new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, fog: false,
-    uniforms: { time: { value: 0 }, cam: { value: new THREE.Vector3() }, box: { value: BOX }, amount: { value: 0 }, scale: { value: 600 } },
+    uniforms: { time: { value: 0 }, cam: { value: new THREE.Vector3() }, box: { value: BOX }, amount: { value: 0 }, scale: { value: 600 }, maxPx: { value: 9 } },
     vertexShader: `
-      attribute float seed; uniform float time, amount, scale; uniform vec3 cam, box; varying float vA; varying float vH;
+      attribute float seed; uniform float time, amount, scale, maxPx; uniform vec3 cam, box; varying float vA; varying float vH;
       void main() {
         vec3 p = position + vec3(sin(time * 0.7 + seed * 40.0) * 2.0 - 6.0 * time, -2.2 * time, 2.0 * time + cos(time * 0.5 + seed * 30.0) * 1.5);
         p = mod(p - cam, box) - 0.5 * box + cam;
         vec4 mv = viewMatrix * vec4(p, 1.0);
-        vA = step(seed, amount) * (1.0 - smoothstep(30.0, 70.0, -mv.z)); vH = fract(seed * 13.0);
-        gl_PointSize = (0.35 + seed * 0.25) * scale / max(1.0, -mv.z);
+        // a petal drifting right past the lens would be drawn hundreds of pixels wide (a big flat white blob): fade petals out close to the camera and cap their size
+        vA = step(seed, amount) * (1.0 - smoothstep(30.0, 70.0, -mv.z)) * smoothstep(4.0, 9.0, -mv.z); vH = fract(seed * 13.0);
+        gl_PointSize = min(maxPx, (0.35 + seed * 0.25) * scale / max(1.0, -mv.z));
         gl_Position = projectionMatrix * mv;
       }`,
     fragmentShader: `varying float vA; varying float vH; void main() { vec2 q = gl_PointCoord - 0.5; if (length(q * vec2(1.0, 1.7)) > 0.5 || vA < 0.01) discard; gl_FragColor = vec4(mix(vec3(1.0, 0.72, 0.84), vec3(1.0, 0.92, 0.95), vH), vA); }`,
@@ -114,7 +115,7 @@ export function createWeather(scene, camera) {
       rain.visible = rq > 0.02; splash.visible = rq > 0.1 && mode !== "overhead"; petals.visible = petalAmt > 0.05;
       if (rain.visible) { const u = rain.material.uniforms; u.time.value = time; u.cam.value.copy(camPos); u.amount.value = rq; u.wind.value = wind; }
       if (splash.visible) { const u = splash.material.uniforms; u.time.value = time; u.cam.value.copy(camPos); u.amount.value = rq; u.scale.value = innerHeight * 0.8; }
-      if (petals.visible) { const u = petals.material.uniforms; u.time.value = time; u.cam.value.copy(camPos); u.amount.value = petalAmt * quality; u.scale.value = innerHeight * 0.8; }
+      if (petals.visible) { const u = petals.material.uniforms, pr = Math.min(2.6, window.devicePixelRatio || 1); u.time.value = time; u.cam.value.copy(camPos); u.amount.value = petalAmt * quality; u.scale.value = innerHeight * 0.8 * pr; u.maxPx.value = 9 * pr; } // (sizes are in real pixels: scaled by the screen's pixel ratio)
       // droplets on the visor, sliding slowly
       const showDrops = mode === "cockpit" && rainAmt > 0.15;
       drops.visible = showDrops; if (showDrops) { dropMat.opacity = Math.min(0.9, rainAmt * 1.4); dropTex.offset.y -= dt * 0.03; dropTex.offset.x = Math.sin(time * 0.2) * 0.02; }

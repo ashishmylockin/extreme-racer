@@ -28,7 +28,9 @@ function filmFrame() {
   if (filmShots.length === want.length && !document.getElementById("film")) { const d = document.createElement("div"); d.id = "film"; d.style.cssText = "position:fixed;inset:0;background:#111;z-index:99;display:flex;flex-wrap:wrap;gap:4px"; filmShots.forEach((c, i) => { c.style.width = "calc(33% - 4px)"; d.appendChild(c); }); document.body.appendChild(d); }
 }
 let infoN = 0; const SHOW_STATS = new URLSearchParams(location.search).has("info"); // testing: ?info logs draw calls and triangles after 40 frames
-function render3D(alpha) { try { R3D.render(alpha); filmFrame(); if (r3dErrors > 0 && Math.random() < 0.01) r3dErrors--; if (SHOW_STATS && ++infoN === 40) { const i = R3D.renderer.info; console.info("INFO calls=" + i.render.calls + " triangles=" + i.render.triangles + " geometries=" + i.memory.geometries + " textures=" + i.memory.textures); } } catch (e) { r3dFail(e); } }
+const PERF = +new URLSearchParams(location.search).get("perf") || 0; let perfN = 0, perfSum = 0, perfLast = 0; // testing: ?perf=N logs the average frame time (and GPU work) over N rendered frames of racing
+function perfLog() { if (!PERF || state !== "playing") return; const now = performance.now(); if (perfLast) { perfSum += now - perfLast; if (++perfN === PERF) { const i = R3D.renderer.info; console.info("PERF frames=" + perfN + " avgMs=" + (perfSum / perfN).toFixed(2) + " fps=" + (1000 * perfN / perfSum).toFixed(1) + " calls=" + i.render.calls + " tris=" + i.render.triangles + " level=" + R3D.quality.level); } } perfLast = now; }
+function render3D(alpha) { try { R3D.render(alpha); perfLog(); filmFrame(); if (r3dErrors > 0 && Math.random() < 0.01) r3dErrors--; if (SHOW_STATS && ++infoN === 40) { const i = R3D.renderer.info; console.info("INFO calls=" + i.render.calls + " triangles=" + i.render.triangles + " geometries=" + i.memory.geometries + " textures=" + i.memory.textures); } } catch (e) { r3dFail(e); } }
 
 let errorsRecently = 0;
 function loop(now) {

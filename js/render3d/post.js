@@ -9,6 +9,7 @@ import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { SMAAPass } from "three/addons/postprocessing/SMAAPass.js";
 import { BokehPass } from "three/addons/postprocessing/BokehPass.js";
 import { FXAAShader } from "three/addons/shaders/FXAAShader.js";
+import { GTAOPass } from "three/addons/postprocessing/GTAOPass.js";
 
 // Everything that looks like a "lens" or "grade" lives in one shader so it costs a single full-screen pass.
 const FXShader = {
@@ -77,6 +78,22 @@ const CleanShader = {
     }`,
 };
 
+// Ambient occlusion (High / Ultra): GTAO darkens the creases where things meet (under cars, along kerbs, at the foot of buildings), so
+// everything sits in the scene instead of floating. It needs a second render of the scene's depth and normals, so it is built only when
+// a preset asks for it, at a fraction of the screen's resolution, and only near the camera (far away it would only darken the haze).
+function makeAO(scene, camera, w, h) {
+  const ao = new GTAOPass(scene, camera, w, h);
+  ao.updateGtaoMaterial({ radius: 2.6, distanceExponent: 1.5, thickness: 2.0, scale: 1.15, samples: 12, distanceFallOff: 1.0 });
+  ao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 12 });
+  ao.blendIntensity = 0.85;
+  ao.setSceneClipBox(new THREE.Box3(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1)));
+  // the depth / normal pre-pass must skip see-through effects (headlight cones, light pools, halos, glass bubbles, the sky): they would cast AO
+  const cache = new Map();
+  ao.overrideVisibility = () => { ao.scene.traverse(o => { cache.set(o, o.visible); const m = o.material; if (o.isPoints || o.isLine || o.isSprite || (m && !Array.isArray(m) && (m.transparent || m.depthWrite === false || m.blending === THREE.AdditiveBlending))) o.visible = false; }); };
+  ao.restoreVisibility = () => { for (const [o, v] of cache) o.visible = v; cache.clear(); };
+  return ao;
+}
+
 export function createPost(renderer, scene, camera) {
   const size = renderer.getDrawingBufferSize(new THREE.Vector2());
   const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: 4 }); // 4x multisampling inside the pipeline
@@ -91,14 +108,30 @@ export function createPost(renderer, scene, camera) {
   const fxaa = new ShaderPass(FXAAShader); fxaa.enabled = false;
   [renderPass, bokeh, clean, bloom, fx, output, smaa, fxaa].forEach(p => composer.addPass(p));
   const u = fx.uniforms;
+  let ao = null, aoScale = 0, px = { w: size.x, h: size.y };
+  const aoSize = () => { if (ao) ao.setSize(Math.max(64, Math.round(px.w * aoScale)), Math.max(64, Math.round(px.h * aoScale))); };
   const api = {
     composer, renderPass, bokeh, clean, bloom, fx, smaa, fxaa, u,
+    aoOff: false, // set for a frame to skip the AO (scenes other than the race)
     setSize(w, h, pr) {
-      composer.setPixelRatio(pr); composer.setSize(w, h);
+      composer.setPixelRatio(pr); composer.setSize(w, h); px = { w: w * pr, h: h * pr }; aoSize();
       fxaa.material.uniforms.resolution.value.set(1 / (w * pr), 1 / (h * pr)); u.aspect.value = w / h; clean.uniforms.texel.value.set(1 / (w * pr), 1 / (h * pr));
     },
+    // scale = the AO's resolution as a fraction of the screen's (0 = off)
+    setAO(scale) {
+      aoScale = scale;
+      if (scale > 0 && !ao) { ao = makeAO(scene, camera, 64, 64); composer.insertPass(ao, 1); }
+      if (ao) { ao.enabled = scale > 0; aoSize(); }
+    },
     setScene(s, c) { renderPass.scene = s; renderPass.camera = c; bokeh.scene = s; bokeh.camera = c; },
-    render(dt) { composer.render(dt); },
+    render(dt, camPos) {
+      if (ao) {
+        const on = aoScale > 0 && !api.aoOff && renderPass.scene === scene; ao.enabled = on;
+        if (on && camPos) { const U = ao.gtaoMaterial.uniforms; U.sceneBoxMin.value.set(camPos.x - 130, -5, camPos.z - 170); U.sceneBoxMax.value.set(camPos.x + 130, 160, camPos.z + 40); } // only near the camera
+      }
+      api.aoOff = false;
+      composer.render(dt);
+    },
   };
   return api;
 }

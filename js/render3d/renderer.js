@@ -62,6 +62,8 @@ export function createRenderer3D(canvas2d, glCanvas) {
     Q = resolve(qSettings(), auto.level);
     for (const kv of (new URLSearchParams(location.search).get("q") || "").split(",")) { const [k, v] = kv.split(":"); if (k && v !== undefined) Q[k] = v === "true" ? true : v === "false" ? false : +v; } // testing: ?q=msaa:0,shadows:1024 overrides single quality values
     renderer.shadowMap.enabled = Q.shadows > 0; world.sun.castShadow = Q.shadows > 0;
+    world.setShadowArea(Q.shadows >= 4096 ? 125 : Q.shadows >= 2048 ? 100 : 70, Q.shadows >= 2048 ? 45 : 25); // sharper shadow maps can stretch over more of the road ahead
+    post.setAO(Q.ao || 0);
     if (world.sun.shadow.mapSize.x !== Q.shadows && Q.shadows > 0) { world.sun.shadow.mapSize.set(Q.shadows, Q.shadows); if (world.sun.shadow.map) { world.sun.shadow.map.dispose(); world.sun.shadow.map = null; } }
     renderer.shadowMap.needsUpdate = true;
     fx.setDensity(Q.particles); reflect.enable(Q.reflect); city.setQuality({ ahead: Q.cityAhead * Q.dist, density: Q.cityDensity }); M.setCarDetail(Q.carLod ?? 1);
@@ -255,7 +257,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
     { const show = mode === "title" && R.photo === photo && !photo.active; titleLight.intensity = show ? 800 : 0; if (show) { titleLight.position.set(camera.position.x + 2.5, camera.position.y + 3, camera.position.z + 1); titleLight.target.position.set(target.x, 0.9, target.z); } } // a soft showroom light on your car behind the title
     focus.x = target.x; focus.z = target.z; focus.camPos = camera.position; // (reused every frame: nothing is allocated while racing)
     const D = lerp(distPrev, distCur, alpha) * SCALE; // how far along the route the car is (world units)
-    world.update(pal, rainI, D, focus, stA, stB, stBlend, wet);
+    world.update(pal, rainI, D, focus, stA, stB, stBlend, wet); renderer.toneMappingExposure = world.exposure;
     city.setSignStyle(profileOf(stA.venue).sign); city.update(D, dt, night, pal, scene.fog.color, stA, camera.position.z);
     // inside a tunnel the sun and sky light are blocked out (the tunnel lights take over)
     tunnelK += ((city.inTunnel(D - camera.position.z) ? 1 : 0) - tunnelK) * Math.min(1, dt * 6);
@@ -267,6 +269,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
     if (flash > 0) { scene.environmentIntensity += flash * 3; world.sun.intensity += flash * 4; } // lightning lights up the whole scene for a moment
     nightFx.update(night, city.lamps, city.lampCount, p0.alive && rec0 ? (playerLight.x = camTarget.x, playerLight.z = camTarget.z, playerLight.yaw = -camTarget.tilt, playerLight) : null);
     const du = world.dome.material.uniforms; du.hazeAmt.value = night * 0.3; du.haze.value.setRGB(Math.pow(stA.s1[0] / 255, 2.2) * 0.5, Math.pow(stA.s1[1] / 255, 2.2) * 0.5, Math.pow(stA.s1[2] / 255, 2.2) * 0.5); // the glow of the city on the horizon
+    du.glow.value.copy(du.haze.value).multiplyScalar(0.45); // (the drawn night sky's horizon glow: the same colour, gentler)
 
     // ---- finish line: fireworks and confetti in the city's flag colours ----
     if (state === "cleared" && level && fxDt > 0) {
@@ -285,7 +288,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
       const U = post.u, kmh = p0.v * 60, nf = typeof nitroFx === "number" ? nitroFx : 0;
       const gA = GRADE[stA.venue] || NO_GRADE, gB = GRADE[stB.venue] || NO_GRADE, mixv = (k, d) => (gA[k] ?? d) + ((gB[k] ?? d) - (gA[k] ?? d)) * stBlend;
       const wetDim = 1 - 0.12 * rainI;
-      U.sat.value = mixv("sat", 1.06) * wetDim; U.contrast.value = mixv("contrast", 1.05) + 0.06 * night;
+      U.sat.value = mixv("sat", 1.1) * wetDim; U.contrast.value = mixv("contrast", 1.08) + 0.04 * night; // (a little punch by default: day cities read warm and crisp)
       const ta = gA.tint || [1, 1, 1], tb = gB.tint || [1, 1, 1];
       U.tint.value.setRGB(ta[0] + (tb[0] - ta[0]) * stBlend, ta[1] + (tb[1] - ta[1]) * stBlend, ta[2] + (tb[2] - ta[2]) * stBlend);
       const sk = pal.tint; if (sk[3] > 0.005) U.tint.value.multiply(pTmpC.setRGB(1 + (sk[0] / 255 - 0.5) * sk[3] * 2, 1 + (sk[1] / 255 - 0.5) * sk[3] * 2, 1 + (sk[2] / 255 - 0.5) * sk[3] * 2));
@@ -295,7 +298,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
       U.heat.value = stA.desert ? (1 - night) * 0.9 : 0;       // heat shimmer in the desert cities by day
       U.fmode.value = photo.active ? photo.filter : 0; U.grain.value = photo.active && photo.filter === 2 ? 0.05 : 0;
       { const crisp = state === "title" || state === "menu"; post.smaa.enabled = Q.smaa || crisp; post.fxaa.enabled = Q.fxaa && !crisp; } // best anti-aliasing behind the title and menus
-      post.bloom.strength = 0.12 + 0.3 * night + flash * 0.6 + nf * 0.2; post.bloom.threshold = 1.5 - 0.3 * night; post.bloom.radius = 0.45 + 0.1 * night; // (a soft, relaxed glow: no blinding halos)
+      post.bloom.strength = 0.1 + 0.16 * night + flash * 0.6 + nf * 0.2; post.bloom.threshold = 1.5 - 0.15 * night; post.bloom.radius = 0.4 + 0.05 * night; // (a soft, relaxed glow: no blinding halos; calm at night)
       // lens flare: only when the sun is on screen
       sunV.copy(world.sun.position).sub(camera.position).normalize(); const facing = sunV.dot(camFwd.set(0, 0, -1).applyQuaternion(camera.quaternion));
       sunP.copy(camera.position).addScaledVector(sunV, 200).project(camera);
@@ -315,7 +318,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
       renderer.setRenderTarget(null); rig.cockpit.visible = true;
     }
     if (Q.reflect && wet > 0.12 && mode !== "menu" && mode !== "title") reflect.render(Math.min(1, wet * 1.3)); // Ultra: reflections on a wet road
-    post.render(dt);
+    post.render(dt, camera.position);
     if (photo.capture) capture();
   }
   const pTmpC = new THREE.Color();
@@ -344,7 +347,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
     if (GFIX && !window.gDone) { window.gDone = true; runGarageScript(view); if (window.gFreeze) dt = 0; } // (testing)
     showroom.update(dt, view);
     showroom.beforeRender();
-    post.setScene(showroom.scene, showroom.camera);
+    post.setScene(showroom.scene, showroom.camera); renderer.toneMappingExposure = 1; post.aoOff = true; // (the showroom has its own lighting and no AO)
     const U = post.u; U.sat.value = 1.08; U.contrast.value = 1.06; U.tint.value.setRGB(1, 1, 1); U.vig.value = 0.4; U.blur.value = 0; U.aberr.value = 0; U.heat.value = 0; U.flareAmt.value = 0; U.fmode.value = 0; U.time.value = time;
     post.bloom.strength = 0.32; post.bloom.threshold = 1.2; post.bloom.radius = 0.6; post.bokeh.enabled = false;
     post.smaa.enabled = Q.level !== "low"; post.fxaa.enabled = !post.smaa.enabled && Q.fxaa; // (best anti-aliasing the machine can afford: the scene is cheap)

@@ -58,13 +58,18 @@ float winMask = 0.0; vec3 emitCol = vec3(0.0);
     if (!ground && sty > 0.62 && sty < 0.82) { float rail = step(f.y, 0.17) * inX; wallc = mix(wallc, wallc * 0.45, rail * (1.0 - aa)); } // balcony rails
     if (ground) { float band = step(0.74, f.y) * step(f.y, 0.92); wallc = mix(wallc, wallc * vec3(0.6, 0.55, 0.55), band * (1.0 - aa)); }   // sign band over the shops
     float rnd = fract(sin(dot(cell + vec2(sd * 91.7, alongZ ? 17.0 : 3.0), vec2(127.1, 311.7))) * 43758.5453);
-    float lit = step(rnd, 0.45 + 0.3 * fract(sd * 5.1));
+    float litShare = 0.45 + 0.3 * fract(sd * 5.1), lit = step(rnd, litShare);
     vec3 glass = mix(vec3(0.05, 0.08, 0.12), uSky * 0.9, 0.35 + 0.45 * smoothstep(0.0, 140.0, v));
     glass *= mix(1.0, 0.3, uNight);
     diffuseColor.rgb = mix(wallc, glass, winMask);
     float pc = fract(rnd * 7.3);
     vec3 lightc = pc < 0.62 ? vec3(1.0, 0.74, 0.42) : (pc < 0.9 ? vec3(0.62, 0.82, 1.0) : vec3(1.0, 0.35, 0.7));
-    emitCol = lightc * 0.6 * (winMask * lit * uNight * (ground ? 1.1 : 1.0) * (0.9 + 0.8 * fract(rnd * 11.0)));
+    vec3 cellGlow = lightc * lit * (0.9 + 0.8 * fract(rnd * 11.0));
+    // which windows are lit (and in which colour) is random per window: far away, one pixel covers several windows and that turns into
+    // flickering coloured static. Long before the windows get that small, fade to the average: the share that is lit, in the average light colour.
+    float far = smoothstep(0.08, 0.32, max(fwidth(u / CW), fwidth(v / FH)));
+    vec3 avgGlow = vec3(0.89, 0.74, 0.56) * litShare * 0.7; // (a little under the true average: spread evenly over a far wall, the full amount reads as a pale building, not a dark one with lit windows)
+    emitCol = mix(cellGlow, avgGlow, far) * 0.6 * winMask * uNight * (ground ? 1.1 : 1.0);
   } else { diffuseColor.rgb = wall * 0.28; } // underside
 }`;
 

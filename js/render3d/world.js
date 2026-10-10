@@ -2,7 +2,7 @@
 // It never changes shape; update() recolours it for the current city, cross-fades skies and slides the road textures towards the camera.
 import * as THREE from "three";
 import { roadHalf, arrToHex, setCol } from "./mapping.js";
-import { LOOK, CITY_TOD, skyOf, createSkyDome, sunSpot } from "./env.js";
+import { LOOK, CITY_TOD, NIGHT_SKY, skyOf, createSkyDome, sunSpot } from "./env.js";
 import { wearTexture, linesTexture, kerbTexture, kerbGeometry, WEAR_W, WEAR_LEN } from "./roadtex.js";
 
 const ROAD_TILE = 16, KERB_TILE = 4.8, ASPH_TILE = 6; // world units of road covered by one repeat of each texture
@@ -88,13 +88,16 @@ export function createWorld(scene) {
     const spot = spotOf(todName, sky), az = look.az * Math.PI / 180;
     const el = todName === "overcast" ? look.el * Math.PI / 180 : Math.max(0.12, spot.el); // under a clear sky the light comes from where the sun disc really is
     const phiWanted = Math.atan2(-Math.cos(az), Math.sin(az));
-    return { sky, look, yaw: spot.phi - phiWanted, az, el };
+    return { sky, look, yaw: spot.phi - phiWanted, az, el, night: todName === NIGHT_SKY };
   }
 
-  let skyKey = "";
-  return {
+  const shadowBox = { half: 70, ahead: 0 }; // the area the sun's shadows cover (set from the quality level): it sits ahead of the car, where the camera looks
+  const api = {
     groundMeshes: [road, lineMesh], reflectMats: [roadMat, lineMat],
     sun, dome, fill, // (fill is a soft sky-coloured ambient: used when the image-based lighting is off, and a little at night)
+    exposure: 1,     // the tone-mapping exposure for this mood (the renderer applies it)
+    // bigger shadow maps can cover more road: half = half the width of the shadow area, ahead = how far up the road its centre sits
+    setShadowArea(half, ahead) { shadowBox.half = half; shadowBox.ahead = ahead; Object.assign(sun.shadow.camera, { left: -half, right: half, top: half * 1.15, bottom: -half * 1.15 }); sun.shadow.camera.updateProjectionMatrix(); },
     // pal = the simulation's blended palette; stA / stB = this city and the next; b = how far through the blend (0..1)
     update(pal, rain, scrollWu, focus, stA, stB, b, wetness = 0) {
       const night = Math.min(1, pal.dark * 4);
@@ -109,10 +112,12 @@ export function createWorld(scene) {
 
       const mA = mood(CITY_TOD[stA.venue]), mB = mood(CITY_TOD[stB.venue]) || mA;
       if (!mA) { scene.fog.color.setHex(arrToHex(pal.sky1)); sun.intensity = 2; fill.intensity = 1.2; return; }
-      const u = dome.material.uniforms;
+      const u = dome.material.uniforms, lA = mA.look, lB = mB.look, mix = (a, c) => a + (c - a) * b;
       u.tA.value = mA.sky.tex; u.tB.value = mB.sky.tex; u.mixB.value = b; u.yawA.value = mA.yaw; u.yawB.value = mB.yaw;
       u.tint.value.setRGB(1, 1, 1).lerp(cT.setRGB(pal.tint[0] / 255, pal.tint[1] / 255, pal.tint[2] / 255), pal.tint[3] * 1.5);
       u.hazeAmt.value = 0; dome.position.copy(focus.camPos);
+      u.nightK.value = mix(mA.night ? 1 : 0, mB.night ? 1 : 0);
+      api.exposure = mix(lA.exp, lB.exp);
 
       // lighting from the sky image (both skies blended), plus the sun / moon as one directional light
       const m = b < 0.5 ? mA : mB;
@@ -121,7 +126,9 @@ export function createWorld(scene) {
       scene.environmentIntensity = envI;
       const az = mA.az + (mB.az - mA.az) * b, el = mA.el + (mB.el - mA.el) * b;
       dir.set(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el));
-      sun.position.set(focus.x + dir.x * 330, dir.y * 330, focus.z + dir.z * 330); sun.target.position.set(focus.x, 0, focus.z);
+      u.moonDir.value.copy(dir);
+      const sz = focus.z - shadowBox.ahead; // the shadows cover the road ahead of the car (what the camera sees), not the road behind it
+      sun.position.set(focus.x + dir.x * 330, dir.y * 330, sz + dir.z * 330); sun.target.position.set(focus.x, 0, sz);
       sun.color.copy(cA.set(mA.look.color)).lerp(cB.set(mB.look.color), b);
       sun.intensity = (mA.look.sun + (mB.look.sun - mA.look.sun) * b) * (1 - 0.85 * rain);
 
@@ -130,6 +137,8 @@ export function createWorld(scene) {
       fogCol.setRGB(aces(hA.r + (hB.r - hA.r) * b), aces(hA.g + (hB.g - hA.g) * b), aces(hA.b + (hB.b - hA.b) * b));
       fogCol.multiplyScalar(1 - 0.6 * night); scene.fog.color.copy(fogCol); // (at night the city glow on the horizon is kept subtle)
       scene.fog.near = 260 - 210 * rain - 100 * night; scene.fog.far = 1700 - 950 * rain - 450 * night; // light haze: the skyline stays visible by day
+      const nk = u.nightK.value; if (nk > 0) scene.fog.color.lerp(cB.setRGB(0.035, 0.045, 0.085), nk * 0.75); // at night the far distance fades to a calm deep blue, not a brown haze
     },
   };
+  return api;
 }
