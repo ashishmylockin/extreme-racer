@@ -32,7 +32,7 @@ export function createBypass(scene) {
   function strip(t, a, b, y, uvScale) {
     const pos = [], uv = [], idx = [], step = 12, n = Math.ceil(t.L / step);
     for (let i = 0; i <= n; i++) {
-      const d = Math.min(t.L, i * step), k = smooth(Math.min(d / t.RAMP, (t.L - d) / t.RAMP)), x = simX(laneX(t.lane) + t.side * t.OFF * k), z = -d * SCALE;
+      const d = Math.min(t.L, i * step), k = smooth(Math.min(d / t.RAMP, (t.L - d) / t.BACK)), x = simX(laneX(t.lane) + t.side * t.OFF * k), z = -d * SCALE;
       const h = y + RISE * k; pos.push(x + a, h, z, x + b, h, z); uv.push(0, d * SCALE / uvScale, 1, d * SCALE / uvScale);
       if (i < n) { const q = i * 2; idx.push(q, q + 1, q + 2, q + 1, q + 3, q + 2); }
     }
@@ -42,7 +42,7 @@ export function createBypass(scene) {
   }
   function wall(t, across, top) { // a vertical side wall under the kerb, from the top of the track down below the ground
     const pos = [], idx = [], step = 12, n = Math.ceil(t.L / step);
-    for (let i = 0; i <= n; i++) { const d = Math.min(t.L, i * step), k = smooth(Math.min(d / t.RAMP, (t.L - d) / t.RAMP)), x = simX(laneX(t.lane) + t.side * t.OFF * k) + across, z = -d * SCALE; pos.push(x, top + RISE * k, z, x, -0.2, z); if (i < n) { const q = i * 2; idx.push(q, q + 1, q + 2, q + 1, q + 3, q + 2); } }
+    for (let i = 0; i <= n; i++) { const d = Math.min(t.L, i * step), k = smooth(Math.min(d / t.RAMP, (t.L - d) / t.BACK)), x = simX(laneX(t.lane) + t.side * t.OFF * k) + across, z = -d * SCALE; pos.push(x, top + RISE * k, z, x, -0.2, z); if (i < n) { const q = i * 2; idx.push(q, q + 1, q + 2, q + 1, q + 3, q + 2); } }
     const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals(); return g;
   }
   function build(t) { // built once per bypass

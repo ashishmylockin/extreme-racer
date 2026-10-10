@@ -85,7 +85,7 @@ function chargeLaunch(r) {
 
 // ---- the bypass: the pop-up in an outside lane arms it; steering out of the road (left in the left lane, right in the right lane) then
 // curves you round the next vehicle on a track of its own, at nitro speed, and drops you back where the lane is clear ----
-const BYPASS_OFF = 112, BYPASS_RAMP = 170; // how far beside the lane the side track runs, and how long the curve out / back takes (short and sharp)
+const BYPASS_OFF = 112, BYPASS_RAMP = 170, BYPASS_BACK = 120; // how far beside the lane the side track runs, and how long the curve out / back onto the road takes (the way back is quicker)
 function bypassTarget(r, b) { let best = null; for (const e of enemies) if (e.lane === b.lane && e.y < r.y - 20 && (!best || e.y > best.y)) best = e; return best; } // the nearest vehicle ahead in that lane
 function startBypass(r) {
   const b = r.bypass, t = bypassTarget(r, b); if (!t) return;
@@ -93,8 +93,8 @@ function startBypass(r) {
   const vp = Math.max(r.v, 2.2) + 1.8, ahead = enemies.filter(e => e.lane === b.lane && e.y < r.y - 20).sort((a, c) => c.y - a.y); // nearest first
   let last = t, need = 0;
   for (const e of ahead) { if (e !== t && last.y - e.y > 340) break; const rel = Math.max(0.6, vp - e.cur); need = Math.max(need, (r.y - e.y + lenOf(e) / 2 + CAR_H / 2 + 40) / rel * vp); last = e; }
-  b.L = clamp(need + 2 * BYPASS_RAMP * 0.5 + 160, 520, 1250); b.d = 0; b.state = "active"; r.bypassing = true;
-  bypassTrack = { side: b.side, lane: b.lane, y0: r.y, L: b.L, OFF: BYPASS_OFF, RAMP: BYPASS_RAMP };
+  b.L = clamp(need + (BYPASS_RAMP + BYPASS_BACK) * 0.5 + 110, 460, 1250); b.d = 0; b.state = "active"; r.bypassing = true;
+  bypassTrack = { side: b.side, lane: b.lane, y0: r.y, L: b.L, OFF: BYPASS_OFF, RAMP: BYPASS_RAMP, BACK: BYPASS_BACK };
   const used = r.usedNitro; startNitro(r); r.usedNitro = used; // nitro speed, but it doesn't count as "picking up nitro" for missions
   r.score += 25 * comboMult(r); pops.push({ r, text: "BYPASS!", t: 0 }); sound.tone(500, 1500, 0.3, "triangle", 0.08);
 }
@@ -105,7 +105,7 @@ function stepBypass(r) {
     b.target = bypassTarget(r, b); return;
   }
   b.d += speed; // distance covered on the side track
-  const k = clamp(b.d / BYPASS_RAMP, 0, 1), kOut = smooth(Math.min(k, clamp((b.L - b.d) / BYPASS_RAMP, 0, 1)));
+  const k = clamp(b.d / BYPASS_RAMP, 0, 1), kOut = smooth(Math.min(k, clamp((b.L - b.d) / BYPASS_BACK, 0, 1)));
   r.bypassX = laneX(b.lane) + b.side * BYPASS_OFF * kOut; r.bypassK = kOut; // the car follows the curved track exactly (bypassK: how far up the ramp it is)
   r.x = r.bypassX;
   if (b.d >= b.L) { r.bypassing = false; r.bypass = null; bypassTrack = null; r.x = laneX(r.lane); r.ghost = Math.max(r.ghost || 0, 90); r.bypassX = undefined; } // back on the road; a moment of grace in case
@@ -184,8 +184,9 @@ function spawnCurve(y = -AHEAD) {
 
 // Time-aware planner (Impossible): simulate every lane over the next stretch of road in short steps and pick the move
 // that keeps the car alive longest, so it escapes staggered walls of traffic that a one-step dodge can't.
-function aiPlan(r, p, look, ready, clearance) {
-  const v = Math.max(r.v, 1), DT = 4, N = clamp(Math.ceil(look / (v * DT)), 4, 26), margin = CAR_H - 6 + 16;
+function aiPlan(r, p, look, ready, clearance, pref) {
+  const v = Math.max(r.v, speed, 1), DT = 4, // (the road scrolls at the fastest car's pace: when you nitro / bypass, traffic closes on the CPU faster than its own speed)
+     N = clamp(Math.ceil(look / (v * DT)), 4, 26), margin = CAR_H - 6 + 16;
   const safe = Array.from({ length: N + 2 }, () => [true, true, true]);
   for (const e of enemies) {
     const d0 = r.y - e.y, ext = (lenOf(e) - CAR_H) / 2; // d0 > 0: it's ahead of us; ext: how much longer than a car it is at each end
@@ -212,11 +213,22 @@ function aiPlan(r, p, look, ready, clearance) {
     let val = surv[1][l2];
     if (val >= N) { // several fully safe options: staying put is best, then lanes with coins or nitro ahead
       val += l2 === cur ? 0.5 : 0;
-      if (p.greedy && pickups.some(k => k.lane === l2 && r.y - k.y > 0 && r.y - k.y < look * 0.6)) val += 0.8;
+      if (p.greedy && pickups.some(k => k.lane === l2 && k.type !== "curve" && r.y - k.y > 0 && r.y - k.y < look * 0.6)) val += 0.8;
+      if (pref !== undefined && Math.abs(l2 - pref) < Math.abs(cur - pref)) val += 0.7; // drifting towards its fancied lane (staying put is worth 0.5)
     }
     if (val > bestVal) { bestVal = val; bestLane = l2; }
   }
   if (bestLane !== cur) setLane(r, bestLane);
+}
+
+// the CPU's fancied lane: re-picked every few seconds, always a different lane from yours, so it doesn't just shadow your moves
+function wanderLane(r) {
+  const you = racers[0];
+  if (r.wanderLane === undefined || frame >= r.wanderUntil || (you && r.wanderLane === you.lane && frame > r.wanderAt + 40)) {
+    const opts = [0, 1, 2].filter(l => !you || l !== you.lane);
+    r.wanderLane = opts[Math.floor(Math.random() * opts.length)]; r.wanderAt = frame; r.wanderUntil = frame + Math.round(rnd(90, 260));
+  }
+  return r.wanderLane;
 }
 
 // Lane-change decision: dodge when a car in our lane is within sight, preferring the neighbour with more room.
@@ -224,7 +236,7 @@ function aiThink(r) {
   const p = r.ai;
   if (!aiGo() || frame < r.nextThink) return;
   r.nextThink = frame + p.think;
-  const look = p.look * Math.max(1, r.v / 2); // look further the faster we go
+  const look = p.look * Math.max(1, Math.max(r.v, speed) / 2); // look further the faster the road is coming at us
 
   const clearance = lane => {
     let c = Infinity;
@@ -240,14 +252,16 @@ function aiThink(r) {
 
   const ready = frame - r.lastMove >= p.cooldown;
   const here = clearance(r.lane);
+  const pref = p.wander ? wanderLane(r) : undefined; // a lane it fancies for a while, never the one you are in: it races its own race
 
-  if (p.plan) { aiPlan(r, p, look, ready, clearance); return; }
+  if (p.plan) { aiPlan(r, p, look, ready, clearance, pref); return; }
 
   if (here === Infinity) {
     if (p.greedy && ready) {
       const pk = pickups.filter(k => Math.abs(k.lane - r.lane) === 1 && r.y - k.y > 0 && r.y - k.y < look * 0.7).sort((a, b) => b.y - a.y)[0];
-      if (pk && clearance(pk.lane) === Infinity) setLane(r, pk.lane);
+      if (pk && clearance(pk.lane) === Infinity) { setLane(r, pk.lane); return; }
     }
+    if (pref !== undefined && ready && r.lane !== pref) { const l = r.lane + Math.sign(pref - r.lane); if (clearance(l) === Infinity) setLane(r, l); }
     return;
   }
   if (!ready) return;

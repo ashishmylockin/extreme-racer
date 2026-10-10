@@ -2,10 +2,10 @@
 // miss = chance it fails to notice a given car, cooldown = min frames between lane changes,
 // greedy = detours for coins when the road is clear, speed = the pace it likes to hold
 const DIFFS = {
-  easy:   { think: 24, look: 120, miss: 0.35, cooldown: 30, greedy: false, speed: 1.9, launch: 1.67 },
-  medium: { think: 14, look: 170, miss: 0.12, cooldown: 18, greedy: true,  speed: 2.5, launch: 2.5 },
-  hard:   { think: 6,  look: 230, miss: 0.02, cooldown: 8,  greedy: true,  speed: 3.1, launch: 3.33 },
-  impossible: { think: 1, look: 400, miss: 0, cooldown: 3, greedy: true, speed: 4.4, plan: true, accel: 0.05, launch: 5 }, // never misses a car, reacts every frame and runs flat out
+  easy:   { wander: true, think: 24, look: 120, miss: 0.35, cooldown: 30, greedy: false, speed: 1.9, launch: 1.67 },
+  medium: { wander: true, think: 14, look: 170, miss: 0.12, cooldown: 18, greedy: true,  speed: 2.5, launch: 2.5 },
+  hard:   { wander: true, think: 6,  look: 230, miss: 0.02, cooldown: 8,  greedy: true,  speed: 3.1, launch: 3.33 },
+  impossible: { wander: true, think: 1, look: 400, miss: 0, cooldown: 3, greedy: true, speed: 4.4, plan: true, accel: 0.05, launch: 5 }, // never misses a car, reacts every frame and runs flat out
 };
 const DEMO_AI = { think: 5, look: 230, miss: 0, cooldown: 8, greedy: false, speed: 2.8 };
 

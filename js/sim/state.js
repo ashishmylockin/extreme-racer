@@ -48,7 +48,7 @@ function tourParams(i) {
   const k = clamp(i / (ROUTE.length - 2), 0, 1);
   return { gap: Math.round(250 - 85 * k), vmin: 1.2 + 2.1 * k }; // 250 -> 165 between cars; ~72 -> ~198 km/h floor
 }
-const FINAL_CPU = { ...DIFFS.hard, speed: 4.7, miss: 0.01 }; // the Grand Final rival: Hard's reflexes, cruising at ~282 km/h
+const FINAL_CPU = { ...DIFFS.hard, wander: false, speed: 4.7, miss: 0.01 }; // the Grand Final rival: Hard's reflexes, cruising at ~282 km/h
 const totalStars = () => cityStars.reduce((a, s) => a + (s || 0), 0);
 let sel = 0, overAt = 0, garageIdx = 0, garageSpin = 0 /* right stick in the Garage: spins the turntable */, mapIdx = 0, runStage = 0, startDist = 0, toast = null, padG = [0, 0], padB = [0, 0], hasPad = false, hasTouch = false;
 const held = new Set();
