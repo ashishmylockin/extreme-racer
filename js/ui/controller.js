@@ -3,7 +3,7 @@
 const padPrev = {};
 
 function pollPads() {
-  padG = [0, 0]; padB = [0, 0];
+  padG = [0, 0]; padB = [0, 0]; garageSpin = 0;
   let list = [];
   try { list = navigator.getGamepads ? navigator.getGamepads() : []; } catch (e) {} // an iframe can block controllers (permissions policy): then there just aren't any
   const pads = Array.from(list || []).filter(g => g && g.connected);
@@ -11,7 +11,7 @@ function pollPads() {
   pads.forEach((g, k) => {
     const b = i => !!(g.buttons[i] && g.buttons[i].pressed), val = i => (g.buttons[i] ? g.buttons[i].value : 0);
     const ax = g.axes[0] || 0, ay = g.axes[1] || 0;
-    const now = { left: ax < -0.5 || b(14), right: ax > 0.5 || b(15), up: ay < -0.5 || b(12), down: ay > 0.5 || b(13), a: b(0), b: b(1), y: b(3), start: b(9), back: b(8) };
+    const now = { left: ax < -0.5 || b(14), right: ax > 0.5 || b(15), up: ay < -0.5 || b(12), down: ay > 0.5 || b(13), a: b(0), b: b(1), y: b(3), start: b(9), back: b(8), lb: b(4), rb: b(5) };
     const prev = padPrev[g.index] || {}, edge = n => now[n] && !prev[n];
     padPrev[g.index] = now;
 
@@ -27,6 +27,8 @@ function pollPads() {
     } else if (k === 0 && state === "title") {
       if (Object.keys(now).some(n => edge(n))) leaveTitle();
     } else if (k === 0) {
+      if (state === "garage" || state === "upgrades") { const rx = g.axes[2] || 0; garageSpin = Math.abs(rx) > 0.18 ? rx : 0; } // right stick: spin the turntable
+      if (state === "garage") { if (edge("lb")) menuAction("left"); if (edge("rb")) menuAction("right"); } // shoulder buttons browse the cars too
       if (edge("up")) menuAction("up");
       if (edge("down")) menuAction("down");
       if (edge("left")) menuAction("left");

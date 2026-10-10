@@ -14,20 +14,20 @@ const upLvl = k => upg[k] || 0;
 const nitroFramesFor = r => r.ai ? NITRO_FRAMES : Math.round(NITRO_FRAMES * (1 + 0.15 * upLvl("nitro")));
 function buyUpgrade(u) {
   const l = upLvl(u.key);
-  if (l >= 5 || wallet < UPG_COST[l]) { sound.tone(200, 120, 0.2, "sawtooth", 0.05); return; }
+  if (l >= 5 || wallet < UPG_COST[l]) { sound.tone(200, 120, 0.2, "sawtooth", 0.05); garageFx.denied(); return; }
   wallet -= UPG_COST[l]; upg[u.key] = l + 1;
   if (l + 1 >= 5) unlock("maxup");
   store.set("coins", wallet); store.set("upgrades", upg);
-  sound.tone(500, 1400, 0.3, "triangle", 0.08);
+  garageFx.upgraded();
 }
 
 function garageAction() {
   const t = TEAMS[garageIdx];
-  if (owned.includes(garageIdx)) { equipped = garageIdx; store.set("team", equipped); sound.tone(440, 880, 0.12); return; }
-  if (wallet < t.cost) { sound.tone(200, 120, 0.2, "sawtooth", 0.05); return; }
+  if (owned.includes(garageIdx)) { equipped = garageIdx; store.set("team", equipped); garageFx.equipped(); return; }
+  if (wallet < t.cost) { sound.tone(200, 120, 0.2, "sawtooth", 0.05); garageFx.denied(); return; }
   wallet -= t.cost; owned.push(garageIdx); equipped = garageIdx;
   store.set("coins", wallet); store.set("teams", owned); store.set("team", equipped);
-  sound.tone(500, 1400, 0.3, "triangle", 0.08);
+  garageFx.bought(garageIdx);
 }
 
 const songInput = document.getElementById("songInput");
@@ -252,6 +252,7 @@ function btnRect(menu, i) {
 }
 
 function menuIndexAt(px, py) {
+  if (domMenuActive()) return -1; // the Garage and Upgrades buttons are HTML: the canvas has none to hit
   if (state === "menu") { const hit = menuCards().slice().reverse().find(c => px >= c.x && px <= c.x + c.w && py >= c.y && py <= c.y + c.h); return hit ? hit.i : -1; } // nearest card first
   const menu = currentMenu();
   if (!menu) return -1;
@@ -277,6 +278,8 @@ function menuAction(a) {
   if (state === "garage" && (a === "left" || a === "right")) {
     garageIdx = (garageIdx + TEAMS.length + (a === "left" ? -1 : 1)) % TEAMS.length;
     sound.tone(520, 520, 0.05);
+  } else if (state === "upgrades" && (a === "left" || a === "right")) { // the upgrade cards sit side by side: left / right step along them (and Back)
+    sel = clamp(sel + (a === "left" ? -1 : 1), 0, n - 1); sound.tone(520, 520, 0.04, "square", 0.03);
   } else if (state === "map" && a !== "back") { // move around the grid; the road behind shows the selected city
     const c = Math.floor(mapIdx / MAP_ROWS), r = mapIdx % MAP_ROWS;
     if (a === "up") moveMap(c * MAP_ROWS + Math.max(0, r - 1));

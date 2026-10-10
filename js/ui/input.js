@@ -79,7 +79,7 @@ canvas.addEventListener("pointerdown", e => {
   const i = menuIndexAt(p.x, p.y);
   if (i >= 0 && state === "options" && OPTIONS_MENU[i].slider) { sel = i; const b = sliderBar(btnRect(currentMenu(), i)); setSlider(OPTIONS_MENU[i].slider, (p.x - b.x) / b.w); }
   else if (i >= 0) { sel = i; activate(i); }
-  else if (state === "garage" && p.y > 110 && p.y < 300) menuAction(p.x < W / 2 ? "left" : "right");
+  else if (state === "garage" && !domMenuActive() && p.y > 110 && p.y < 300) menuAction(p.x < W / 2 ? "left" : "right");
   else if (state === "map") { const t = ROUTE.findIndex((_, k) => inRect(p, mapTile(k), 0)); if (t >= 0) { moveMap(t); startCity(t); } } // tap a city to race it
 });
 const releasePedals = e => { // only the finger that pressed a pedal lets it go, so steering taps don't cut the throttle

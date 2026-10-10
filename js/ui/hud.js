@@ -600,12 +600,13 @@ function draw() {
   if (state === "playing" || state === "paused" || state === "camera") drawHud();
   if (flashT > 0.02) { ctx.fillStyle = `rgba(255,255,255,${flashT})`; ctx.fillRect(0, 0, W, H); }
 
+  garageUI.sync(); // the Garage / Upgrades screens are HTML over the 3D showroom: shown, hidden and refreshed here
   const moy = menuOY(); // menus and overlays are laid out for a 480-high screen: centre them on taller ones
   ctx.save(); ctx.translate(0, moy);
 
   if (state === "title" || state === "menu") { ctx.save(); ctx.translate(0, -moy); drawVersion(); ctx.restore(); }
   if (state === "title") drawTitle(moy);
-  if (state === "menu" || state === "tutorial" || state === "difficulty" || state === "tyres" || state === "garage" || state === "upgrades" || state === "options" || state === "graphics" || state === "songs" || state === "controls" || state === "credits" || state === "map" || state === "brief" || state === "stats") {
+  if (!domMenuActive() && (state === "menu" || state === "tutorial" || state === "difficulty" || state === "tyres" || state === "garage" || state === "upgrades" || state === "options" || state === "graphics" || state === "songs" || state === "controls" || state === "credits" || state === "map" || state === "brief" || state === "stats")) {
     ctx.fillStyle = window.R3D && state === "garage" ? "rgba(15,15,20,0.0)" : "rgba(15,15,20,0.66)"; // fade the highway behind the title (the 3D showroom needs no fade)
     ctx.fillRect(0, -moy, W, H);
     if (state === "map") drawMap();

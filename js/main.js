@@ -33,7 +33,7 @@ function render3D(alpha) { try { R3D.render(alpha); filmFrame(); if (r3dErrors >
 let errorsRecently = 0;
 function loop(now) {
   requestAnimationFrame(loop); // (scheduled first: whatever goes wrong below, the game keeps running instead of freezing)
-  if (window.R3D_PENDING) { lastTime = now; return; } // still loading the 3D assets: hold the game
+  if (window.R3D_PENDING || window.gFreeze) { lastTime = now; return; } // still loading (or frozen for a test screenshot) the 3D assets: hold the game
   try {
     if (!window.R3D) perfGuard(now - lastTime); // (the 2D renderer's "reduce effects" watchdog; the 3D renderer has its own Auto quality)
     acc += Math.min(100, now - lastTime);
@@ -76,7 +76,12 @@ requestAnimationFrame(loop);
   const q = new URLSearchParams(location.search), dev = q.get("dev");
   if (dev) {
     const [m, c, k] = dev.split(",");
-    if (m === "garage") { garageIdx = +c || 0; openMenu("garage"); }
+    if (m === "garage") { // garage,N: the Garage on team N.  &coins=N sets your coins, &own=all unlocks every car, &clean hides the 2D layer, &page=upgrades opens the Upgrades page, &buy=MS buys the car shown after MS ms
+      garageIdx = +c || 0; if (q.has("coins")) wallet = +q.get("coins"); if (q.get("own") === "all") owned = TEAMS.map((_, i) => i);
+      openMenu(q.get("page") === "upgrades" ? "upgrades" : "garage"); if (q.has("clean")) { document.getElementById("game").style.visibility = "hidden"; window.noGarageUI = true; }
+      if (q.has("buy")) setTimeout(() => garageAction(), +q.get("buy"));
+      if (q.has("gdebug")) setInterval(() => console.info("GDEBUG " + JSON.stringify(R3D.showroom && R3D.showroom.debug())), 2000);
+    }
     else if (m === "menu" || m === "options" || m === "graphics" || m === "stats" || m === "upgrades" || m === "credits" || m === "controls" || m === "songs" || m === "difficulty" || m === "tutorial") openMenu(m);
     else if (m === "tyres") startGame("tour", null, +c || 0); // the tyre choice before a World Tour race in city c
     else if (m === "map") openMap();

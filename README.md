@@ -19,7 +19,7 @@ Press **F** for fullscreen. To publish it, see [RELEASE_CHECKLIST.md](RELEASE_CH
 - Near misses build a combo that multiplies your score; faster driving always scores more
 - Nitro canisters that boost you the moment you hit them, rare shields that absorb one crash
 - Traffic that gets trickier: long trucks and roadworks; rain and night cities drive differently
-- Garage: 11 fictional teams (on a lit turntable) and upgrades (Handling, Nitro, Magnet, Shield)
+- Garage: 11 fictional teams in a mirror-floor showroom (drag the car or use the right stick to spin it; locked cars are shown as silhouettes) and upgrades (Handling, Nitro, Magnet, Shield)
 - Stats and 18 achievements; keyboard, controller and touch support, including portrait phones
 - Three cameras: overhead, chase and cockpit (3D cockpit with working mirrors); crash camera, start-line sweep, finish swing
 - **Photo mode:** pause, press **P**: free camera, filters, depth of field, hidden HUD, **Enter** saves a PNG

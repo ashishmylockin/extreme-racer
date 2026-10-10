@@ -48,7 +48,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
   const fx = createFX(scene, M.makeWheelDebris), bypass = createBypass(scene), bypassWin = { side: 1, zBack: 0, zFront: 0 };
   const reflect = createReflection(renderer, scene, camera, world.groundMeshes, world.reflectMats); // wet-road reflections (Ultra)
   const photo = createPhoto();
-  let showroom = null;
+  let showroom = null, showWas = false, menuFrames = 0; const inShowroom = () => state === "garage" || state === "upgrades";
   const GRADE = { Miami: { sat: 1.2, tint: [1.05, 0.97, 1.03] }, Shanghai: { sat: 0.85, tint: [0.95, 1, 1.06] }, London: { sat: 0.8 }, Brussels: { sat: 0.78 }, "Sao Paulo": { sat: 0.92 }, "Las Vegas": { sat: 1.2, contrast: 1.14 }, Singapore: { sat: 1.15, contrast: 1.1 }, Doha: { sat: 1.1, tint: [1.05, 1, 0.92] }, "Abu Dhabi": { sat: 1.15, tint: [1.08, 0.98, 0.9] }, Tokyo: { sat: 1.1, tint: [1.02, 0.99, 1.03] }, Austin: { tint: [1.06, 1, 0.93] }, "Mexico City": { sat: 1.12 }, Barcelona: { tint: [1.04, 1, 0.95] }, Salzburg: { sat: 1.06, tint: [0.97, 1, 1.03] }, Baku: { sat: 1.1, tint: [1.04, 0.98, 0.98] } };
   let nearPulse = 0, seenPop = null, tunnelK = 0;
 
@@ -134,18 +134,18 @@ export function createRenderer3D(canvas2d, glCanvas) {
   let sizeKey = "";
   function resize() {
     const cw = canvas2d.clientWidth, ch = canvas2d.clientHeight; if (!cw || !ch) return;
-    const sc = state === "title" || state === "menu" ? Math.max(Q.scale, 1.6) : Q.scale; // the title and main menu render at a very high resolution
+    const sc = state === "title" || state === "menu" ? Math.max(Q.scale, 1.6) : inShowroom() ? Math.max(Q.scale, Q.level === "low" ? 1 : 1.4) : Q.scale; // the title, main menu and Garage render at a very high resolution (they are cheap scenes)
     const pr = Math.max(0.5, Math.min(2.6, Math.min(Math.max(window.devicePixelRatio || 1, 1), 2) * sc)), key = `${cw}x${ch}@${pr}`;
     if (key === sizeKey) return; sizeKey = key;
     renderer.setPixelRatio(pr); renderer.setSize(cw, ch, false); post.setSize(cw, ch, pr);
     camera.aspect = cw / ch; camera.updateProjectionMatrix();
-    if (showroom) { showroom.camera.aspect = cw / ch; showroom.camera.updateProjectionMatrix(); }
+    if (showroom) showroom.resize(cw, ch);
   }
 
   // ---------- per-frame ----------
   let last = performance.now(), time = 0, frozen = null, fps = 60, crashAt = -1, crashClock = 0, finishAt = -1, fwT = 0, lastState = "";
   const camTarget = { x: 0, z: 0, v: 0, tilt: 0, nitro: false };
-  const R = { active: true, renderer, scene, camera, rig, tick, racerScreen, photo, refreshQuality: applyQuality, gfxDefaults, OPTIONS, cinematic: settings.cinema !== false, get fps() { return fps; }, get quality() { return Q; }, get autoLevel() { return auto.level; } };
+  const R = { active: true, renderer, scene, camera, rig, tick, racerScreen, photo, get showroom() { return showroom; }, refreshQuality: applyQuality, gfxDefaults, OPTIONS, cinematic: settings.cinema !== false, get fps() { return fps; }, get quality() { return Q; }, get autoLevel() { return auto.level; } };
 
   const INSPECT = new URLSearchParams(location.search).get("inspect"); // ?inspect=side|front|top: a fixed close-up of your car, for checking models
   function modeNow() {
@@ -164,7 +164,8 @@ export function createRenderer3D(canvas2d, glCanvas) {
     fps += (1000 / Math.max(1, ms) - fps) * 0.08; renderer.info.reset();
     if (auto.frame(ms, state === "playing")) applyQuality();
     resize();
-    if (state === "garage") { renderShowroom(dt); return; }
+    if (inShowroom()) { renderShowroom(dt); return; }
+    showWas = false; if (!showroom && state === "menu" && ++menuFrames === 90) buildShowroom(); // (the Garage is built while you sit on the main menu, so opening it is instant)
     post.setScene(scene, camera);
     const mode = modeNow();
     if (state !== lastState) { if (state === "cleared") finishAt = time; lastState = state; }
@@ -321,14 +322,32 @@ export function createRenderer3D(canvas2d, glCanvas) {
   R.render = render;
   R.init = async onProgress => { const n = await loadSkies(renderer, onProgress); applyQuality(); return n; }; // loads the HDRI skies; call once before the first render
 
-  // ---------- the Garage showroom ----------
+  // ---------- the Garage showroom (built once, reused; see showroom.js) ----------
+  const SETTLE = new URLSearchParams(location.search).get("settle"); const GFIX = new URLSearchParams(location.search).has("gscript");
+  function buildShowroom() {
+    const t0 = performance.now();
+    showroom = createShowroom({ renderer, makeCar: team => M.makeRaceCar(team) });
+    showroom.setQuality(Q); showroom.resize(canvas2d.clientWidth, canvas2d.clientHeight); showroom.warm(equipped, TEAMS[equipped]); sizeKey = "";
+    if (location.search.includes("stats")) console.info("SHOWROOM built in " + Math.round(performance.now() - t0) + " ms");
+  }
+  // testing: ?gscript=F:action,... plays the Garage at a fixed 60 fps, doing each action (left, right, buy, ...) at frame F, and stops the game on the frame named "freeze", so a screenshot can show any moment of a transition
+  function runGarageScript(view) {
+    const steps = new URLSearchParams(location.search).get("gscript").split(",").map(s => s.split(":")); let f = 0;
+    const frame = () => { f++; view.idx = garageIdx; view.team = TEAMS[garageIdx]; view.locked = !owned.includes(garageIdx); showroom.update(1 / 60, view); };
+    for (const [t, act] of steps) { while (f < +t) frame(); if (act === "freeze") { while (f < +t) frame(); window.gFreeze = true; document.getAnimations().forEach(a => a.pause()); console.info("GSCRIPT " + JSON.stringify({ d: showroom.debug(), layout: window.garageLayout })); return; } if (act === "buy") garageAction(); else if (/^(Arrow|Enter|Escape)/.test(act)) document.dispatchEvent(new KeyboardEvent("keydown", { code: act, bubbles: true })); else menuAction(act); }
+  }
   function renderShowroom(dt) {
-    if (!showroom) { showroom = createShowroom(team => M.makeRaceCar(team)); showroom.useEnvironment(); sizeKey = ""; resize(); }
-    showroom.update(dt, garageIdx, TEAMS[garageIdx]);
+    if (!showroom) buildShowroom();
+    const view = { idx: garageIdx, team: TEAMS[garageIdx], locked: !owned.includes(garageIdx), spinIn: garageSpin };
+    showroom.setQuality(Q); showroom.setLayout(window.garageLayout);
+    if (!showWas) { showWas = true; showroom.enter(); if (SETTLE !== null) { for (let i = 0; i < 30; i++) showroom.update(0.05, view); showroom.spin(+SETTLE || 0); } } // (testing: ?settle=ANGLE skips the intro and starts at that turntable angle)
+    if (GFIX && !window.gDone) { window.gDone = true; runGarageScript(view); if (window.gFreeze) dt = 0; } // (testing)
+    showroom.update(dt, view);
+    showroom.beforeRender();
     post.setScene(showroom.scene, showroom.camera);
-    const U = post.u; U.sat.value = 1.08; U.contrast.value = 1.08; U.tint.value.setRGB(1, 1, 1); U.vig.value = 0.45; U.blur.value = 0; U.aberr.value = 0; U.heat.value = 0; U.flareAmt.value = 0; U.fmode.value = 0; U.time.value = time;
-    post.bloom.strength = 0.35; post.bloom.threshold = 1.3; post.bloom.radius = 0.6; post.bokeh.enabled = false;
-    showroom.key.castShadow = Q.shadows > 0;
+    const U = post.u; U.sat.value = 1.08; U.contrast.value = 1.06; U.tint.value.setRGB(1, 1, 1); U.vig.value = 0.4; U.blur.value = 0; U.aberr.value = 0; U.heat.value = 0; U.flareAmt.value = 0; U.fmode.value = 0; U.time.value = time;
+    post.bloom.strength = 0.32; post.bloom.threshold = 1.2; post.bloom.radius = 0.6; post.bokeh.enabled = false;
+    post.smaa.enabled = Q.level !== "low"; post.fxaa.enabled = !post.smaa.enabled && Q.fxaa; // (best anti-aliasing the machine can afford: the scene is cheap)
     post.render(dt);
   }
 
