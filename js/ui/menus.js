@@ -174,7 +174,7 @@ const TIPS = [
     ctx.save(); ctx.scale(0.55, 0.55); drawCar(TEAMS[equipped]); ctx.restore();
     ctx.fillStyle = "#ffd23f"; for (const s of [-1, 1]) poly([[s * 74, -14], [s * 74, 14], [s * 94, 0]]);
   } },
-  { title: "LAUNCH START", lines: ["Hold GAS + BRAKE (RT + LT) on the grid,", "and let go the moment the lights go GREEN:", "300 km/h! A moment later: 200, then 100."], icon: () => {
+  { title: "LAUNCH START", lines: ["Hold GAS + BRAKE (RT + LT) on the grid,", "let go with the needle in the GREEN: 300 km/h!", "Orange = 200, red = 100."], icon: () => {
     for (const [y, col] of [[-16, "#ff2a2a"], [18, "#39ff6a"]]) for (let i = 0; i < 5; i++) {
       ctx.fillStyle = "#111"; ctx.beginPath(); ctx.arc(-56 + i * 28, y, 12, 0, TAU); ctx.fill();
       ctx.fillStyle = col; ctx.beginPath(); ctx.arc(-56 + i * 28, y, 8, 0, TAU); ctx.fill();

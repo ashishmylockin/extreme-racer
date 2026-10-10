@@ -66,32 +66,22 @@ const wetnessNow = () => clamp(((pal && pal.rain) || 0) / 0.7, 0, 1);
 const gripNow = r => r.ai ? 1 : gripOf(r.tyre || "dry", wetnessNow());
 
 // ---- the start-line launch: hold gas and brake together (RT + LT, Up + Down) to rev; the needle sweeps up and down; let go in the green ----
-// The needle sweeps up and down while you hold gas + brake together. The moment the lights turn GREEN it locks into the green zone for exactly
-// 0.4 s (24 frames): let go then for the perfect start. After that it carries on sweeping, and the green zone no longer counts as perfect.
-const NEEDLE_PERIOD = 130, GREEN_WINDOW = 24; // frames for one full sweep up and back; frames the needle is held in the green after the lights change
+// The start-line launch needle sweeps up and down while you hold gas + brake together; let go and the zone it is in decides your launch speed.
+const NEEDLE_PERIOD = 130; // frames for one full sweep up and back
 function chargeLaunch(r) {
   if (r.launched || r.launchLocked) { r.charging = false; return; }
-  const p = pedals(r), both = p.gas > 0.3 && p.brake > 0.3, t = grid.done ? frame - grid.goFrame : -1; // t: frames since green (-1: still red)
+  const p = pedals(r), both = p.gas > 0.3 && p.brake > 0.3;
   if (both) {
-    r.charging = true; r.inWindow = t >= 0 && t < GREEN_WINDOW;
-    if (r.inWindow) r.needle = 0.8; // held exactly in the green
-    else {
-      if (t === GREEN_WINDOW) r.needleT = 0.3 * NEEDLE_PERIOD; // (picks the sweep up from the green, rising: no jump)
-      r.needleT = (r.needleT || 0) + 1; r.needle = 0.5 - 0.5 * Math.cos(r.needleT / NEEDLE_PERIOD * TAU);
-    }
-    r.rev = clamp(0.2 + 0.8 * r.needle, 0, 1); // (the engine note follows the needle)
+    r.charging = true; r.needleT = (r.needleT || 0) + 1; r.needle = 0.5 - 0.5 * Math.cos(r.needleT / NEEDLE_PERIOD * TAU); r.rev = clamp(0.2 + 0.8 * r.needle, 0, 1); // (the engine note follows the needle)
     return;
   }
-  if (r.charging) { // let go of a pedal
-    r.charging = false;
-    if (t < 0) { pops.push({ r, text: "TOO EARLY - HOLD AGAIN", t: 0 }); sound.tone(260, 170, 0.2, "sawtooth", 0.05); r.needleT = 0; r.needle = 0; return; } // before the lights go green nothing is locked in
-    r.launchLocked = true; let z = launchZoneOf(r.needle || 0);
-    if (z === LAUNCH_ZONES[0] && !r.inWindow) z = LAUNCH_ZONES[1]; // the green only counts as perfect in the 0.4 s after the lights change
-    r.launchZone = z; r.launchGoal = z.v; r.rev = 0.3;
+  if (r.charging) { // let go of a pedal: the needle's place decides the launch
+    r.charging = false; r.launchLocked = true; const z = launchZoneOf(r.needle || 0); r.launchZone = z; r.launchGoal = z.v; r.rev = 0.3;
     if (z === LAUNCH_ZONES[0]) unlock("react");
     pops.push({ r, text: `${z.name} START! ${Math.round(z.v * 60)}`, t: 0 }); sound.tone(520, 1040, 0.18, "triangle", 0.07);
   } else r.rev += clamp(p.gas - r.rev, -0.08, 0.05); // gas alone just revs the engine
 }
+
 
 // ---- the bypass: the pop-up in an outside lane arms it; steering out of the road (left in the left lane, right in the right lane) then
 // curves you round the next vehicle on a track of its own, at nitro speed, and drops you back where the lane is clear ----
