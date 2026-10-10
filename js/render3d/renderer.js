@@ -187,7 +187,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
       for (const f of ud.front) f.rotation.y = -Math.max(-0.5, Math.min(0.5, tilt * 1.4));
       ud.brake.material.emissiveIntensity = r.braking ? 3 : 0.15;
       if (ud.setTyre && rec.tyre !== r.tyre) { rec.tyre = r.tyre; ud.setTyre(r.tyre || "dry"); } // the compound band on the sidewalls
-      if (r.slip && fxDt > 0 && Math.random() < 0.5) fx.tyreSmoke(x, z, [0.85, 0.86, 0.9], 0.28); // wrong tyres for the weather: they smoke as they slide
+      if (r.slip && fxDt > 0 && RACE_STATES.has(state) && Math.random() < 0.5) fx.tyreSmoke(x, z, [0.85, 0.86, 0.9], 0.28); // wrong tyres for the weather: they smoke as they slide
       if (ud.discMat) { const goal = r.alive ? (r.hardBrake ? 3.5 : r.braking ? 1.4 : 0) : 0, d = ud.discMat; d.emissiveIntensity += (goal - d.emissiveIntensity) * Math.min(1, dt * (goal > d.emissiveIntensity ? 14 : 3)); } // brake discs glow orange when you brake, and cool slowly
       if (!ud.beam) { ud.beam = nightFx.makeBeam(); o.add(ud.beam); ud.flame = fx.makeFlame(); o.add(ud.flame); }
       ud.beam.visible = pal.dark > 0.012 && r.alive;
@@ -203,12 +203,12 @@ export function createRenderer3D(canvas2d, glCanvas) {
       if (rec.crashed && time - rec.crashTime < 7 && fxDt > 0) { fx.fire(x, z); fx.fire(x, z); }
       if (rec.hadShield && !r.shield && r.alive) fx.shield(x, z); rec.hadShield = !!r.shield;
       if (r.nitro > 0 && !rec.nitroOn && fxDt > 0) fx.nitroStart(x, z); rec.nitroOn = r.nitro > 0;
-      if (fxDt > 0 && r.alive) {
+      if (fxDt > 0 && r.alive && RACE_STATES.has(state)) { // (no dust, spray or tyre smoke behind the demo cars on the title and menus: a clean picture)
         if (r.hardBrake && Math.random() < 0.6) fx.tyreSmoke(x, z, [0.82, 0.82, 0.82]);
         else if (wet > 0.3 && r.v > 1.5 && Math.random() < 0.35 * Q.particles) fx.tyreSmoke(x, z, [0.75, 0.82, 0.92], 0.22);   // spray off a wet road
         else if (stA.desert && r.v > 1.5 && Math.random() < 0.25 * Q.particles) fx.tyreSmoke(x, z, [0.8, 0.7, 0.5], 0.25);       // dust in the desert
       }
-      if (Q.trails && fxDt > 0) {
+      if (Q.trails && fxDt > 0 && RACE_STATES.has(state)) {
         const tr = fx.trailsFor(r.id), nit = r.alive && r.nitro > 0, amt = nit ? 1 : (r.alive && night > 0.3 && r.v > 1.5 ? 0.5 : 0), rgb = nit ? [0.45, 0.8, 1.3] : [1.3, 0.12, 0.06];
         tr.l.step(x - 1.15 * c + 3.4 * s, 1.2, z + 1.15 * s + 3.4 * c, shiftZ, rgb, amt); tr.r.step(x + 1.15 * c + 3.4 * s, 1.2, z - 1.15 * s + 3.4 * c, shiftZ, rgb, amt);
       }
