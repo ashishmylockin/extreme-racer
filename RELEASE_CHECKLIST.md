@@ -5,10 +5,10 @@ The game is now a **folder** (index.html + css/ + js/ + lib/ + assets/), not a s
 ## 1. Before you upload
 
 - [ ] Bump `VERSION` in `js/data/config.js` (shown on the menu and in Credits).
-- [ ] Run the game from a web server (VS Code **Live Server**, or `powershell -ExecutionPolicy Bypass -File tools/serve.ps1`). Opening `index.html` by double-click will NOT load the 3D models (browsers block that), so the game would fall back to the 2D look.
+- [ ] Run the game from a web server (VS Code **Live Server**). Opening `index.html` by double-click will NOT load the 3D models (browsers block that), so the game would fall back to the 2D look.
 - [ ] Play one full city in each mode: World Tour, Daily Challenge, Endless, VS Computer, Multiplayer.
 - [ ] Try all three cameras (C), pause / resume, crash and R to retry, the Garage, photo mode (P while paused).
-- [ ] Try Settings → Graphics: Low, Medium, High, Ultra and Auto. Turn on the FPS counter.
+- [ ] Try Settings → Graphics: Low, Medium, High, Ultra, Max and Auto. Turn on the FPS counter.
 - [ ] Test on a phone (portrait and landscape) and with a controller if you have one.
 - [ ] Test in a private / incognito window: a fresh player should see the loading screen, the title, then the tutorial on their first race.
 - [ ] Sound starts after the first click or key, and goes quiet when you switch tabs.

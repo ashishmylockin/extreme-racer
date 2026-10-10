@@ -15,6 +15,7 @@ import { SCALE, roadHalf } from "../mapping.js";
 import { rng, hash, noise2 } from "./rng.js";
 import { profileOf, ZONES, PALETTES, FACADES, LANDMARKS_3D } from "./profiles.js";
 import { SlotMesh } from "./slotmesh.js";
+import { MAX_CITY_AHEAD } from "../quality.js";
 import { unitBox, unitPlane, roofGeo, lampGeo, lampGlowGeo, personGeo, headGeo, hillGeo, treeGeos, yachtGeo, busStopGeo, carGeo, fenceTexture, flowerBedGeo } from "./geo.js";
 import { shared, buildingMaterial, solidMaterial, makeSignAtlas, signMaterial, signRect, SIGN_COUNT, makeBannerAtlas, groundMaterials } from "./materials.js";
 import { leafMat, crowdMat, setCrowd, lightWindows, windowMats } from "../scenery.js";
@@ -90,7 +91,7 @@ export function createCity(scene) {
   const modelPick = { all: modelG.map((_, i) => i), low: modelG.map((g, i) => g.tower ? -1 : i).filter(i => i >= 0) }; // (old towns get no glass skyscrapers)
   const modelsFor = prof => prof.towers === false ? modelPick.low : modelPick.all;
 
-  const slotsOf = id => Math.ceil((AHEAD[id] + BEHIND[id]) / { F: LF, B: LB, S: LS, G: LG }[id]) + 2;
+  const slotsOf = id => Math.ceil((AHEAD[id] * MAX_CITY_AHEAD + BEHIND[id]) / { F: LF, B: LB, S: LS, G: LG }[id]) + 2; // (room for the furthest graphics preset)
   const nF = slotsOf("F"), nB = slotsOf("B"), nS = slotsOf("S"), nG = slotsOf("G");
 
   // ---- the instanced meshes ----
@@ -489,7 +490,7 @@ export function createCity(scene) {
 
   return {
     root, ground, lamps, get lampCount() { return lampCount; },
-    setQuality(q) { quality = { ahead: q.ahead ?? 1, density: q.density ?? 1 }; },
+    setQuality(q) { quality = { ahead: Math.min(MAX_CITY_AHEAD, q.ahead ?? 1), density: q.density ?? 1 }; },
     setSignStyle(style) { signMat.map = signTex[style] || signTex.paint; },
     // clear everything beside the road along the bypass track (barrier, lamps, trees, parked cars, people, signs, props): you should see only the track
     setBypass(track) { bypassClear = track || null; },

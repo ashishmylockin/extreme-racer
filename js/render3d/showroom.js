@@ -143,7 +143,7 @@ export function createShowroom({ renderer, makeCar }) {
   }
 
   function setQuality(Q) {
-    const sh = Q.shadows > 0 && Q.level !== "low" ? Math.min(Q.shadows, 2048) : 0;
+    const sh = Q.shadows > 0 ? (Q.garageShadows ?? Math.min(Q.shadows, 2048)) : 0;
     if (Q.level === lvl && sh === shadowSize) return;
     lvl = Q.level; shadowSize = sh; key.castShadow = sh > 0;
     if (sh > 0 && key.shadow.mapSize.x !== sh) { key.shadow.mapSize.set(sh, sh); if (key.shadow.map) { key.shadow.map.dispose(); key.shadow.map = null; } }

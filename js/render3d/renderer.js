@@ -62,7 +62,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
     Q = resolve(qSettings(), auto.level);
     for (const kv of (new URLSearchParams(location.search).get("q") || "").split(",")) { const [k, v] = kv.split(":"); if (k && v !== undefined) Q[k] = v === "true" ? true : v === "false" ? false : +v; } // testing: ?q=msaa:0,shadows:1024 overrides single quality values
     renderer.shadowMap.enabled = Q.shadows > 0; world.sun.castShadow = Q.shadows > 0;
-    world.setShadowArea(Q.shadows >= 4096 ? 125 : Q.shadows >= 2048 ? 100 : 70, Q.shadows >= 2048 ? 45 : 25); // sharper shadow maps can stretch over more of the road ahead
+    world.setShadowArea(Math.min(Q.shadowArea || 100, Q.shadows >= 4096 ? 125 : Q.shadows >= 2048 ? 100 : 70), Q.shadows >= 2048 ? 45 : 25); // sharper shadow maps can stretch over more of the road ahead
     post.setAO(Q.ao || 0);
     if (world.sun.shadow.mapSize.x !== Q.shadows && Q.shadows > 0) { world.sun.shadow.mapSize.set(Q.shadows, Q.shadows); if (world.sun.shadow.map) { world.sun.shadow.map.dispose(); world.sun.shadow.map = null; } }
     renderer.shadowMap.needsUpdate = true;
@@ -136,7 +136,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
   let sizeKey = "";
   function resize() {
     const cw = canvas2d.clientWidth, ch = canvas2d.clientHeight; if (!cw || !ch) return;
-    const sc = state === "title" || state === "menu" ? Math.max(Q.scale, 1.6) : inShowroom() ? Math.max(Q.scale, Q.level === "low" ? 1 : 1.4) : Q.scale; // the title, main menu and Garage render at a very high resolution (they are cheap scenes)
+    const sc = state === "title" || state === "menu" ? Math.max(Q.scale, Q.menuScale || 1) : inShowroom() ? Math.max(Q.scale, Q.garageScale || 1) : Q.scale * (Q.level === "low" ? auto.dynScale : 1); // the title, main menu and Garage are cheap scenes: they render sharper (by how much: the preset)
     const pr = Math.max(0.5, Math.min(2.6, Math.min(Math.max(window.devicePixelRatio || 1, 1), 2) * sc)), key = `${cw}x${ch}@${pr}`;
     if (key === sizeKey) return; sizeKey = key;
     renderer.setPixelRatio(pr); renderer.setSize(cw, ch, false); post.setSize(cw, ch, pr);
@@ -165,6 +165,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
     const now = performance.now(), ms = now - last, dt = Math.min(0.1, ms / 1000); last = now; time += dt;
     fps += (1000 / Math.max(1, ms) - fps) * 0.08; renderer.info.reset();
     if (auto.frame(ms, state === "playing")) applyQuality();
+    if (Q.level === "low" && state === "playing") auto.lowFrame(ms); // (Low keeps 60 fps by trading resolution: see dynScale)
     resize();
     if (inShowroom()) { renderShowroom(dt); return; }
     showWas = false; if (!showroom && state === "menu" && ++menuFrames === 90) buildShowroom(); // (the Garage is built while you sit on the main menu, so opening it is instant)
@@ -206,13 +207,13 @@ export function createRenderer3D(canvas2d, glCanvas) {
       if (rec.crashed && time - rec.crashTime < 7 && fxDt > 0) { fx.fire(x, z); fx.fire(x, z); }
       if (rec.hadShield && !r.shield && r.alive) fx.shield(x, z); rec.hadShield = !!r.shield;
       if (r.nitro > 0 && !rec.nitroOn && fxDt > 0) fx.nitroStart(x, z); rec.nitroOn = r.nitro > 0;
-      if (fxDt > 0 && r.alive && RACE_STATES.has(state)) { // (no dust, spray or tyre smoke behind the demo cars on the title and menus: a clean picture)
+      if (fxDt > 0 && r.alive && RACE_STATES.has(state) && !(cam === 2 && r.id === 0)) { // (no dust, spray or tyre smoke behind the demo cars on the title and menus: a clean picture; none from your own car in the cockpit, where it would bloom right in front of your eyes)
         if (r.hardBrake && Math.random() < 0.6) fx.tyreSmoke(x, z, [0.82, 0.82, 0.82]);
         else if (wet > 0.3 && r.v > 1.5 && Math.random() < 0.35 * Q.particles) fx.tyreSmoke(x, z, [0.75, 0.82, 0.92], 0.22);   // spray off a wet road
         else if (stA.desert && r.v > 1.5 && Math.random() < 0.25 * Q.particles) fx.tyreSmoke(x, z, [0.8, 0.7, 0.5], 0.25);       // dust in the desert
       }
       if (Q.trails && fxDt > 0 && RACE_STATES.has(state)) {
-        const tr = fx.trailsFor(r.id), nit = r.alive && r.nitro > 0, amt = nit ? 1 : (r.alive && night > 0.3 && r.v > 1.5 ? 0.5 : 0), rgb = nit ? [0.45, 0.8, 1.3] : [1.3, 0.12, 0.06];
+        const tr = fx.trailsFor(r.id), nit = r.alive && r.nitro > 0, amt = nit ? 1 : 0, rgb = [0.45, 0.8, 1.3]; // only during nitro: a thin blue streak that fades fast (no red tail-light ribbons at night)
         tr.l.step(x - 1.15 * c + 3.4 * s, 1.2, z + 1.15 * s + 3.4 * c, shiftZ, rgb, amt); tr.r.step(x + 1.15 * c + 3.4 * s, 1.2, z - 1.15 * s + 3.4 * c, shiftZ, rgb, amt);
       }
     }

@@ -72,7 +72,7 @@ function gfxApply() { saveSettings(); if (window.R3D) R3D.refreshQuality(); fit(
 const gfxShown = key => settings[key] || (R3D.gfxDefaults(R3D.quality.level)[key]); // what a setting currently is (its own value, or the preset's)
 const GRAPHICS_MENU = [
   { label: () => window.R3D ? `Graphics: ${settings.gfx === "auto" ? `Auto (${cap(R3D.quality.level)})` : cap(settings.gfx)}` : "Graphics: 2D mode", w: 300,
-    cycle: dir => { if (!window.R3D) return; settings.gfx = cycleIn(["auto", "low", "medium", "high", "ultra"], settings.gfx, dir); Object.assign(settings, { renderScale: 0, shadows: "", effects: "", drawDist: "" }); gfxApply(); }, go: () => GRAPHICS_MENU[0].cycle(1) },
+    cycle: dir => { if (!window.R3D) return; settings.gfx = cycleIn(["auto", "low", "medium", "high", "ultra", "max"], settings.gfx, dir); Object.assign(settings, { renderScale: 0, shadows: "", effects: "", drawDist: "" }); gfxApply(); }, go: () => GRAPHICS_MENU[0].cycle(1) },
   { label: () => window.R3D ? `Render scale: ${Math.round(R3D.quality.scale * 100)}%` : "Render scale: -", w: 300,
     cycle: dir => { if (!window.R3D) return; settings.renderScale = cycleIn(R3D.OPTIONS.SCALES, R3D.quality.scale, dir); gfxApply(); }, go: () => GRAPHICS_MENU[1].cycle(1) },
   { label: () => window.R3D ? `Shadows: ${cap(gfxShown("shadows"))}` : "Shadows: -", w: 300,

@@ -6,8 +6,7 @@ A browser racing game: dodge traffic in an open-wheel race car on a world tour t
 
 The game is a folder of files, so it must be served by a web server (opening `index.html` by double-click only gives you the 2D fallback):
 
-- **VS Code:** right-click `index.html` → **Open with Live Server**, or
-- **PowerShell:** `powershell -ExecutionPolicy Bypass -File tools/serve.ps1` and open http://localhost:5500/
+- **VS Code:** right-click `index.html` → **Open with Live Server**
 
 Press **F** for fullscreen. To publish it, see [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md).
 
@@ -20,10 +19,10 @@ Press **F** for fullscreen. To publish it, see [RELEASE_CHECKLIST.md](RELEASE_CH
 - Nitro canisters that boost you the moment you hit them, rare shields that absorb one crash
 - Traffic that gets trickier: long trucks and roadworks; rain and night cities drive differently
 - Garage: 11 fictional teams in a mirror-floor showroom (drag the car or use the right stick to spin it; locked cars are shown as silhouettes) and upgrades (Handling, Nitro, Magnet, Shield)
-- Stats and 18 achievements; keyboard, controller and touch support, including portrait phones
+- Stats and 18 achievements; keyboard, controller (Xbox, PlayStation, Nintendo) and touch, including portrait phones. The game notices what you are holding and every on-screen prompt switches to those keys or buttons; Settings → Controls lists them all
 - Three cameras: overhead, chase and cockpit (3D cockpit with working mirrors); crash camera, start-line sweep, finish swing
 - **Photo mode:** pause, press **P**: free camera, filters, depth of field, hidden HUD, **Enter** saves a PNG
-- **Settings → Graphics:** Auto / Low / Medium / High / Ultra, render scale, shadows, effects, draw distance, FPS counter
+- **Settings → Graphics:** Auto / Low / Medium / High / Ultra / Max, render scale, shadows, effects, draw distance, FPS counter (Low lowers its resolution by itself to hold 60 fps)
 
 ## How the project is organised
 
@@ -38,7 +37,7 @@ js/render2d/          the original 2D renderer (kept as the fallback)
 js/render3d/          the Three.js renderer: scene, models, cameras, weather, night, post-processing, photo mode
 lib/three/            Three.js (pinned to r170) and the add-ons we use, no CDN
 assets/               models (.glb) and sky images (.hdr)
-tools/                serve.ps1 (a tiny test server), inspect.html (model inspector)
+tools/                inspect.html (model inspector) and the car / landmark / builder lab pages
 ```
 
 The game logic never knows about 3D: `js/render3d/mapping.js` is the single place that turns the simulation's flat coordinates into 3D world units, and the 3D renderer only *reads* the simulation's state.

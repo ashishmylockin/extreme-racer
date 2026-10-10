@@ -674,7 +674,7 @@ function drawHud() {
   }
   const menuUp = state === "paused" || state === "camera"; // (a menu is open over the race: the bottom of the HUD steps aside for its prompts)
   if (p0.alive && cam !== 2 && !menuUp) drawGauge(p0);
-  if (menuUp) {} else if (cam === 2) text(`${ROUTE[stageIdx].country}  ${runKm()} km`, 48, 11, "left", "#fff"); // the wheel covers the bottom bar
+  if (menuUp) {} else if (cam === 2) textAt(`${ROUTE[stageIdx].country}  ${runKm()} km`, 46, 52, 11, "left", "#fff"); // (beside the shield icon, under the coins) // the wheel covers the bottom bar
   else drawStageBar();
   if (state === "playing" && (!grid.done || frame < grid.goFrame + 120)) { // what to do, tucked low so it never covers the road
     const f = grid.done ? clamp((grid.goFrame + 120 - frame) / 30, 0, 1) : 1;

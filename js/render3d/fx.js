@@ -49,7 +49,7 @@ const hexRgb = h => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
 
 // ---- light trails: a ribbon that streams behind a point on a car ----
 class Trail {
-  constructor(scene, n = 36, width = 0.45) {
+  constructor(scene, n = 16, width = 0.1) {
     this.n = n; this.w = width; this.pts = Array.from({ length: n }, () => new THREE.Vector3(0, -50, 0)); this.fade = 0;
     const g = this.geo = new THREE.BufferGeometry(), pos = new Float32Array(n * 2 * 3), col = new Float32Array(n * 2 * 4), idx = [];
     g.setAttribute("position", new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage)); g.setAttribute("color", new THREE.BufferAttribute(col, 4).setUsage(THREE.DynamicDrawUsage));
@@ -61,13 +61,13 @@ class Trail {
   clear() { for (const p of this.pts) p.set(0, -50, 0); this.fade = 0; this.mesh.visible = false; }
   // add a new head point, slide the old ones back with the road, redraw. rgb in 0..1; amount 0..1 fades the whole ribbon in or out
   step(x, y, z, shiftZ, rgb, amount) {
-    this.fade += (amount - this.fade) * 0.2;
+    this.fade += (amount - this.fade) * (amount > this.fade ? 0.25 : 0.4); // (quick to go once the nitro is spent)
     for (const p of this.pts) p.z += shiftZ;
     const head = this.pts.pop(); head.set(x, y, z); this.pts.unshift(head); // the oldest point is reused as the new head
     this.mesh.visible = this.fade > 0.02; if (!this.mesh.visible) return;
     const pos = this.geo.attributes.position.array, col = this.geo.attributes.color.array;
     for (let i = 0; i < this.n; i++) {
-      const p = this.pts[i], f = (1 - i / (this.n - 1)) * this.fade;
+      const p = this.pts[i], k = 1 - i / (this.n - 1), f = k * k * this.fade; // (bright at the car, gone within a few metres)
       pos.set([p.x, p.y + this.w, p.z, p.x, p.y - this.w, p.z], i * 6);
       col.set([rgb[0], rgb[1], rgb[2], f * 0.9, rgb[0], rgb[1], rgb[2], f * 0.9], i * 8);
     }
