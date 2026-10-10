@@ -276,12 +276,12 @@ export function makeWorks(lenSim) {
   return grp;
 }
 
-// ---- the bypass pop-up: a glowing curved arrow standing over an outside lane, pointing the way out of the road ----
-export function makeCurve(side) { // side: -1 = left lane (arrow points left), +1 = right
+// ---- the bypass pop-up: a glowing curved arrow over an outside lane that bends out of the road, the way you will steer ----
+export function makeCurve(side) { // side: -1 = left lane (the arrow bends left), +1 = right lane (bends right)
   const grp = new THREE.Group(), m = new THREE.MeshStandardMaterial({ color: "#2ad4ff", emissive: "#17b8ff", emissiveIntensity: 1.6, roughness: 0.3, metalness: 0.2 });
-  const arc = new THREE.TorusGeometry(2.1, 0.28, 8, 24, Math.PI * 0.62); // a curved path: starts straight ahead, bends away from the road
-  const body = new THREE.Mesh(arc, m); body.rotation.set(-Math.PI / 2, 0, Math.PI / 2 * (side > 0 ? -1 : 1) + (side > 0 ? 0 : Math.PI)); body.position.set(-side * 1.4, 1.6, 0.4);
-  const head = new THREE.Mesh(new THREE.ConeGeometry(0.62, 1.3, 12), m); head.position.set(side * 1.7, 1.6, -0.6); head.rotation.z = -side * Math.PI / 2;
-  const base = new THREE.Mesh(new THREE.CylinderGeometry(2.6, 2.6, 0.1, 28), new THREE.MeshBasicMaterial({ color: "#2ad4ff", transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending })); base.position.y = 0.12;
-  grp.add(body, head, base); grp.userData = { kind: "curve" }; return grp;
+  const path = new THREE.QuadraticBezierCurve3(new THREE.Vector3(-side * 1.4, 1.7, 1.9), new THREE.Vector3(-side * 1.4, 1.7, -1.3), new THREE.Vector3(side * 1.4, 1.7, -1.3)); // starts heading up the road, ends heading outward
+  const tube = new THREE.Mesh(new THREE.TubeGeometry(path, 20, 0.3, 8), m);
+  const head = new THREE.Mesh(new THREE.ConeGeometry(0.85, 1.5, 14), m); head.position.set(side * 2.1, 1.7, -1.3); head.rotation.z = -side * Math.PI / 2; // points outward
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(2.8, 2.8, 0.1, 28), new THREE.MeshBasicMaterial({ color: "#2ad4ff", transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending })); base.position.y = 0.12;
+  grp.add(tube, head, base); grp.userData = { kind: "curve" }; return grp;
 }

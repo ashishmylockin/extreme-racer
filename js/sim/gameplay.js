@@ -83,15 +83,15 @@ function chargeLaunch(r) {
 
 // ---- the bypass: the pop-up in an outside lane arms it; steering out of the road (left in the left lane, right in the right lane) then
 // curves you round the next vehicle on a track of its own, at nitro speed, and drops you back where the lane is clear ----
-const BYPASS_OFF = 118, BYPASS_RAMP = 280; // how far beside the lane the side track runs, and how long the curve out / back takes
+const BYPASS_OFF = 112, BYPASS_RAMP = 170; // how far beside the lane the side track runs, and how long the curve out / back takes (short and sharp)
 function bypassTarget(r, b) { let best = null; for (const e of enemies) if (e.lane === b.lane && e.y < r.y - 20 && (!best || e.y > best.y)) best = e; return best; } // the nearest vehicle ahead in that lane
 function startBypass(r) {
   const b = r.bypass, t = bypassTarget(r, b); if (!t) return;
-  // how far the side track has to run: until the target and everything behind it in that lane are passed and a clear stretch is ahead
-  const vp = Math.max(r.v, 2.2) + 1.8; let dMax = 700;
-  const ahead = enemies.filter(e => e.lane === b.lane && e.y < r.y - 20).sort((a, c) => c.y - a.y); // nearest first
-  for (const e of ahead) { const rel = Math.max(0.6, vp - e.cur), need = (r.y - e.y + lenOf(e) / 2 + CAR_H / 2 + 60) / rel * vp; dMax = Math.max(dMax, need + 520); } // (still moving at nitro speed while it passes each one)
-  b.L = clamp(dMax + 2 * BYPASS_RAMP * 0.4, 900, 3200); b.d = 0; b.state = "active"; r.bypassing = true;
+  // the track runs just far enough to pass the vehicle (and any others bunched right behind it), then a short clear stretch
+  const vp = Math.max(r.v, 2.2) + 1.8, ahead = enemies.filter(e => e.lane === b.lane && e.y < r.y - 20).sort((a, c) => c.y - a.y); // nearest first
+  let last = t, need = 0;
+  for (const e of ahead) { if (e !== t && last.y - e.y > 340) break; const rel = Math.max(0.6, vp - e.cur); need = Math.max(need, (r.y - e.y + lenOf(e) / 2 + CAR_H / 2 + 40) / rel * vp); last = e; }
+  b.L = clamp(need + 2 * BYPASS_RAMP * 0.5 + 160, 520, 1250); b.d = 0; b.state = "active"; r.bypassing = true;
   bypassTrack = { side: b.side, lane: b.lane, y0: r.y, L: b.L, OFF: BYPASS_OFF, RAMP: BYPASS_RAMP };
   const used = r.usedNitro; startNitro(r); r.usedNitro = used; // nitro speed, but it doesn't count as "picking up nitro" for missions
   r.score += 25 * comboMult(r); pops.push({ r, text: "BYPASS!", t: 0 }); sound.tone(500, 1500, 0.3, "triangle", 0.08);
