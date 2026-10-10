@@ -96,6 +96,7 @@ function startBypass(r) {
   b.L = clamp(need + (BYPASS_RAMP + BYPASS_BACK) * 0.5 + 110, 460, 1250); b.d = 0; b.state = "active"; r.bypassing = true;
   bypassTrack = { side: b.side, lane: b.lane, y0: r.y, L: b.L, OFF: BYPASS_OFF, RAMP: BYPASS_RAMP, BACK: BYPASS_BACK };
   const used = r.usedNitro; startNitro(r); r.usedNitro = used; // nitro speed, but it doesn't count as "picking up nitro" for missions
+  for (const o of racers) if (o.ai) o.noChaseUntil = Infinity; // the Vs CPU can't surge to match you while you're out on the bypass
   r.score += 25 * comboMult(r); pops.push({ r, text: "BYPASS!", t: 0 }); sound.tone(500, 1500, 0.3, "triangle", 0.08);
 }
 function stepBypass(r) {
@@ -108,7 +109,18 @@ function stepBypass(r) {
   const k = clamp(b.d / BYPASS_RAMP, 0, 1), kOut = smooth(Math.min(k, clamp((b.L - b.d) / BYPASS_BACK, 0, 1)));
   r.bypassX = laneX(b.lane) + b.side * BYPASS_OFF * kOut; r.bypassK = kOut; // the car follows the curved track exactly (bypassK: how far up the ramp it is)
   r.x = r.bypassX;
-  if (b.d >= b.L) { r.bypassing = false; r.bypass = null; bypassTrack = null; r.x = laneX(r.lane); r.ghost = Math.max(r.ghost || 0, 90); r.bypassX = undefined; } // back on the road; a moment of grace in case
+  if (b.d >= b.L) { r.bypassing = false; r.bypass = null; bypassTrack = null; r.x = laneX(r.lane); r.ghost = Math.max(r.ghost || 0, 90); r.bypassX = undefined; bypassEdge(r); } // back on the road; a moment of grace in case
+}
+// Against the CPU the bypass pays: you rejoin the road a little faster than it is going (even once the nitro wears off),
+// and it gets no catch-up for 4 more seconds, so the ground you gained is yours to keep.
+function bypassEdge(r) {
+  for (const o of racers) {
+    if (!o.ai || o === r) continue;
+    o.noChaseUntil = frame + 240;
+    if (!o.alive) continue;
+    const floor = o.v + 0.35; // ~20 km/h quicker than the CPU
+    r.v = Math.max(r.v, floor); if (r.cruise !== undefined) r.cruise = Math.max(r.cruise, floor);
+  }
 }
 
 // ---- traffic: plain road cars, then long trucks and roadworks, introduced gradually; nothing ever changes lane ----
@@ -182,41 +194,75 @@ function spawnCurve(y = -AHEAD) {
   pickups.push({ type: "curve", lane, x: laneX(lane), y });
 }
 
-// Time-aware planner (Impossible): simulate every lane over the next stretch of road in short steps and pick the move
+// ---- the CPU rival in Vs (and the Grand Final) has a place on the road of its own: the camera follows you, and it drives at its own
+// speed through the same traffic, a few car lengths ahead or behind. (In the other modes everyone is held on screen at the fastest car's pace.) ----
+const freeCpu = () => mode === "vs" || !!(level && level.final);
+const CPU_BEHIND = 1200; // how far below your car the Vs CPU can still be (the traffic you've passed is kept until it has passed it too)
+const roadPace = r => freeCpu() ? r.v : Math.max(r.v, speed); // how fast the traffic comes at this car
+// are you in that lane, close by? (with a free choice the Vs CPU passes round you rather than through you; it never risks a crash for it)
+function youNear(r, lane) {
+  const you = racers[0], d = r.y - you.y;
+  return mode === "vs" && r !== you && you.alive && !you.bypassing && you.lane === lane && d > -200 && d < 320;
+}
+// Vs CPU pace: it races its own race. Every few seconds it picks a plan (attack: take the lead; stalk: sit a few lengths back;
+// side by side) and drives at whatever speed gets it there, so you trade places instead of driving in formation.
+// While you're on a bypass and for a few seconds after, it gets no catch-up: what the bypass gains you is yours to keep.
+function vsPace(r, base) {
+  const you = racers[0], p = r.ai, gap = (r.trueY === undefined ? r.y : r.trueY) - you.y; // > 0: it's behind you
+  if (frame >= (r.planUntil || 0)) {
+    const roll = Math.random();
+    r.planGap = roll < p.attack ? -rnd(110, 260) : roll < p.attack + 0.3 ? rnd(-30, 30) : rnd(90, 220);
+    r.planUntil = frame + Math.round(rnd(180, 420)); // 3 to 7 seconds
+  }
+  if (!you.alive) return base;
+  const aim = r.lane === you.lane && Math.abs(r.planGap) < 150 ? (gap >= 0 ? 150 : -150) : r.planGap; // in your lane it keeps a couple of lengths clear (tucked in behind, or ahead), never inside you
+  const want = Math.max(base, you.v + clamp((gap - aim) * 0.006, -0.6, p.push));
+  return frame < (r.noChaseUntil || 0) ? Math.min(want, you.v - 0.35) : want;
+}
+
+// Time-aware planner (Impossible, and every Vs CPU): simulate every lane over the next stretch of road in short steps and pick the move
 // that keeps the car alive longest, so it escapes staggered walls of traffic that a one-step dodge can't.
-function aiPlan(r, p, look, ready, clearance, pref) {
-  const v = Math.max(r.v, speed, 1), DT = 4, // (the road scrolls at the fastest car's pace: when you nitro / bypass, traffic closes on the CPU faster than its own speed)
+// (Each vehicle closes at our speed minus its own; a car the CPU hasn't noticed isn't in the plan at all.)
+function aiPlan(r, p, look, ready, noticed, pref) {
+  const v = Math.max(roadPace(r), 1), DT = 4,
      N = clamp(Math.ceil(look / (v * DT)), 4, 26), margin = CAR_H - 6 + 16;
   const safe = Array.from({ length: N + 2 }, () => [true, true, true]);
   for (const e of enemies) {
-    const d0 = r.y - e.y, ext = (lenOf(e) - CAR_H) / 2; // d0 > 0: it's ahead of us; ext: how much longer than a car it is at each end
-    if (d0 > look + 80 + ext || d0 < -margin - ext - 10) continue;
-    for (let t = 0; t <= N + 1; t++) if (Math.abs(d0 - v * DT * t) < margin + ext) safe[t][e.lane] = false;
+    const d0 = r.y - e.y, ext = (lenOf(e) - CAR_H) / 2, rel = freeCpu() ? Math.max(0.2, v - e.cur) : v; // d0 > 0: it's ahead of us; ext: how much longer than a car it is at each end
+    if (d0 > look + 80 + ext || d0 < -margin - ext - 10 || !noticed(e)) continue;
+    for (let t = 0; t <= N + 1; t++) { const d = d0 - rel * DT * t; if (Math.abs(d) < (d < 0 && freeCpu() ? CAR_H : margin) + ext) safe[t][e.lane] = false; } // (one it has already passed only needs real clearance: it's pulling away)
   }
+  // it can only plan on moves it will really get to make: after a move, the next comes once the cooldown is over, at its next decision (worst case)
+  const K = Math.max(1, Math.ceil((p.think + p.cooldown) / DT));
   const surv = Array.from({ length: N + 2 }, () => [0, 0, 0]); // how many steps we can keep going from (step, lane)
   for (let t = N + 1; t >= 0; t--) for (let l = 0; l < LANES; l++) {
     if (!safe[t][l]) continue;
     if (t === N + 1) { surv[t][l] = 1; continue; }
     let best = 0;
     for (let l2 = Math.max(0, l - 1); l2 <= Math.min(LANES - 1, l + 1); l2++) {
-      if (l2 !== l && !(safe[t][l2] && safe[t + 1][l])) continue; // can only cross while both lanes are clear
+      if (l2 !== l && (t % K !== 0 || !safe[t][l2])) continue; // a lane change: only at its next decision, into a lane that's clear (the car is out of its old lane within a couple of frames)
       if (safe[t + 1][l2]) best = Math.max(best, surv[t + 1][l2]);
     }
     surv[t][l] = 1 + best;
   }
-  if (!ready) return;
   const cur = r.lane;
-  let bestLane = cur, bestVal = -1;
-  for (let l2 = Math.max(0, cur - 1); l2 <= Math.min(LANES - 1, cur + 1); l2++) {
-    if (l2 !== cur && !(safe[0][l2] && safe[1][cur])) continue;
+  let bestLane = cur, bestVal = ready ? -1 : safe[1][cur] ? surv[1][cur] : 0;
+  for (let l2 = Math.max(0, cur - 1); ready && l2 <= Math.min(LANES - 1, cur + 1); l2++) {
+    if (l2 !== cur && !safe[0][l2]) continue;
     if (!safe[1][l2]) continue;
     let val = surv[1][l2];
     if (val >= N) { // several fully safe options: staying put is best, then lanes with coins or nitro ahead
       val += l2 === cur ? 0.5 : 0;
       if (p.greedy && pickups.some(k => k.lane === l2 && k.type !== "curve" && r.y - k.y > 0 && r.y - k.y < look * 0.6)) val += 0.8;
       if (pref !== undefined && Math.abs(l2 - pref) < Math.abs(cur - pref)) val += 0.7; // drifting towards its fancied lane (staying put is worth 0.5)
+      if (youNear(r, l2)) val -= 1; // not right on top of you
     }
     if (val > bestVal) { bestVal = val; bestLane = l2; }
+  }
+  if (bestVal < N) { // no clear way through yet: brake and tuck in behind whatever is ahead in that lane until a gap opens
+    let lead = null;
+    for (const e of enemies) if (e.lane === bestLane && r.y - e.y > 0 && r.y - e.y < look && noticed(e) && (!lead || e.y > lead.y)) lead = e;
+    if (lead) { r.followV = lead.cur; r.followUntil = frame + p.think + 4; }
   }
   if (bestLane !== cur) setLane(r, bestLane);
 }
@@ -236,14 +282,16 @@ function aiThink(r) {
   const p = r.ai;
   if (!aiGo() || frame < r.nextThink) return;
   r.nextThink = frame + p.think;
-  const look = p.look * Math.max(1, Math.max(r.v, speed) / 2); // look further the faster the road is coming at us
+  const look = p.look * Math.max(1, roadPace(r) / 2); // look further the faster the road is coming at us
+  const noticed = e => { // has it seen this vehicle? (a missed one is never seen; with late, it's spotted a moment before it would hit: a last-second swerve, sometimes too late)
+    if (e.miss[r.id] === undefined) e.miss[r.id] = Math.random() < p.miss;
+    return !e.miss[r.id] || (!!p.late && r.y - e.y - (lenOf(e) - CAR_H) / 2 < CAR_H + Math.max(0, roadPace(r) - e.cur) * p.late);
+  };
 
   const clearance = lane => {
     let c = Infinity;
     for (const e of enemies) {
-      if (e.lane !== lane) continue;
-      if (e.miss[r.id] === undefined) e.miss[r.id] = Math.random() < p.miss;
-      if (e.miss[r.id]) continue;
+      if (e.lane !== lane || !noticed(e)) continue;
       const ext = (lenOf(e) - CAR_H) / 2, d = r.y - e.y - ext; // > 0: its tail is ahead of us
       if (d > -CAR_H - 2 * ext && d < look) c = Math.min(c, d);
     }
@@ -251,10 +299,10 @@ function aiThink(r) {
   };
 
   const ready = frame - r.lastMove >= p.cooldown;
-  const here = clearance(r.lane);
   const pref = p.wander ? wanderLane(r) : undefined; // a lane it fancies for a while, never the one you are in: it races its own race
 
-  if (p.plan) { aiPlan(r, p, look, ready, clearance, pref); return; }
+  if (p.plan || mode === "vs") { aiPlan(r, p, look, ready, noticed, pref); return; }
+  const here = clearance(r.lane);
 
   if (here === Infinity) {
     if (p.greedy && ready) {
@@ -266,7 +314,8 @@ function aiThink(r) {
   }
   if (!ready) return;
   let bestLane = r.lane, bestC = here;
-  for (const l of [r.lane - 1, r.lane + 1]) {
+  const side = pref !== undefined && pref !== r.lane ? Math.sign(pref - r.lane) : Math.random() < 0.5 ? -1 : 1; // when both sides are open: towards the lane it fancies, else either way (not always the same side as you)
+  for (const l of [r.lane + side, r.lane - side]) {
     if (l < 0 || l >= LANES) continue;
     const c = clearance(l);
     if (c > bestC + 60 || (c === Infinity && bestC !== Infinity)) { bestLane = l; bestC = c; }
@@ -285,9 +334,13 @@ function stepRacers() {
         if (r.bypass) stepBypass(r);
       }
       // slower than the pace car -> slip back down the screen; the spring pulls you back when you keep up
-      if (level && level.final && r.ai) { // the final's CPU: trueY is its real distance from you; y is where it can be drawn
+      if (r.ai && (r.trueY !== undefined || (freeCpu() && state === "playing"))) { // the rival CPU: trueY is its real distance from you; y is where it can be drawn
         r.trueY = (r.trueY === undefined ? r.y : r.trueY) + (speed - r.v);
-        r.y = clamp(r.trueY, -AHEAD + 60, H + 400);
+        if (mode === "vs" && state === "playing") { // the Vs CPU never leaves the stretch of road that has traffic on it (it can't hide from a crash): at either end it keeps your pace
+          if (r.trueY > H + CPU_BEHIND) { r.trueY = H + CPU_BEHIND; r.v = Math.max(r.v, speed); }
+          else if (r.trueY < -AHEAD + 300) { r.trueY = -AHEAD + 300; r.v = Math.min(r.v, speed); }
+        }
+        r.y = clamp(r.trueY, -AHEAD + 60, H + (level ? 400 : CPU_BEHIND));
       }
       else r.y = clamp(r.y + (speed - r.v) - 0.015 * (r.y - r.ty), 80, H - 38);
       const target = clamp(Math.atan2(r.x - px, 10), -0.45, 0.45);
@@ -422,8 +475,10 @@ function updatePlaying() {
       r.v = Math.min(r.v + 0.1, r.cruise + NITRO_PUSH);
       if (r.nitro === 0 && r.id === 0) sound.nitroEnd();
     } else if (r.ai) {
-      const target = clamp(r.ai.speed + tier * 0.12, vmin, VMAX);
-      r.v += clamp(target - r.v, -0.04, Math.min(r.ai.accel || 0.03, accelAt(r.v))); // same car, same physics
+      const base = clamp(r.ai.speed + tier * 0.12, vmin, VMAX), boxed = frame < (r.followUntil || 0); // boxed in: braking behind traffic until a gap opens
+      const target = boxed ? Math.min(r.followV, base) : mode === "vs" ? vsPace(r, base) : base;
+      const tow = mode === "vs" && r.trueY > racers[0].y && r.trueY - racers[0].y < 500 ? 0.008 : 0; // in Vs, running behind you it gets a tow from your slipstream
+      r.v += clamp(target - r.v, boxed ? -0.05 : -0.04, Math.min(r.ai.accel || 0.03, accelAt(r.v) + tow)); // same car, same physics (and the same brakes as yours)
       r.braking = target < r.v - 0.02;
     } else {
       const pd = pedals(r), grip = gripNow(r);
@@ -445,7 +500,7 @@ function updatePlaying() {
     r.v = Math.max(r.v, r.rolling ? vmin : 0);       // no top speed: keep your foot down and it keeps climbing
   }
   const live = racers.filter(r => r.alive);
-  if (live.length) speed = level && level.final && racers[0].alive ? racers[0].v : Math.max(...live.map(r => r.v)); // the camera follows the fastest car (in the Grand Final: you)
+  if (live.length) speed = freeCpu() && racers[0].alive ? racers[0].v : Math.max(...live.map(r => r.v)); // the camera follows the fastest car (against a CPU rival: you)
   scroll = speed;
   dist += speed;
 
@@ -513,7 +568,8 @@ function updatePlaying() {
       }
     }
   }
-  pickups = pickups.filter(k => !k.taken && k.y < H + 20);
+  const keepTo = mode === "vs" ? Math.max(H, ...racers.map(r => r.ai && r.alive ? r.y + 60 : 0)) : H; // in Vs the road you've passed stays until the CPU behind you has driven it too
+  pickups = pickups.filter(k => !k.taken && k.y < keepTo + 20);
   if (grid.done) flowTraffic(); // queues form behind slower vehicles
 
   for (const e of enemies) {
@@ -538,7 +594,7 @@ function updatePlaying() {
       if (r.bypassing) hitY = false;                 // on the bypass track you are beside the road, clear of everything
       if (r.through === e) { if (hitX && hitY) continue; if (e.passed[r.id]) r.through = null; } // driving on through a vehicle the shield saved you from: no second hit until you are out the other side
       if (hitX && hitY && r.ghost > 0) continue; // still flashing from a bump: no second hit
-      if (r.trueY !== undefined && r.trueY !== r.y) continue; // the final's CPU is beyond the stretch of road that exists: nothing to hit there
+      if (r.trueY !== undefined && r.trueY !== r.y) continue; // the CPU is beyond the stretch of road that exists: nothing to hit there
       if (hitX && hitY && r.shield) { shieldBreak(r, e); continue; } // the shield takes it
       if (hitX && hitY && level && level.final && r.id === 1) { // the Grand Final CPU bumps off traffic instead of crashing: it loses speed and flashes for a second
         if (!(r.ghost > 0)) { r.v *= 0.6; r.ghost = 60; burst(r.x, r.y - 20, ["#ffffff", "#ffd23f"], 12, 3); }
@@ -557,7 +613,7 @@ function updatePlaying() {
       }
     }
   }
-  enemies = enemies.filter(e => e.y - lenOf(e) / 2 < H + CAR_H && e.y > -AHEAD - 400);
+  enemies = enemies.filter(e => e.y - lenOf(e) / 2 < keepTo + CAR_H && e.y > -AHEAD - 400);
 
   if (level ? !racers[0].alive : racers.some(r => !r.alive)) endRound(); // in the tour only your crash ends it (a crashed CPU is simply out)
   else if (finishObj && finishObj.y >= racers[0].y - CAR_H / 2) finishLevel(); // nose over the line

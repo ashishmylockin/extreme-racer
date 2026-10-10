@@ -532,6 +532,11 @@ function drawHud() {
       text(`${r.label} ${r.score}`, 34, 20, i === 0 ? "left" : "right");
       text(`${Math.round(r.v * 60)} km/h`, 72, 12, i === 0 ? "left" : "right", "#ddd");
     });
+    const c = racers[1];
+    if (mode === "vs" && c && c.alive && grid.done && p0.v > 1) { // where the CPU really is (it can be off screen): ahead of you or behind, in seconds
+      const cy = c.trueY === undefined ? c.y : c.trueY, gap = Math.abs(cy - p0.y) / (p0.v * 60), ahead = cy < p0.y;
+      text(gap < 0.05 ? "LEVEL" : `${ahead ? "AHEAD" : "BEHIND"} ${gap.toFixed(1)}s`, 88, 12, "right", gap < 0.05 ? "#ffd23f" : ahead ? "#ff5a5a" : "#3dff6e");
+    }
   }
   if (p0.shield && p0.alive) drawShieldIcon(24, 64, 11, clock); // shield ready (under the camera button)
   if (p0.comboT > 0 && p0.combo >= 2) { // the live combo and how long it has left

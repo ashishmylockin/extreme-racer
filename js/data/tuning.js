@@ -1,11 +1,13 @@
 // AI tuning: think = frames between decisions, look = how far ahead it sees (px),
 // miss = chance it fails to notice a given car, cooldown = min frames between lane changes,
 // greedy = detours for coins when the road is clear, speed = the pace it likes to hold
+// Vs CPU: late = how many frames before impact it finally spots a car it failed to notice and swerves (a last-second dodge, sometimes too late),
+// push = how far above your speed it will go to get back in the fight, attack = how often its race plan is to take the lead
 const DIFFS = {
-  easy:   { wander: true, think: 24, look: 120, miss: 0.35, cooldown: 30, greedy: false, speed: 1.9, launch: 1.67 },
-  medium: { wander: true, think: 14, look: 170, miss: 0.12, cooldown: 18, greedy: true,  speed: 2.5, launch: 2.5 },
-  hard:   { wander: true, think: 6,  look: 230, miss: 0.02, cooldown: 8,  greedy: true,  speed: 3.1, launch: 3.33 },
-  impossible: { wander: true, think: 1, look: 400, miss: 0, cooldown: 3, greedy: true, speed: 4.4, plan: true, accel: 0.05, launch: 5 }, // never misses a car, reacts every frame and runs flat out
+  easy:   { wander: true, think: 24, look: 120, miss: 0.35, cooldown: 30, greedy: false, speed: 1.9, launch: 1.67, late: 16, push: 0.3, attack: 0.25 },
+  medium: { wander: true, think: 14, look: 170, miss: 0.12, cooldown: 18, greedy: true,  speed: 2.5, launch: 2.5, late: 12, push: 0.6, attack: 0.4 },
+  hard:   { wander: true, think: 6,  look: 230, miss: 0.02, cooldown: 8,  greedy: true,  speed: 3.1, launch: 3.33, late: 8, push: 0.9, attack: 0.5 },
+  impossible: { wander: true, think: 1, look: 400, miss: 0, cooldown: 3, greedy: true, speed: 4.4, plan: true, accel: 0.05, launch: 5, push: 1.3, attack: 0.6 }, // never misses a car, reacts every frame and runs flat out
 };
 const DEMO_AI = { think: 5, look: 230, miss: 0, cooldown: 8, greedy: false, speed: 2.8 };
 

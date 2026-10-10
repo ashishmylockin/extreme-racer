@@ -112,6 +112,35 @@ requestAnimationFrame(loop);
         const sp = Object.fromEntries(Object.entries(st.spd).map(([k, s]) => [k, `avg ${(s.sum / s.n * 60).toFixed(0)} min ${(s.min * 60).toFixed(0)} max ${(s.max * 60).toFixed(0)} km/h`]));
         console.info("REPORT " + JSON.stringify({ trace: trace.join(" "), zone: racers[0].launchZone && racers[0].launchZone.name, ticks: st.ticks, crashed: st.crashes, speedKmh: Math.round(racers[0].v * 60), pickupsInsideCars: st.pickInCar, carsOverlapping: st.carOverlap, wallTicks: st.wall, speeds: sp, enemiesNow: enemies.length, pickupsNow: pickups.length }));
       }
+      if (q.has("vstest")) { // testing: vstest=N races N rounds of Vs CPU (&diff=easy|medium|hard|impossible) with a simple bot in your car (it can't crash) and reports how the CPU drove
+        const rounds = +q.get("vstest") || 10, T = +q.get("len") || 3600, diff = q.get("diff") || "medium";
+        const st = { diff, rounds: 0, ticks: 0, cpuCrash: 0, crashNearBypass: 0, bypasses: 0, cpuMoves: 0, copied: 0, sameSpot: 0, exitLead: [], exitDv: [], leadAfter2s: [] };
+        for (let n = 0; n < rounds; n++) {
+          startGameNow("vs", diff, n % 22); const you = racers[0], cpu = racers[1]; you.ghost = 1e9;
+          let youAt = -99, youDir = 0, bypassAt = -9999, cpuLane = cpu.lane, exitAt = -1;
+          for (let i = 0; i < T && cpu.alive && state === "playing"; i++) {
+            const clear = (l, d) => l >= 0 && l < LANES && !enemies.some(e => e.lane === l && you.y - e.y > -60 && you.y - e.y < d);
+            if (you.bypass && you.bypass.state === "armed" && bypassTarget(you, you.bypass)) { steer(you, you.bypass.side); if (you.bypassing) { st.bypasses++; bypassAt = frame; } }
+            else if (!you.bypassing && grid.done && frame - you.lastMove > 20) {
+              const k = pickups.find(p => p.type === "curve" && Math.abs(p.lane - you.lane) === 1 && you.y - p.y > 0 && you.y - p.y < 500);
+              let dir = 0;
+              if (!clear(you.lane, 260)) { const opts = [-1, 1].filter(d => clear(you.lane + d, 200)); if (opts.length) dir = opts[Math.floor(Math.random() * opts.length)]; }
+              else if (k && clear(k.lane, 300)) dir = k.lane - you.lane;
+              if (dir) { steer(you, dir); youAt = frame; youDir = dir; }
+            }
+            if (q.has("cap")) { if (you.v * 60 > +q.get("cap")) held.delete("ArrowUp"); else held.add("ArrowUp"); } // cap=300: the bot cruises at about that speed instead of flooring it
+            const was = you.bypassing; update(); st.ticks++;
+            if (q.has("trace")) { (window.vsHist = window.vsHist || []).push(`L${cpu.lane} v${Math.round(cpu.v * 60)}${frame < (cpu.followUntil || 0) ? " BRK" : ""} you${you.lane}@${Math.round(cpu.y - you.y)} | ` + enemies.filter(e => cpu.y - e.y > -80 && cpu.y - e.y < 500).map(e => `${e.lane}@${Math.round(cpu.y - e.y)}(${Math.round(e.cur * 60)})`).join(" ")); if (window.vsHist.length > 90) window.vsHist.shift(); if (!cpu.alive) console.info("TRACE " + [80, 60, 40, 20, 5].map(k => window.vsHist[window.vsHist.length - k]).join(" || ")); }
+            if (was && !you.bypassing) { st.exitLead.push(Math.round(cpu.y - you.y)); st.exitDv.push(Math.round((you.v - cpu.v) * 60)); exitAt = frame; }
+            if (exitAt > 0 && frame === exitAt + 120) st.leadAfter2s.push(Math.round((cpu.trueY === undefined ? cpu.y : cpu.trueY) - you.y));
+            if (cpu.lane !== cpuLane) { st.cpuMoves++; if (frame - youAt < 25 && Math.sign(cpu.lane - cpuLane) === youDir) st.copied++; cpuLane = cpu.lane; }
+            if (grid.done && cpu.lane === you.lane && Math.abs((cpu.trueY === undefined ? cpu.y : cpu.trueY) - you.y) < 130) st.sameSpot++;
+            if (grid.done && Math.abs(cpu.x - you.x) < CAR_W && Math.abs((cpu.trueY === undefined ? cpu.y : cpu.trueY) - you.y) < 90) st.overlap = (st.overlap || 0) + 1; // drawn on top of each other
+          }
+          st.rounds++; if (!cpu.alive) { st.cpuCrash++; if (frame - bypassAt < 360) st.crashNearBypass++; const e = cpu.hitBy; (st.why = st.why || []).push(`t${frame - grid.goFrame} v${Math.round(cpu.v * 60)}/${Math.round(you.v * 60)} gap${Math.round(cpu.trueY - you.y)} ${e.kind}${e.miss[1] ? " MISSED" : ""} lane${cpu.fromLane}>${cpu.lane} moved${frame - cpu.lastMove} dx${Math.round(e.x - cpu.x)} dy${Math.round(e.y - cpu.y)}`); }
+        }
+        console.info("VSTEST " + JSON.stringify(st));
+      }
       if (q.has("crash")) { racers[0].ghost = 0; const r0 = racers[0]; enemies.push({ kind: "car", model: "sedan", lane: r0.lane, x: r0.x, y: r0.y - 100, len: CAR_H, v: 1.67, cur: 1.67, col: "#2f5fa8", passed: {}, miss: {} }); } // crash: a car appears just ahead, so the real crash physics plays out
       if (q.has("finish") && level) finishLevel();
       if (q.has("next")) { // testing: after finishing / crashing, choose the first menu button (Next city / Retry) and run the sim to see whether anything throws
