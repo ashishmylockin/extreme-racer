@@ -1,7 +1,7 @@
 // Effects: glowing sparks, fire, smoke, flying debris (real car parts), nitro flames, light trails, fireworks.
 // Particles live in two fixed-size pools (additive: sparks / fire / flames; normal: smoke), recycled forever, so nothing is created while racing.
 import * as THREE from "three";
-import { hasModel, cloneModel, fitModel } from "./assets.js";
+
 
 function pointSystem(scene, cap, blending) {
   const pos = new Float32Array(cap * 3), col = new Float32Array(cap * 4), size = new Float32Array(cap);
@@ -22,6 +22,7 @@ function pointSystem(scene, cap, blending) {
   let next = 0;
   return {
     points, mat, cap,
+    clear() { for (let i = 0; i < cap; i++) { P.life[i] = 0; size[i] = 0; col[i * 4 + 3] = 0; } geo.attributes.aSize.needsUpdate = geo.attributes.aColor.needsUpdate = true; },
     emit(x, y, z, vx, vy, vz, life, s, r, g, b, a = 1, grow = 0, drag = 0.97, grav = 0) {
       const i = next; next = (next + 1) % cap;
       pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z; P.vx[i] = vx; P.vy[i] = vy; P.vz[i] = vz; P.life[i] = P.max[i] = life; P.s0[i] = s; P.grow[i] = grow; P.drag[i] = drag; P.grav[i] = grav;
@@ -57,6 +58,7 @@ class Trail {
     this.mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false }));
     this.mesh.frustumCulled = false; this.mesh.visible = false; scene.add(this.mesh);
   }
+  clear() { for (const p of this.pts) p.set(0, -50, 0); this.fade = 0; this.mesh.visible = false; }
   // add a new head point, slide the old ones back with the road, redraw. rgb in 0..1; amount 0..1 fades the whole ribbon in or out
   step(x, y, z, shiftZ, rgb, amount) {
     this.fade += (amount - this.fade) * 0.2;
@@ -73,17 +75,18 @@ class Trail {
   }
 }
 
-export function createFX(scene) {
+export function createFX(scene, makeWheelDebris) {
   const add = pointSystem(scene, 1800, THREE.AdditiveBlending), smoke = pointSystem(scene, 500, THREE.NormalBlending);
 
-  // ---- debris: bits of car that fly off in a crash (the Kenney car-kit parts), bouncing along the road ----
-  const DEB = ["debris-bumper", "debris-door", "debris-door-window", "debris-drivetrain", "debris-plate-a", "debris-plate-b", "debris-spoiler-a", "debris-spoiler-b", "debris-tire", "debris-tire", "debris-plate-small-a", "debris-plate-small-b"];
-  const pieces = [];
-  if (DEB.every(hasModel)) for (let i = 0; i < 26; i++) {
-    const m = fitModel(cloneModel(DEB[i % DEB.length]), { scale: 3.2 }); m.visible = false; scene.add(m);
-    m.traverse(o => { if (o.isMesh) o.castShadow = true; });
-    pieces.push({ m, v: new THREE.Vector3(), w: new THREE.Vector3(), life: 0 });
+  // ---- debris: shards of the wrecked car (bodywork in the team's colour, carbon, bare metal) that fly off in a crash and bounce along the road ----
+  const pieces = [], wheelPieces = []; let wheelAt = 0;
+  const shardMats = [new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4, metalness: 0.2 }), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4, metalness: 0.2 }), new THREE.MeshStandardMaterial({ color: 0x15161a, roughness: 0.5, metalness: 0.3 }), new THREE.MeshStandardMaterial({ color: 0x9096a0, roughness: 0.4, metalness: 0.8 })];
+  const shardGeos = [new THREE.BoxGeometry(1.1, 0.12, 0.7), new THREE.BoxGeometry(0.7, 0.1, 0.45), new THREE.BoxGeometry(1.5, 0.1, 0.35), new THREE.CylinderGeometry(0.06, 0.06, 1.3, 6).rotateZ(Math.PI / 2), new THREE.BoxGeometry(0.5, 0.35, 0.5)];
+  for (let i = 0; i < 24; i++) {
+    const m = new THREE.Mesh(shardGeos[i % shardGeos.length], shardMats[i % 4]); m.visible = false; m.castShadow = true; scene.add(m);
+    pieces.push({ m, v: new THREE.Vector3(), w: new THREE.Vector3(), life: 0, mat: i % 4 });
   }
+  if (makeWheelDebris) for (let i = 0; i < 4; i++) { const m = makeWheelDebris(); m.visible = false; scene.add(m); wheelPieces.push({ m, v: new THREE.Vector3(), w: new THREE.Vector3(), life: 0, wheel: true }); }
   let pi = 0;
 
   // ---- nitro flame (a flickering blue cone), made per car by makeFlame() ----
@@ -107,6 +110,12 @@ export function createFX(scene) {
     update(dt, shiftZ, scale) {
       add.mat.uniforms.scale.value = scale; smoke.mat.uniforms.scale.value = scale;
       add.update(dt, shiftZ); smoke.update(dt, shiftZ);
+      for (const p of wheelPieces) { // a wheel that has torn off: it bounces, then rolls along on its edge, slowing
+        if (p.life <= 0) continue; p.life -= dt; p.v.y -= 38 * dt; p.m.position.addScaledVector(p.v, dt); p.m.position.z += shiftZ;
+        if (p.m.position.y < 0.78) { p.m.position.y = 0.78; if (p.v.y < -1) p.v.y = -p.v.y * 0.4; else p.v.y = 0; const k = Math.pow(0.55, dt * 3); p.v.x *= k; p.v.z *= k; }
+        const sp = Math.hypot(p.v.x, p.v.z); p.m.rotation.x -= p.v.z * dt / 0.78 * -1; p.m.rotation.z += 0; if (sp < 0.3 && p.m.position.y <= 0.8) p.life = Math.min(p.life, 8); // (it keeps lying there, then goes)
+        if (p.life <= 0) p.m.visible = false;
+      }
       for (const p of pieces) {
         if (p.life <= 0) continue; p.life -= dt;
         p.v.y -= 38 * dt; p.m.position.addScaledVector(p.v, dt); p.m.position.z += shiftZ;
@@ -116,14 +125,34 @@ export function createFX(scene) {
       }
     },
     // ---- one-off events ----
-    crash(x, z, team) {
+    // A crash at speed: the fireball, sparks and smoke all carry the car's momentum (fwd = its forward speed in world units per second, negative = up the road),
+    // so everything streams on past the point of impact instead of bursting in place. Wheels and bodywork tear off and bounce away.
+    crash(x, z, team, fwd = 0) {
       const c1 = [1, 0.85, 0.4], c2 = [1, 0.45, 0.1], w = [1, 1, 1];
-      for (let i = 0; i < n(70); i++) { const a = rnd(0, 6.28), s = rnd(2, 16); add.emit(x, rnd(0.6, 2.4), z, Math.cos(a) * s, rnd(1, 14), Math.sin(a) * s, rnd(0.5, 1.3), rnd(2.2, 5.5), ...(Math.random() < 0.5 ? c1 : c2), 0.9, 1.2, 0.93, 6); } // the fireball
-      for (let i = 0; i < n(90); i++) { const a = rnd(0, 6.28), s = rnd(8, 34); add.emit(x, rnd(0.5, 2), z, Math.cos(a) * s, rnd(2, 22), Math.sin(a) * s, rnd(0.6, 1.6), rnd(0.5, 1.1), ...w, 1, 0, 0.985, 28); } // sparks
-      for (let i = 0; i < n(36); i++) { const a = rnd(0, 6.28), s = rnd(0.5, 5), g = rnd(0.12, 0.28); smoke.emit(x, rnd(0.5, 2), z, Math.cos(a) * s, rnd(1, 5), Math.sin(a) * s, rnd(2.5, 4.5), rnd(4, 8), g, g, g * 1.05, 0.7, 1.4, 0.97, -1.5); } // smoke rolling off
+      for (let i = 0; i < n(60); i++) { const a = rnd(0, 6.28), s = rnd(1, 9); add.emit(x, rnd(0.6, 2.2), z, Math.cos(a) * s, rnd(1, 9), Math.sin(a) * s + fwd * 0.55, rnd(0.5, 1.2), rnd(2.0, 4.8), ...(Math.random() < 0.5 ? c1 : c2), 0.9, 1.2, 0.93, 6); } // the fireball
+      for (let i = 0; i < n(80); i++) { const a = rnd(0, 6.28), s = rnd(4, 20); add.emit(x, rnd(0.5, 1.6), z, Math.cos(a) * s, rnd(2, 14), Math.sin(a) * s + fwd * 0.8, rnd(0.5, 1.4), rnd(0.4, 0.9), ...w, 1, 0, 0.985, 28); } // sparks
+      for (let i = 0; i < n(30); i++) { const a = rnd(0, 6.28), s = rnd(0.4, 3.5), g = rnd(0.12, 0.28); smoke.emit(x, rnd(0.5, 2), z, Math.cos(a) * s, rnd(1, 4), Math.sin(a) * s + fwd * 0.35, rnd(2.5, 4.5), rnd(4, 8), g, g, g * 1.05, 0.7, 1.4, 0.97, -1.5); } // smoke
       const body = hexRgb(team.p);
-      for (let i = 0; i < n(14); i++) { const a = rnd(0, 6.28), s = rnd(2, 12); add.emit(x, 1.5, z, Math.cos(a) * s, rnd(4, 14), Math.sin(a) * s, rnd(0.8, 1.5), rnd(0.4, 0.8), ...body, 1, 0, 0.98, 25); }
-      for (let q = 0; q < n(12) && pieces.length; q++) { const p = pieces[pi++ % pieces.length]; p.life = 6; p.m.visible = true; p.m.position.set(x + rnd(-1, 1), rnd(0.8, 2.2), z + rnd(-1.5, 1.5)); const a = rnd(0, 6.28), s = rnd(5, 17); p.v.set(Math.cos(a) * s, rnd(7, 18), Math.sin(a) * s - 3); p.w.set(rnd(-9, 9), rnd(-9, 9), rnd(-9, 9)); }
+      for (let i = 0; i < n(14); i++) { const a = rnd(0, 6.28), s = rnd(2, 9); add.emit(x, 1.5, z, Math.cos(a) * s, rnd(3, 10), Math.sin(a) * s + fwd * 0.7, rnd(0.8, 1.5), rnd(0.4, 0.8), ...body, 1, 0, 0.98, 25); }
+      shardMats[0].color.set(team.p); shardMats[1].color.set(team.a); // (the bodywork shards wear the team colours)
+      for (let q = 0; q < n(14) && pieces.length; q++) { const p = pieces[pi++ % pieces.length]; p.life = 9; p.m.visible = true; p.m.position.set(x + rnd(-1, 1), rnd(0.8, 2.0), z + rnd(-1.5, 1.5)); const a = rnd(0, 6.28), s = rnd(3, 11); p.v.set(Math.cos(a) * s, rnd(5, 13), Math.sin(a) * s + fwd * 0.9); p.w.set(rnd(-9, 9), rnd(-9, 9), rnd(-9, 9)); }
+      for (let q = 0; q < Math.min(2, wheelPieces.length); q++) { // two wheels break off and roll away
+        const p = wheelPieces[wheelAt++ % wheelPieces.length], a = (q ? 1 : -1) * rnd(0.3, 1.1);
+        p.life = 14; p.m.visible = true; p.m.position.set(x + (q ? 1.6 : -1.6), 0.8, z + rnd(-1, 1)); p.m.rotation.set(0, 0, 0); p.v.set(Math.sin(a) * rnd(3, 9), rnd(2, 6), fwd * rnd(0.55, 0.9) + rnd(-3, 3)); p.w.set(0, 0, 0);
+      }
+    },
+    // clean slate for a new race: no debris, particles or trails left over from the last one
+    reset() {
+      for (const p of wheelPieces) { // a wheel that has torn off: it bounces, then rolls along on its edge, slowing
+        if (p.life <= 0) continue; p.life -= dt; p.v.y -= 38 * dt; p.m.position.addScaledVector(p.v, dt); p.m.position.z += shiftZ;
+        if (p.m.position.y < 0.78) { p.m.position.y = 0.78; if (p.v.y < -1) p.v.y = -p.v.y * 0.4; else p.v.y = 0; const k = Math.pow(0.55, dt * 3); p.v.x *= k; p.v.z *= k; }
+        const sp = Math.hypot(p.v.x, p.v.z); p.m.rotation.x -= p.v.z * dt / 0.78 * -1; p.m.rotation.z += 0; if (sp < 0.3 && p.m.position.y <= 0.8) p.life = Math.min(p.life, 8); // (it keeps lying there, then goes)
+        if (p.life <= 0) p.m.visible = false;
+      }
+      for (const p of pieces) { p.life = 0; p.m.visible = false; p.v.set(0, 0, 0); }
+      for (const p of wheelPieces) { p.life = 0; p.m.visible = false; p.v.set(0, 0, 0); }
+      for (const sys of [add, smoke]) sys.clear();
+      for (const t of trails.values()) t.l.clear(), t.r.clear();
     },
     fire(x, z) { // a wreck keeps burning and smoking
       add.emit(x + rnd(-1, 1), rnd(0.5, 1.5), z + rnd(-1.5, 1.5), rnd(-0.6, 0.6), rnd(3, 6), rnd(-0.6, 0.6), rnd(0.4, 0.8), rnd(1.4, 2.6), 1, rnd(0.4, 0.75), 0.12, 0.8, 0.5, 0.98);

@@ -5,7 +5,8 @@ import { SCALE } from "./mapping.js";
 import { hasModel, cloneModel, fitModel } from "./assets.js";
 import { makeLandmark, hasLandmark } from "./landmarks.js";
 import { makeProp, hasProp } from "./props.js";
-import { makeProRaceCar, setCarDetail as setRaceCarDetail } from "./car/racecar.js";
+import { makeProRaceCar, makeWheelDebris, setCarDetail as setRaceCarDetail } from "./car/racecar.js";
+export { makeWheelDebris };
 import * as TRAFFIC from "./car/traffic.js";
 export const setCarDetail = k => { setRaceCarDetail(k); TRAFFIC.setTrafficDetail(k); }; // how far away vehicles keep their detail (graphics setting)
 export const trafficLamp = TRAFFIC.trafficLamp, trafficPool = TRAFFIC.trafficPool;
@@ -124,7 +125,14 @@ export function makeGantry(finish, roadHalf) {
   const grp = new THREE.Group(), frame = mat("#2a2c31", { metalness: 0.6, roughness: 0.4 }), lights = [];
   for (const sx of [-1, 1]) grp.add(mesh(box(0.8, 10, 0.8), frame, sx * (roadHalf + 1.4), 5, 0));
   grp.add(mesh(box(roadHalf * 2 + 3.6, 1.8, 1.2), frame, 0, 10, 0));
-  if (finish) {
+  if (finish === "half") { // the halfway gantry: one clean banner across the road
+    const c = document.createElement("canvas"); c.width = 1024; c.height = 128; const x = c.getContext("2d");
+    x.fillStyle = "#0f2a5e"; x.fillRect(0, 0, 1024, 128); x.strokeStyle = "#ffd23f"; x.lineWidth = 8; x.strokeRect(6, 6, 1012, 116);
+    x.fillStyle = "#ffffff"; x.font = "900 84px Arial, sans-serif"; x.textAlign = "center"; x.textBaseline = "middle"; x.fillText("HALFWAY", 512, 68, 900);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+    const banner = new THREE.Mesh(new THREE.PlaneGeometry(roadHalf * 2 - 4, 3.4), new THREE.MeshBasicMaterial({ map: t })); banner.position.set(0, 8.2, 0.7); grp.add(banner);
+    const back = new THREE.Mesh(new THREE.PlaneGeometry(roadHalf * 2 - 4, 3.4), new THREE.MeshBasicMaterial({ map: t })); back.rotation.y = Math.PI; back.position.set(0, 8.2, -0.05); grp.add(back);
+  } else if (finish) {
     const c = document.createElement("canvas"); c.width = 256; c.height = 32; const x = c.getContext("2d");
     for (let i = 0; i < 32; i++) for (let j = 0; j < 4; j++) { x.fillStyle = (i + j) % 2 ? "#fff" : "#111"; x.fillRect(i * 8, j * 8, 8, 8); }
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
@@ -137,7 +145,7 @@ export function makeGantry(finish, roadHalf) {
     }
     const line = new THREE.Mesh(new THREE.PlaneGeometry(roadHalf * 2, 0.8), new THREE.MeshBasicMaterial({ color: "#d8d8d8" })); line.rotation.x = -Math.PI / 2; line.position.set(0, 0.06, 0); grp.add(line);
   }
-  grp.userData = { lights, kind: finish ? "finish" : "start" };
+  grp.userData = { lights, kind: finish === "half" ? "half" : finish ? "finish" : "start" };
   return grp;
 }
 
@@ -266,4 +274,14 @@ export function makeWorks(lenSim) {
   grp.add(s);
   grp.userData = { kind: "works" };
   return grp;
+}
+
+// ---- the bypass pop-up: a glowing curved arrow standing over an outside lane, pointing the way out of the road ----
+export function makeCurve(side) { // side: -1 = left lane (arrow points left), +1 = right
+  const grp = new THREE.Group(), m = new THREE.MeshStandardMaterial({ color: "#2ad4ff", emissive: "#17b8ff", emissiveIntensity: 1.6, roughness: 0.3, metalness: 0.2 });
+  const arc = new THREE.TorusGeometry(2.1, 0.28, 8, 24, Math.PI * 0.62); // a curved path: starts straight ahead, bends away from the road
+  const body = new THREE.Mesh(arc, m); body.rotation.set(-Math.PI / 2, 0, Math.PI / 2 * (side > 0 ? -1 : 1) + (side > 0 ? 0 : Math.PI)); body.position.set(-side * 1.4, 1.6, 0.4);
+  const head = new THREE.Mesh(new THREE.ConeGeometry(0.62, 1.3, 12), m); head.position.set(side * 1.7, 1.6, -0.6); head.rotation.z = -side * Math.PI / 2;
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(2.6, 2.6, 0.1, 28), new THREE.MeshBasicMaterial({ color: "#2ad4ff", transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending })); base.position.y = 0.12;
+  grp.add(body, head, base); grp.userData = { kind: "curve" }; return grp;
 }

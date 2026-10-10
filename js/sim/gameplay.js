@@ -23,7 +23,6 @@ function nearMiss(r) {
   pops.push({ r, text: r.combo > 1 ? `CLOSE! x${r.combo}` : "CLOSE!", t: 0 });
   sound.whoosh(); shake = Math.max(shake, 3); rumbleSoft(); // a little jolt you can feel
   if (!settings.lowfx) glowBurst(r.x, r.y - 6, ["#ffffff", "#7fffd4", "#ffe08a"], 16 + Math.min(r.combo, 6) * 3, 5, 18, [1.5, 3]);
-  if (r.combo >= 5 && r.combo % 5 === 0) slowT = 14; // a beat of slow motion on big combos
 }
 
 function setLane(r, lane) {
@@ -41,6 +40,9 @@ function setLane(r, lane) {
 
 function steer(r, dir) {
   if (!r || !r.alive || !grid.done) return;
+  if (r.bypassing) return; // on the side track: the track steers
+  const b = r.bypass;
+  if (b && b.state === "armed" && dir === b.side && r.lane === b.lane && bypassTarget(r, b)) { startBypass(r); return; } // steering out of the road, into the bypass
   setLane(r, clamp(r.lane + dir, 0, LANES - 1));
 }
 
@@ -59,6 +61,54 @@ function pedals(r) {
 }
 const throttleFor = r => { const p = pedals(r); return clamp(p.gas - p.brake, -1, 1); }; // -1..1 while driving
 
+// ---- tyres: how well the chosen compound holds the road as it is right now (0.5 .. 1) ----
+const wetnessNow = () => clamp(((pal && pal.rain) || 0) / 0.7, 0, 1);
+const gripNow = r => r.ai ? 1 : gripOf(r.tyre || "dry", wetnessNow());
+
+// ---- the start-line launch: hold gas and brake together (RT + LT, Up + Down) to rev; the needle sweeps up and down; let go in the green ----
+const NEEDLE_PERIOD = 130; // frames for one full sweep up and back
+function chargeLaunch(r) {
+  if (r.launched || r.launchLocked) { r.charging = false; return; }
+  const p = pedals(r), both = p.gas > 0.3 && p.brake > 0.3;
+  if (both) {
+    r.charging = true; r.needleT = (r.needleT || 0) + 1; r.needle = 0.5 - 0.5 * Math.cos(r.needleT / NEEDLE_PERIOD * TAU); r.rev = clamp(0.2 + 0.8 * r.needle, 0, 1); // (the engine note follows the needle)
+    return;
+  }
+  if (r.charging) { // let go of a pedal: the needle's place decides the launch
+    r.charging = false; r.launchLocked = true; const z = launchZoneOf(r.needle || 0); r.launchZone = z; r.launchGoal = z.v; r.rev = 0.3;
+    if (z === LAUNCH_ZONES[0]) unlock("react");
+    pops.push({ r, text: `${z.name} START! ${Math.round(z.v * 60)}`, t: 0 }); sound.tone(520, 1040, 0.18, "triangle", 0.07);
+  } else r.rev += clamp(p.gas - r.rev, -0.08, 0.05); // gas alone just revs the engine
+}
+
+// ---- the bypass: the pop-up in an outside lane arms it; steering out of the road (left in the left lane, right in the right lane) then
+// curves you round the next vehicle on a track of its own, at nitro speed, and drops you back where the lane is clear ----
+const BYPASS_OFF = 118, BYPASS_RAMP = 280; // how far beside the lane the side track runs, and how long the curve out / back takes
+function bypassTarget(r, b) { let best = null; for (const e of enemies) if (e.lane === b.lane && e.y < r.y - 20 && (!best || e.y > best.y)) best = e; return best; } // the nearest vehicle ahead in that lane
+function startBypass(r) {
+  const b = r.bypass, t = bypassTarget(r, b); if (!t) return;
+  // how far the side track has to run: until the target and everything behind it in that lane are passed and a clear stretch is ahead
+  const vp = Math.max(r.v, 2.2) + 1.8; let dMax = 700;
+  const ahead = enemies.filter(e => e.lane === b.lane && e.y < r.y - 20).sort((a, c) => c.y - a.y); // nearest first
+  for (const e of ahead) { const rel = Math.max(0.6, vp - e.cur), need = (r.y - e.y + lenOf(e) / 2 + CAR_H / 2 + 60) / rel * vp; dMax = Math.max(dMax, need + 520); } // (still moving at nitro speed while it passes each one)
+  b.L = clamp(dMax + 2 * BYPASS_RAMP * 0.4, 900, 3200); b.d = 0; b.state = "active"; r.bypassing = true;
+  bypassTrack = { side: b.side, lane: b.lane, y0: r.y, L: b.L, OFF: BYPASS_OFF, RAMP: BYPASS_RAMP };
+  const used = r.usedNitro; startNitro(r); r.usedNitro = used; // nitro speed, but it doesn't count as "picking up nitro" for missions
+  r.score += 25 * comboMult(r); pops.push({ r, text: "BYPASS!", t: 0 }); sound.tone(500, 1500, 0.3, "triangle", 0.08);
+}
+function stepBypass(r) {
+  const b = r.bypass; if (!b) return;
+  if (b.state === "armed") {
+    if (r.lane !== b.lane || --b.timeLeft <= 0) { r.bypass = null; return; } // moved away, or took too long
+    b.target = bypassTarget(r, b); return;
+  }
+  b.d += speed; // distance covered on the side track
+  const k = clamp(b.d / BYPASS_RAMP, 0, 1), kOut = smooth(Math.min(k, clamp((b.L - b.d) / BYPASS_RAMP, 0, 1)));
+  r.bypassX = laneX(b.lane) + b.side * BYPASS_OFF * kOut; // the car follows the curved track exactly
+  r.x = r.bypassX;
+  if (b.d >= b.L) { r.bypassing = false; r.bypass = null; bypassTrack = null; r.x = laneX(r.lane); r.ghost = Math.max(r.ghost || 0, 90); r.bypassX = undefined; } // back on the road; a moment of grace in case
+}
+
 // ---- traffic: plain road cars, then long trucks and roadworks, introduced gradually; nothing ever changes lane ----
 const ROAD_COLS = ["#f2f2f0", "#b9bec6", "#2a2c31", "#c0392b", "#2f5fa8", "#7d838c", "#2f6b4f", "#d8c9a3", "#8a1f2b", "#e0e3e8"];
 const TRUCK_LEN = 160, WORKS_LEN = 420, SIGN_AHEAD = 650; // roadworks: the warning sign stands this far before the cones
@@ -69,39 +119,65 @@ let seenKinds = store.get("seenKinds", []);
 function trafficKinds() {
   const p = racers ? Math.max(0, ...racers.map(r => r.passed)) : 0;
   const has = (city, cars) => state === "playing" && (level ? level.idx >= city : p >= cars);
-  return { truck: has(6, 40), works: has(10, 70) };
+  return { truck: has(6, 40), works: false }; // (roadworks were removed)
 }
-// is this stretch of a lane taken? (lengths count, so trucks and roadworks block what they really cover)
+// is this stretch of a lane taken? (lengths count, so trucks block what they really cover)
 const laneBusy = (lane, y, len, pad, skip) => enemies.some(o => o !== skip && o.lane === lane && Math.abs(o.y - y) < (lenOf(o) + len) / 2 + pad);
-function wouldWall(lane, y, len, skip) { // something in all three lanes within a short stretch would leave no way through
+// a pickup (coin, nitro, shield, bypass) is already near this spot of a lane?
+const pickupNear = (lane, y, len, pad) => pickups.some(k => k.lane === lane && Math.abs(k.y - y) < len / 2 + pad);
+function wouldWall(lane, y, len, skip) { // something in all three lanes within a stretch would leave no way through: keep a clear lane at all times
   const near = new Set([lane]);
-  for (const o of enemies) if (o !== skip && Math.abs(o.y - y) < (lenOf(o) + len) / 2 + 148) near.add(o.lane);
+  for (const o of enemies) if (o !== skip && Math.abs(o.y - y) < (lenOf(o) + len) / 2 + 340) near.add(o.lane);
   return near.size >= LANES;
 }
+// pick a model by weight: [name, km/h, weight]
+function pickModel(list) { let x = Math.random() * list.reduce((a, m) => a + m[2], 0); for (const m of list) { if ((x -= m[2]) < 0) return m; } return list[0]; }
 
 function spawnEnemyAt(y) {
   const k = trafficKinds(), roll = grand();
   let kind = "car";
-  if (k.works && roll < 0.05 && !enemies.some(o => o.kind === "works")) kind = "works";
-  else if (k.truck && roll < 0.17) kind = "truck";
-  const len = kind === "truck" ? TRUCK_LEN : kind === "works" ? WORKS_LEN : CAR_H, yc = y - (len - CAR_H) / 2; // long things stretch on up the road
+  if (k.truck && roll < 0.15) kind = "truck";
+  const len = kind === "truck" ? TRUCK_LEN : CAR_H, yc = y - (len - CAR_H) / 2; // long things stretch on up the road
   for (let tries = 0; tries < 4; tries++) {
     const lane = Math.floor(grand() * LANES);
-    if (laneBusy(lane, yc, len, 70) || wouldWall(lane, yc, len)) continue; // spot taken, or it would wall off the road
-    enemies.push({ kind, lane, x: laneX(lane), y: yc, len, col: gpick(ROAD_COLS), passed: {}, miss: {} });
+    if (laneBusy(lane, yc, len, 130) || wouldWall(lane, yc, len) || pickupNear(lane, yc, len, 90) || (bypassTrack && bypassTrack.lane === lane && yc < bypassTrack.y0 && yc > bypassTrack.y0 - bypassTrack.L - 300)) continue; // spot taken, it would wall off the road, or it would block a bypass
+    const m = pickModel(kind === "truck" ? TRUCK_MODELS : CAR_MODELS), v = m[1] / 60 * (0.97 + Math.random() * 0.06); // its own cruising speed, a touch different each time
+    enemies.push({ kind, model: m[0], lane, x: laneX(lane), y: yc, len, v, cur: v, col: gpick(ROAD_COLS), passed: {}, miss: {} });
     return;
   }
 }
 const spawnEnemy = () => spawnEnemyAt(-AHEAD);
+// Traffic drives: everyone holds their own speed, but queues up behind a slower vehicle in the same lane instead of driving through it.
+// (Nothing ever changes lane, so the relative speeds are what make the road feel alive.)
+function flowTraffic() {
+  for (let lane = 0; lane < LANES; lane++) {
+    const q = enemies.filter(e => e.lane === lane).sort((a, b) => a.y - b.y); // front of the queue first
+    for (let i = 0; i < q.length; i++) {
+      const e = q[i], lead = q[i - 1]; let want = e.v;
+      if (lead) {
+        const gap = e.y - lead.y - (lenOf(e) + lenOf(lead)) / 2;
+        if (gap < 120 && lead.cur < want) want = lead.cur + (gap < 50 ? -0.05 : 0); // closing on a slower vehicle: match its speed
+        if (gap < 12) { e.y = lead.y + (lenOf(e) + lenOf(lead)) / 2 + 12; want = Math.min(want, lead.cur); } // never overlap
+      }
+      e.cur += (want - e.cur) * 0.08;
+    }
+  }
+}
 // Against an Impossible CPU, keep cars far enough apart that a clean line always exists (otherwise nobody could survive the walls the spawner can create)
-const trafficGap = () => racers.some(r => r.ai === DIFFS.impossible) ? 210 : 100;
-function seedTraffic(y0 = -60) { const lo = trafficGap() > 100 ? 220 : 150; let y = y0; while ((y -= grnd(lo, lo + 110)) > -AHEAD + 40) spawnEnemyAt(y); } // the road is already busy when you arrive
+const trafficGap = () => racers.some(r => r.ai === DIFFS.impossible) ? 260 : 190;
+function seedTraffic(y0 = -60) { const lo = trafficGap() > 190 ? 280 : 230; let y = y0; while ((y -= grnd(lo, lo + 140)) > -AHEAD + 40) spawnEnemyAt(y); } // the road is already busy when you arrive
 
 function spawnPickup(y = -AHEAD, forceNitro = false) {
   const lane = Math.floor(grand() * LANES);
-  if (laneBusy(lane, y, 20, 150)) return; // never in a closed lane or under a car
+  if (laneBusy(lane, y, 20, 220) || pickupNear(lane, y, 20, 120)) return; // never in a closed lane or under a car
   if (forceNitro || grand() < 0.3) pickups.push({ type: !forceNitro && grand() < 0.25 ? "shield" : "nitro", lane, x: laneX(lane), y }); // a rare shield instead of nitro
   else for (let i = 0; i < 4; i++) pickups.push({ type: "coin", lane, x: laneX(lane), y: y - i * 45 });
+}
+// the bypass pop-up: only in the two outside lanes, and not often
+function spawnCurve(y = -AHEAD) {
+  const lane = grand() < 0.5 ? 0 : LANES - 1;
+  if (laneBusy(lane, y, 30, 260) || pickupNear(lane, y, 30, 160)) return;
+  pickups.push({ type: "curve", lane, x: laneX(lane), y });
 }
 
 // Time-aware planner (Impossible): simulate every lane over the next stretch of road in short steps and pick the move
@@ -186,7 +262,12 @@ function stepRacers() {
   for (const r of racers) {
     const px = r.x;
     if (r.alive) {
-      r.x += (laneX(r.lane) - r.x) * (0.3 - 0.09 * rainPlay()) * (r.ai ? 1 : 1 + 0.08 * upLvl("handling")); // wet road: lane changes take a little longer; the Handling upgrade quickens them
+      if (r.bypassing) stepBypass(r); // the bypass track places the car itself
+      else { // the tyres' grip for the weather decides how quickly a lane change bites; the Handling upgrade quickens it
+        const grip = gripNow(r); r.slip = grip < 0.78 && Math.abs(laneX(r.lane) - r.x) > 8;
+        r.x += (laneX(r.lane) - r.x) * 0.3 * (0.4 + 0.6 * grip) * (r.ai ? 1 : 1 + 0.08 * upLvl("handling"));
+        if (r.bypass) stepBypass(r);
+      }
       // slower than the pace car -> slip back down the screen; the spring pulls you back when you keep up
       if (level && level.final && r.ai) { // the final's CPU: trueY is its real distance from you; y is where it can be drawn
         r.trueY = (r.trueY === undefined ? r.y : r.trueY) + (speed - r.v);
@@ -196,9 +277,11 @@ function stepRacers() {
       const target = clamp(Math.atan2(r.x - px, 10), -0.45, 0.45);
       r.tilt += (target - r.tilt) * 0.3;
     } else {
-      r.y += scroll; // wrecks get left behind
-      if (r.deadT++ < 30) r.x += r.drift; // ...and slide only briefly, they don't wander off the road forever
-      r.tilt = Math.min(r.tilt + 0.12, 2.6);
+      // a wreck keeps its momentum: it slides on up the road, slowing as it scrapes along, and spins on its way (the tyres and bodywork bite more and more)
+      r.deadT++;
+      r.wreckV = (r.wreckV || 0) * 0.972;
+      r.y += scroll - r.wreckV; // (the road stops scrolling once you have crashed, so the wreck slides forward through the scene)
+      r.x += r.drift; r.drift *= 0.955; r.yawV = (r.yawV || 0) * 0.962; r.tilt += r.yawV;
     }
   }
 }
@@ -210,8 +293,8 @@ function updateDemo() {
   dist += speed;
   spawnAcc += speed;
   if (spawnAcc > 170) { spawnAcc = 0; spawnEnemy(); }
-  for (const e of enemies) e.y += speed;
-  enemies = enemies.filter(e => e.y - lenOf(e) / 2 < H + CAR_H);
+  flowTraffic(); for (const e of enemies) e.y += speed - e.cur;
+  enemies = enemies.filter(e => e.y - lenOf(e) / 2 < H + CAR_H && e.y > -AHEAD - 400);
   stepRacers();
 }
 
@@ -229,6 +312,14 @@ function collect(r, k) {
     r.shield = true;
     burst(k.x, k.y, ["#7fffff", "#ffffff", "#3ad0ff"], 16, 3);
     if (!r.ai) sound.tone(400, 1200, 0.25, "sine", 0.07);
+    return;
+  }
+  if (k.type === "curve") {
+    if (r.ai) return;
+    r.bypass = { state: "armed", lane: k.lane, side: k.lane === 0 ? -1 : 1, timeLeft: 600 }; // ten seconds to use it
+    pops.push({ r, text: k.lane === 0 ? "BYPASS READY: LEFT" : "BYPASS READY: RIGHT", t: 0 }); sound.tone(700, 1400, 0.25, "triangle", 0.08);
+    say(k.lane === 0 ? "Bypass! Steer LEFT to curve round the next vehicle" : "Bypass! Steer RIGHT to curve round the next vehicle");
+    burst(k.x, k.y, ["#7fffd4", "#ffffff", "#3ad0ff"], 18, 4);
     return;
   }
   if (k.type === "nitro") {
@@ -274,7 +365,7 @@ function updatePlaying() {
   frame++;
   if (steerHint && hasTouch && grid.done && (steerTaps >= 2 || frame > grid.goFrame + 360)) { steerHint = false; store.set("steerHint", true); } // got the idea
   const top = Math.max(...racers.map(r => r.passed));
-  const vmin = level ? tourParams(level.idx).vmin : Math.min(1 + tier * 0.15, 4.4); // Endless: the pace rises every 10 cars passed (up to 264 km/h); a tour city has its own floor
+  const vmin = Math.max(PLAYER_MIN_V, level ? tourParams(level.idx).vmin : Math.min(1 + tier * 0.15, 4.4)); // Endless: the pace rises every 10 cars passed (up to 264 km/h); a tour city has its own floor
   if (Math.floor(top / 10) > tier) tier = Math.floor(top / 10);
 
   // the start lights: five reds come on one by one, hold for a random moment, then turn green
@@ -289,13 +380,20 @@ function updatePlaying() {
   // throttle / brake (nitro takes over completely while it burns)
   for (const r of racers) {
     if (!r.alive) continue;
-    if (!grid.done) { // on the grid: holding gas builds revs (no penalties, no brake trick)
+    if (!grid.done) { // on the grid: hold the gas and the brake together to charge the launch; let go in the green
       r.v = 0; r.braking = false;
-      if (!r.ai) r.rev += clamp(pedals(r).gas - r.rev, -0.08, 0.05);
+      if (!r.ai) chargeLaunch(r);
       continue;
     }
     const since = frame - grid.goFrame, boost = r.nitro > 0;
     if (r.ai && since < AI_REACT) { r.v = 0; continue; } // the CPU reacts 0.100s after green, every time
+    if (r.ai && r.launchGoal === undefined) r.launchGoal = r.ai.launch || 0; // the CPU gets a launch too, by difficulty
+    if (!r.ai) chargeLaunch(r);
+    if (r.launchGoal && r.v < r.launchGoal && !boost) { // the launch itself: a very quick surge up to the speed the timing earned
+      r.v = Math.min(r.launchGoal, r.v + 0.24); r.launched = true; r.braking = false; r.rolling = r.rolling || r.v >= vmin;
+      continue;
+    }
+    if (r.launchGoal && r.v >= r.launchGoal) { r.launchGoal = 0; r.launchLocked = false; } // launch done: the pedals are yours again
     if (boost) {
       r.nitro--; r.braking = false;
       r.cruise += accelAt(r.cruise); // flat-out throttle keeps counting underneath the boost
@@ -306,13 +404,13 @@ function updatePlaying() {
       r.v += clamp(target - r.v, -0.04, Math.min(r.ai.accel || 0.03, accelAt(r.v))); // same car, same physics
       r.braking = target < r.v - 0.02;
     } else {
-      const pd = pedals(r);
+      const pd = pedals(r), grip = gripNow(r);
       let t = clamp(pd.gas - pd.brake, -1, 1);
-      if (!r.launched && pd.gas > 0.3) { // on gas after green: away you go, harder the more revs you built on the grid
-        if (r.rev > 0.95) unlock("react"); // a perfect launch
-        r.launched = true; r.v = Math.max(r.v, 0.4 + 1.5 * r.rev); r.rev = 0;
+      if (r.charging || r.launchLocked) t = 0; // the pedals belong to the launch until it is away
+      if (!r.launched && pd.gas > 0.3 && !r.charging && !r.launchLocked) { // gas alone after green: a plain quick start (100 km/h)
+        r.launched = true; r.launchGoal = LAUNCH_ZONES[2].v;
       }
-      r.v += t > 0 ? accelAt(r.v) * t : 0.05 * t; // brakes ~5g, like the real thing
+      r.v += t > 0 ? accelAt(r.v) * t * (0.45 + 0.55 * grip) : 0.05 * t; // brakes ~5g; the wrong tyres for the weather lose some of the pull
       r.braking = t < -0.05;
       if (t < -0.3 && r.launched) r.braked = true; // for the "finish without braking" mission
       r.hardBrake = t < -0.6 && r.v > 2.5; // tyre smoke
@@ -336,12 +434,18 @@ function updatePlaying() {
     const left = level.d0 + level.len - dist;
     if (left < AHEAD - 100) finishObj = { y: racers[0].y - left };
   }
+  if (level && !halfObj && !level.halfShown) { // the halfway gantry appears up the road so it crosses the car exactly at the midpoint
+    const left = level.d0 + level.len / 2 - dist;
+    if (left < AHEAD - 100) { halfObj = { y: racers[0].y - left }; level.halfShown = true; }
+  }
+  if (halfObj && !halfObj.crossed && halfObj.y >= racers[0].y - CAR_H / 2) { halfObj.crossed = true; say("HALFWAY THERE!"); sound.tone(660, 990, 0.25, "triangle", 0.08); sound.tone(990, 1320, 0.25, "triangle", 0.06); }
   if (grid.done && !finishObj) { // nothing new spawns past the finish line
     spawnAcc += speed;
     const gap = level ? tourParams(level.idx).gap : Math.max(trafficGap(), SPAWN_PX - Math.floor(top / 3) * 4);
     if (spawnAcc >= gap) { spawnAcc -= gap; spawnEnemy(); }
     pickupAcc -= speed;
     if (pickupAcc <= 0) { spawnPickup(); pickupAcc = grnd(520, 960); }
+    if ((curveAcc -= speed) <= 0) { spawnCurve(); curveAcc = grnd(3600, 5600); } // the bypass pop-up: now and then, in an outside lane
   }
 
   const spray = sprayColor(), rp = rainPlay(), p0 = racers[0];
@@ -377,6 +481,7 @@ function updatePlaying() {
       if (!r.ai && r.alive && dy > -20 && dy < 70 + 35 * upLvl("magnet") && Math.abs(dx) > 3 && Math.abs(dx) < LANE_W * 1.3) { k.x += dx * 0.14; break; }
     }
     if (k.type === "shield" && k.y > 0 && !seenKinds.includes("shield")) { seenKinds.push("shield"); store.set("seenKinds", seenKinds); say(NEW_KINDS.shield); }
+    if (k.y < racers[0].y - 140) for (const e of enemies) if (e.lane === k.lane && Math.abs(k.y - e.y) < lenOf(e) / 2 + 55) { k.taken = k.gone = true; break; } // a pickup a vehicle is about to drive over just disappears: none is ever stuck inside a car
     for (const r of racers) {
       if (level && r.ai) continue; // the Grand Final CPU leaves pickups alone: a steady, readable rival
       if (r.alive && Math.abs(k.x - r.x) < 26 && Math.abs(k.y - r.y) < 42) {
@@ -387,9 +492,10 @@ function updatePlaying() {
     }
   }
   pickups = pickups.filter(k => !k.taken && k.y < H + 20);
+  if (grid.done) flowTraffic(); // queues form behind slower vehicles
 
   for (const e of enemies) {
-    e.y += speed;
+    e.y += speed - (grid.done ? e.cur : 0); // the road scrolls at your speed; the car drives on at its own
     e.x += (laneX(e.lane) - e.x) * 0.06;
     if (e.kind !== "car" && !seenKinds.includes(e.kind) && e.y + lenOf(e) / 2 + (e.kind === "works" ? SIGN_AHEAD : 0) > 0) { // first sighting ever
       seenKinds.push(e.kind); store.set("seenKinds", seenKinds); say(NEW_KINDS[e.kind]);
@@ -405,18 +511,20 @@ function updatePlaying() {
         }
         if (e.dodged && e.dodged[r.id]) nearMiss(r);
       }
-      const hitX = Math.abs(e.x - r.x) < CAR_W - 4;
-      const hitY = Math.abs(e.y - r.y) < reach - 6;
+      let hitX = Math.abs(e.x - r.x) < CAR_W - 4, hitY = Math.abs(e.y - r.y) < reach - 6;
+      if (e.passed[r.id] && e.y > r.y) hitY = false; // already behind you: it can never hit you
+      if (r.bypassing) hitY = false;                 // on the bypass track you are beside the road, clear of everything
+      if (r.through === e) { if (hitX && hitY) continue; if (e.passed[r.id]) r.through = null; } // driving on through a vehicle the shield saved you from: no second hit until you are out the other side
       if (hitX && hitY && r.ghost > 0) continue; // still flashing from a bump: no second hit
       if (r.trueY !== undefined && r.trueY !== r.y) continue; // the final's CPU is beyond the stretch of road that exists: nothing to hit there
-      if (hitX && hitY && r.shield) { shieldBreak(r); continue; } // the shield takes it
+      if (hitX && hitY && r.shield) { shieldBreak(r, e); continue; } // the shield takes it
       if (hitX && hitY && level && level.final && r.id === 1) { // the Grand Final CPU bumps off traffic instead of crashing: it loses speed and flashes for a second
         if (!(r.ghost > 0)) { r.v *= 0.6; r.ghost = 60; burst(r.x, r.y - 20, ["#ffffff", "#ffd23f"], 12, 3); }
         continue;
       }
       if (hitX && hitY) {
-        r.alive = false; r.drift = (r.x < e.x ? -1 : 1) * 1.5;
-        if (!r.ai) { bump("crashes"); flashT = settings.lowfx ? 0.35 : 0.75; hitStop = 8; } // white flash and a beat of freeze frame
+        r.alive = false; r.drift = (r.x < e.x ? -1 : 1) * 1.5; r.wreckV = r.v; r.hitBy = e; r.yawV = (r.x < e.x ? -1 : 1) * rnd(0.16, 0.3) * clamp(r.v / 3, 0.5, 1.5); // the wreck keeps its momentum: it slides on and spins
+        if (!r.ai) { bump("crashes"); flashT = settings.lowfx ? 0.35 : 0.75; hitStop = 5; } // white flash and a beat of freeze frame
         if (!settings.lowfx) { // a fireball, sparks flying and smoke rolling off
           glowBurst(r.x, r.y - 10, ["#fff4c2", "#ffd23f", "#ff9f1c", "#ff5a1f"], 46, 7, 34, [3, 8]);
           glowBurst(r.x, r.y - 10, ["#ffffff", "#ffe08a"], 30, 11, 22, [1.5, 3]);
@@ -427,7 +535,7 @@ function updatePlaying() {
       }
     }
   }
-  enemies = enemies.filter(e => e.y - lenOf(e) / 2 < H + CAR_H);
+  enemies = enemies.filter(e => e.y - lenOf(e) / 2 < H + CAR_H && e.y > -AHEAD - 400);
 
   if (level ? !racers[0].alive : racers.some(r => !r.alive)) endRound(); // in the tour only your crash ends it (a crashed CPU is simply out)
   else if (finishObj && finishObj.y >= racers[0].y - CAR_H / 2) finishLevel(); // nose over the line
@@ -447,10 +555,10 @@ function updatePlaying() {
 
 // Crossed the finish line of a World Tour city
 // the shield absorbs a crash: bounce off, lose the combo and some speed, and it shatters
-function shieldBreak(r) {
+function shieldBreak(r, e) {
   r.shield = false; r.combo = 0; r.comboT = 0;
   if (!r.ai) { bump("shields"); unlock("shield"); }
-  r.v *= 0.7; r.y = Math.min(r.y + 26, H - 38); r.ghost = 45;
+  r.v *= 0.9; r.ghost = 45; r.through = e || null; // you carry on through the vehicle (a lorry is long: no second hit until you are out the other side)
   burst(r.x, r.y - 10, ["#7fffff", "#ffffff", "#3ad0ff", "#bff6ff"], 60, 7);
   shake = Math.max(shake, 10);
   if (!r.ai) { sound.burst(0.35, 0.5, "highpass", 3000, 9000); sound.tone(900, 220, 0.3, "triangle", 0.08); pops.push({ r, text: "SHIELD!", t: 0 }); rumble(); }

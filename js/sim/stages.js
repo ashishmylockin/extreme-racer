@@ -29,7 +29,7 @@ function pickKind(table) {
 function sceneTable(st, far) {
   const night = st.night > 0.1, desert = !!st.desert, city = st.horizon === "city";
   return far
-    ? [["tree", 0.3], ["bush", desert ? 0.03 : 0.08], ["rock", 0.05], ["dune", desert ? 0.14 : 0], ["building", city ? 0.12 : 0], ["stand", 0.04], ["board", 0.07], ["flag", 0.07]]
+    ? [["tree", 0.3], ["bush", desert ? 0.03 : 0.08], ["rock", 0.05], ["dune", desert ? 0.14 : 0], ["building", city ? 0.12 : 0], ["stand", 0.04], ["flag", 0.07]]
     : [["tree", 0.4], ["bush", desert ? 0.04 : 0.1], ["rock", 0.06], ["dune", desert ? 0.18 : 0], ["flag", 0.06], ["lamp", night ? 0.4 : 0.05], ["prop", st.props && st.props.some(p => !p[2]) ? 0.22 : 0]];
 }
 

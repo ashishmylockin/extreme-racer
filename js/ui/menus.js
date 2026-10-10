@@ -233,6 +233,7 @@ function currentMenu() {
     case "paused": return { items: PAUSE_MENU, top: 262, h: 44, gap: 14 };
     case "camera": return { items: CAMERA_MENU, top: 205, h: 44, gap: 10 };
     case "tutorial": return { items: TUTORIAL_MENU, top: 330, h: 44, gap: 10 };
+    case "tyres": return { items: TYRES_MENU, top: 262, h: 48, gap: 6 };
     case "cleared": return { items: level && level.daily ? DAILY_MENU : CLEARED_MENU, top: 306, h: 38, gap: 8 };
     case "over": return { items: OVER_MENU, top: 328, h: 44, gap: 14 };
   }
@@ -286,6 +287,8 @@ function menuAction(a) {
     GRAPHICS_MENU[sel].cycle(a === "left" ? -1 : 1); sound.tone(600, 600, 0.04, "square", 0.03);
   } else if (state === "options" && OPTIONS_MENU[sel] && OPTIONS_MENU[sel].slider && (a === "left" || a === "right")) { // nudge a volume
     const k = OPTIONS_MENU[sel].slider; setSlider(k, settings[k] + (a === "left" ? -0.1 : 0.1));
+  } else if (state === "tyres" && (a === "left" || a === "right")) { // left / right step through the tyres too
+    sel = clamp(sel + (a === "left" ? -1 : 1), 0, TYRES.length - 1); sound.tone(520, 520, 0.04, "square", 0.03);
   } else if (state === "tutorial" && (a === "left" || a === "right")) { // flick between the tip cards
     if (a === "right") nextTip(); else { tipIdx = Math.max(0, tipIdx - 1); sel = 0; }
   } else if (state === "paused" && sel === 1 && (a === "left" || a === "right")) { // flick through the cameras
@@ -301,6 +304,7 @@ function menuAction(a) {
     if (state === "paused" || state === "camera") state = "playing";
     else if (state === "tutorial") endTutorial();
     else if (state === "difficulty") openMenu("menu", 3);
+    else if (state === "tyres") TYRES_MENU[TYRES.length].go();
     else if (state === "map") { initDemo(); openMenu("menu", 0); }
     else if (state === "brief") { openMenu("map"); sel = -1; }
     else if (state === "garage") openMenu("menu", 5);
@@ -315,3 +319,17 @@ function menuAction(a) {
   }
 }
 
+
+// ---- tyres: every race starts here. Dry slicks, intermediates or full wets; how well each one grips depends on how wet the city is. ----
+let tyreChoice = store.get("tyre", "dry"), pendingStart = null, tyreBack = "menu", tyreCity = 0;
+const TYRE_KEYS = TYRES.map(t => t.key);
+function startGame(m, d, stage = 0) { // asks for tyres first; the tyre menu then starts the race
+  pendingStart = [m, d, stage]; tyreBack = ["brief", "over", "cleared", "difficulty", "menu"].includes(state) ? state : "menu";
+  tyreCity = stage % ROUTE.length;
+  const rec = bestTyre(cityWetness(ROUTE[tyreCity]));
+  openMenu("tyres", TYRE_KEYS.indexOf(store.get("tyreSeen", false) ? tyreChoice : rec)); // the first time the sensible one is pre-selected, after that your last choice
+}
+const TYRES_MENU = [
+  ...TYRES.map(t => ({ label: "", w: 330, h: 48, go: () => { tyreChoice = t.key; store.set("tyre", tyreChoice); store.set("tyreSeen", true); const p = pendingStart; pendingStart = null; startGameNow(p[0], p[1], p[2]); } })),
+  { label: "Back", h: 32, go: () => { pendingStart = null; openMenu(tyreBack, tyreBack === "menu" ? 0 : 0); if (tyreBack === "brief") sel = 0; } },
+];

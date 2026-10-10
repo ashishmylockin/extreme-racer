@@ -39,20 +39,20 @@ export function wearTexture(laneCentres, roadHalf) {
 
   // -- tone: soft blotches of lighter and darker asphalt, then patches, cracks, manholes, drain covers --
   for (let i = 0; i < 520; i++) { const x = R(0, W), y = R(0, H), r = R(24, 120), v = rnd() < 0.5 ? R(70, 108) : R(150, 190), g = gg.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(${v},${v},${v},0.32)`); g.addColorStop(1, `rgba(${v},${v},${v},0)`); gg.fillStyle = g; wrap(y - r, y + r, o => gg.fillRect(x - r, y - r + o, r * 2, r * 2)); }
-  for (let i = 0; i < 11; i++) { // repair patches: a neat rectangle of newer (or older) asphalt with a dark sealed edge
-    const w = R(3, 9) * ppu, l = R(3, 14) * ppu, x = R(-roadHalf + 1, roadHalf - 1) * ppu + W / 2 - w / 2, y = R(0, H - l), v = rnd() < 0.55 ? R(80, 100) : R(150, 172);
+  for (let i = 0; i < 5; i++) { // repair patches: a neat rectangle of newer (or older) asphalt with a dark sealed edge
+    const w = R(3, 9) * ppu, l = R(3, 14) * ppu, x = R(-roadHalf + 1, roadHalf - 1) * ppu + W / 2 - w / 2, y = R(0, H - l), v = rnd() < 0.55 ? R(104, 118) : R(140, 152);
     gg.fillStyle = `rgb(${v},${v},${v})`; gg.fillRect(x, y, w, l); gg.strokeStyle = "rgb(55,55,55)"; gg.lineWidth = 3; gg.strokeRect(x, y, w, l); gg.strokeStyle = "rgba(55,55,55,0.5)"; gg.lineWidth = 1.5; gg.strokeRect(x + 5, y + 5, w - 10, l - 10);
     gr.fillStyle = "rgba(255,255,255,0.0)";
   }
   gg.lineCap = "round"; gg.lineJoin = "round";
-  for (let i = 0; i < 22; i++) { // cracks
+  for (let i = 0; i < 12; i++) { // cracks
     let x = R(0, W), y = R(0, H); const dir = R(0, Math.PI * 2), n = Math.floor(R(8, 26)); gg.strokeStyle = `rgba(40,40,40,${R(0.5, 0.9)})`; gg.lineWidth = R(1.5, 3); gg.beginPath(); gg.moveTo(x, y);
     let a = dir; for (let k = 0; k < n; k++) { a += R(-0.7, 0.7); x += Math.cos(a) * R(10, 26); y += Math.sin(a) * R(10, 26); gg.lineTo(x, y); } gg.stroke();
   }
   const manhole = (x, y) => { gg.fillStyle = "rgb(60,60,60)"; gg.beginPath(); gg.arc(x, y, 28, 0, 7); gg.fill(); gg.fillStyle = "rgb(150,152,155)"; gg.beginPath(); gg.arc(x, y, 23, 0, 7); gg.fill(); gg.strokeStyle = "rgb(95,95,98)"; gg.lineWidth = 2;
     for (let k = -2; k <= 2; k++) { gg.beginPath(); gg.moveTo(x - 20, y + k * 8); gg.lineTo(x + 20, y + k * 8); gg.stroke(); gg.beginPath(); gg.moveTo(x + k * 8, y - 20); gg.lineTo(x + k * 8, y + 20); gg.stroke(); } gg.beginPath(); gg.arc(x, y, 9, 0, 7); gg.stroke(); };
-  for (let i = 0; i < 7; i++) manhole(R(-roadHalf + 2, roadHalf - 2) * ppu + W / 2, R(40, H - 40));
-  for (const s of [-1, 1]) for (let i = 0; i < 6; i++) { // storm drains beside the kerb
+  for (let i = 0; i < 3; i++) manhole(R(-roadHalf + 2, roadHalf - 2) * ppu + W / 2, R(40, H - 40));
+  for (const s of [-1, 1]) for (let i = 0; i < 3; i++) { // storm drains beside the kerb
     const x = X(s * (roadHalf - 0.9)) - 11, y = R(40, H - 80); gg.fillStyle = "rgb(40,40,40)"; gg.fillRect(x - 2, y - 2, 26, 62); gg.fillStyle = "rgb(150,150,152)"; for (let k = 0; k < 7; k++) gg.fillRect(x + 1, y + 2 + k * 8, 20, 4);
   }
   for (let i = 0; i < 4500; i++) { const v = rnd() < 0.5 ? 100 : 156; gg.fillStyle = `rgba(${v},${v},${v},0.25)`; gg.fillRect(R(0, W), R(0, H), 2, 2); } // grit

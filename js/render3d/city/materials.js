@@ -56,7 +56,7 @@ float winMask = 0.0; vec3 emitCol = vec3(0.0);
     diffuseColor.rgb = mix(wallc, glass, winMask);
     float pc = fract(rnd * 7.3);
     vec3 lightc = pc < 0.62 ? vec3(1.0, 0.74, 0.42) : (pc < 0.9 ? vec3(0.62, 0.82, 1.0) : vec3(1.0, 0.35, 0.7));
-    emitCol = lightc * (winMask * lit * uNight * (ground ? 1.3 : 1.0) * (0.9 + 0.8 * fract(rnd * 11.0)));
+    emitCol = lightc * 0.6 * (winMask * lit * uNight * (ground ? 1.1 : 1.0) * (0.9 + 0.8 * fract(rnd * 11.0)));
   } else { diffuseColor.rgb = wall * 0.28; } // underside
 }`;
 

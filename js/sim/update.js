@@ -7,10 +7,10 @@ function update() {
   pollPads();
   if (state === "paused" || state === "camera") return;
   if (state === "playing") updatePlaying();
-  else if (state === "over") { scroll = view3D() === 0 ? 1 : 0; stepRacers(); }
+  else if (state === "over") { scroll = view3D() === 0 ? 1 : 0; flowTraffic(); for (const e of enemies) e.y += scroll - e.cur; stepRacers(); } // the wreck slides on; the rest of the traffic keeps driving
   else if (state === "cleared") { // coast to a stop past the line
     speed *= 0.97; scroll = speed; dist += speed;
-    for (const e of enemies) e.y += speed;
+    flowTraffic(); for (const e of enemies) e.y += speed - e.cur;
     for (const r of racers) if (r.alive) r.v = speed;
     stepRacers();
   }
@@ -26,5 +26,5 @@ function update() {
   sound.engineTick(state === "playing", effV(racers[0]), racers[0].nitro > 0);
   if (state === "playing" && racers[0].rev > 0.9 && Math.random() < 0.12) sound.burst(0.05, 0.4, "lowpass", 900, 260); // rev-limiter pops
   sound.envTick(state === "playing", Math.max(rainI, wet), 0, 0);
-  music.tick(state === "title" || state === "menu" || state === "tutorial" || state === "difficulty" || state === "garage" || state === "upgrades" || state === "options" || state === "graphics" || state === "songs" || state === "controls" || state === "credits" || state === "map" || state === "brief" || state === "stats");
+  music.tick(state === "title" || state === "menu" || state === "tutorial" || state === "difficulty" || state === "tyres" || state === "garage" || state === "upgrades" || state === "options" || state === "graphics" || state === "songs" || state === "controls" || state === "credits" || state === "map" || state === "brief" || state === "stats");
 }

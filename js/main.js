@@ -20,13 +20,19 @@ function disable3D(why) {
   canvas.classList.remove("over3d");
 }
 function tick3D() { try { R3D.tick(); } catch (e) { disable3D(e); } }
+const FILM = new URLSearchParams(location.search).get("film"); let filmT = null; const filmShots = []; // testing: film=0.2,0.6,1.2 captures the 3D view that many seconds after the crash and shows the shots side by side
+function filmFrame() {
+  if (!FILM || state !== "over" || racers[0].alive) return; const want = FILM.split(",").map(Number); if (filmT === null) filmT = performance.now();
+  const t = (performance.now() - filmT) / 1000; if (filmShots.length < want.length && t >= want[filmShots.length]) { const c = document.createElement("canvas"); c.width = 520; c.height = 300; c.getContext("2d").drawImage(R3D.renderer.domElement, 0, 0, 520, 300); filmShots.push(c); }
+  if (filmShots.length === want.length && !document.getElementById("film")) { const d = document.createElement("div"); d.id = "film"; d.style.cssText = "position:fixed;inset:0;background:#111;z-index:99;display:flex;flex-wrap:wrap;gap:4px"; filmShots.forEach((c, i) => { c.style.width = "calc(50% - 4px)"; d.appendChild(c); }); document.body.appendChild(d); }
+}
 let infoN = 0; const SHOW_STATS = new URLSearchParams(location.search).has("info"); // testing: ?info logs draw calls and triangles after 40 frames
-function render3D(alpha) { try { R3D.render(alpha); if (SHOW_STATS && ++infoN === 40) { const i = R3D.renderer.info; console.info("INFO calls=" + i.render.calls + " triangles=" + i.render.triangles + " geometries=" + i.memory.geometries + " textures=" + i.memory.textures); } } catch (e) { disable3D(e); } }
+function render3D(alpha) { try { R3D.render(alpha); filmFrame(); if (SHOW_STATS && ++infoN === 40) { const i = R3D.renderer.info; console.info("INFO calls=" + i.render.calls + " triangles=" + i.render.triangles + " geometries=" + i.memory.geometries + " textures=" + i.memory.textures); } } catch (e) { disable3D(e); } }
 
 function loop(now) {
   if (window.R3D_PENDING) { lastTime = now; requestAnimationFrame(loop); return; } // still loading the 3D assets: hold the game
   if (!window.R3D) perfGuard(now - lastTime); // (the 2D renderer's "reduce effects" watchdog; the 3D renderer has its own Auto quality)
-  acc += Math.min(100, now - lastTime) * (slowT > 0 && state === "playing" ? 0.35 : 1); // big combos: a moment of slow motion
+  acc += Math.min(100, now - lastTime);
   lastTime = now;
   while (acc >= STEP) { if (ticksLeft > 0) { update(); ticksLeft--; if (window.R3D) tick3D(); } acc -= STEP; }
   draw();
@@ -50,16 +56,36 @@ requestAnimationFrame(loop);
     const [m, c, k] = dev.split(",");
     if (m === "garage") { garageIdx = +c || 0; openMenu("garage"); }
     else if (m === "menu" || m === "options" || m === "graphics" || m === "stats" || m === "upgrades" || m === "credits" || m === "controls" || m === "songs" || m === "difficulty" || m === "tutorial") openMenu(m);
+    else if (m === "tyres") startGame("tour", null, +c || 0); // the tyre choice before a World Tour race in city c
     else if (m === "map") openMap();
     else if (m === "brief") { mapIdx = +c || 0; jumpTo(mapIdx, 0.3); openMenu("brief"); }
     else {
-      cam = +k || 0; startGame(m === "pause" || m === "camerapick" ? "tour" : m || "single", "medium", +c || 0); held.add("ArrowUp");
+      cam = +k || 0; startGameNow(m === "pause" || m === "camerapick" ? "tour" : m || "single", "medium", +c || 0); held.add("ArrowUp");
       if (q.has("god")) racers[0].ghost = 1e9; // god: crashes are ignored
       if (q.has("clean")) document.getElementById("game").style.visibility = "hidden"; // clean: hide the 2D HUD for screenshots
       if (q.has("team")) racers[0].team = TEAMS[+q.get("team") % TEAMS.length]; // team=N: drive that team's car
-      for (let i = +q.get("ff") || 0; i > 0; i--) update(); // ff=600 fast-forwards 600 sim ticks (10 s)
+      if (q.has("bypass")) { const r0 = racers[0]; grid.done = true; grid.goFrame = 0; r0.launchGoal = 3.33; r0.lane = 0; r0.x = laneX(0); enemies = []; pickups = []; pickups.push({ type: "curve", lane: 0, x: laneX(0), y: r0.y - 300 }); enemies.push({ kind: "car", model: "van", lane: 0, x: laneX(0), y: r0.y - 950, len: CAR_H, v: 1.4, cur: 1.4, col: "#f2f2f0", passed: {}, miss: {} }); window.devSteer = +q.get("bypass") || 120; } // bypass=N: a bypass pop-up and a slow van in the left lane; steers left at tick N
+      if (q.has("charge")) { held.add("ArrowDown"); window.devRel = +q.get("release") || 0; } // charge: hold gas and brake together; release=N lets go of the brake at tick N
+      for (let i = +q.get("ff") || 0; i > 0; i--) { if (window.devRel && frame >= window.devRel) held.delete("ArrowDown"); if (window.devSteer && frame === window.devSteer) steer(racers[0], -1); update(); } // ff=600 fast-forwards 600 sim ticks (10 s)
+      if (q.has("half") && level) dist = level.d0 + level.len / 2 - (+q.get("half") || 700); // half=N: jump to N units before the halfway point
       if (q.has("nitro")) startNitro(racers[0]); // nitro: fire a nitro canister straight away
-      if (q.has("crash")) { racers[0].alive = false; racers[0].drift = 1.5; racers[0].ghost = 0; endRound(); }
+      if (q.has("report")) { // testing: run the simulation flat out for a while and print what the traffic did
+        const n = +q.get("report") || 3000, st = { ticks: 0, pickInCar: 0, carOverlap: 0, wall: 0, minGapAhead: 1e9, spd: {}, crashes: 0 }; let maxWall = 0;
+        if (!q.has("charge")) { racers[0].launchGoal = 3.33; racers[0].launched = true; grid.done = true; grid.goFrame = frame; }
+        const trace = [];
+        for (let i = 0; i < n; i++) {
+          if (!racers[0].alive) { st.crashes++; break; }
+          if (window.devRel && frame >= window.devRel) held.delete("ArrowDown"); update(); st.ticks++; if (i % 20 === 0 && i < 520) trace.push(`${frame}:${Math.round(racers[0].v * 60)}${grid.done ? "" : "(grid)"}`);
+          for (const k of pickups) for (const e of enemies) if (e.lane === k.lane && Math.abs(k.y - e.y) < lenOf(e) / 2 + 6 && k.y < racers[0].y - 100) st.pickInCar++;
+          for (const a of enemies) for (const b of enemies) if (a !== b && a.lane === b.lane && a.y < b.y && b.y - a.y < (lenOf(a) + lenOf(b)) / 2 - 2) st.carOverlap++;
+          for (const e of enemies) { const s = st.spd[e.model] || (st.spd[e.model] = { n: 0, sum: 0, min: 1e9, max: 0 }); s.n++; s.sum += e.cur; s.min = Math.min(s.min, e.cur); s.max = Math.max(s.max, e.cur); }
+          const win = enemies.filter(e => e.y > -700 && e.y < 200); // a wall: all three lanes occupied within 300 units of each other
+          for (const e of win) { const near = new Set(win.filter(o => Math.abs(o.y - e.y) < 220).map(o => o.lane)); if (near.size >= 3) { st.wall++; break; } }
+        }
+        const sp = Object.fromEntries(Object.entries(st.spd).map(([k, s]) => [k, `avg ${(s.sum / s.n * 60).toFixed(0)} min ${(s.min * 60).toFixed(0)} max ${(s.max * 60).toFixed(0)} km/h`]));
+        console.info("REPORT " + JSON.stringify({ trace: trace.join(" "), zone: racers[0].launchZone && racers[0].launchZone.name, ticks: st.ticks, crashed: st.crashes, speedKmh: Math.round(racers[0].v * 60), pickupsInsideCars: st.pickInCar, carsOverlapping: st.carOverlap, wallTicks: st.wall, speeds: sp, enemiesNow: enemies.length, pickupsNow: pickups.length }));
+      }
+      if (q.has("crash")) { racers[0].ghost = 0; const r0 = racers[0]; enemies.push({ kind: "car", model: "sedan", lane: r0.lane, x: r0.x, y: r0.y - 100, len: CAR_H, v: 1.67, cur: 1.67, col: "#2f5fa8", passed: {}, miss: {} }); } // crash: a car appears just ahead, so the real crash physics plays out
       if (q.has("finish") && level) finishLevel();
       if (m === "pause") state = "paused";
       if (m === "camerapick") openMenu("camera", cam);

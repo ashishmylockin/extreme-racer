@@ -18,7 +18,7 @@ export function createNight(scene) {
   pools.frustumCulled = false; pools.count = 0; pools.renderOrder = 2; scene.add(pools);
 
   // the glowing lamp heads (and a halo round each, which bloom later turns into a proper glow)
-  const headMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.0, 0.82, 0.5).multiplyScalar(3), toneMapped: false, fog: true, transparent: true, opacity: 0 });
+  const headMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.0, 0.82, 0.5).multiplyScalar(1.6), toneMapped: false, fog: true, transparent: true, opacity: 0 });
   const heads = new THREE.InstancedMesh(new THREE.SphereGeometry(0.55, 8, 6), headMat, CAP);
   heads.frustumCulled = false; heads.count = 0; scene.add(heads);
   const haloMat = new THREE.MeshBasicMaterial({ map: radialTex("rgba(255,230,170,0.95)", "rgba(255,200,120,0.25)"), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0, fog: true });
@@ -31,7 +31,7 @@ export function createNight(scene) {
     uniforms: { k: { value: 0 }, color: { value: new THREE.Color(1.0, 0.93, 0.75) } },
     vertexShader: `varying vec3 vN; varying vec3 vV; varying float vT; void main() { vT = clamp(-position.z / 38.0, 0.0, 1.0); vec4 mv = modelViewMatrix * vec4(position, 1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }`,
     fragmentShader: `uniform float k; uniform vec3 color; varying vec3 vN; varying vec3 vV; varying float vT;
-      void main() { float f = pow(clamp(abs(dot(normalize(vN), normalize(vV))), 0.0001, 1.0), 1.6); float a = f * pow(clamp(1.0 - vT, 0.0001, 1.0), 1.4) * 0.5 * k; /* (clamped: pow of a negative number is NaN, which turns the whole screen black through the bloom) */ if (a < 0.004) discard; gl_FragColor = vec4(color * a * 2.0, a); }`,
+      void main() { float f = pow(clamp(abs(dot(normalize(vN), normalize(vV))), 0.0001, 1.0), 1.6); float a = f * pow(clamp(1.0 - vT, 0.0001, 1.0), 1.4) * 0.32 * k; /* (clamped: pow of a negative number is NaN, which turns the whole screen black through the bloom) */ if (a < 0.004) discard; gl_FragColor = vec4(color * a * 2.0, a); }`,
   });
   const makeBeam = () => { // returns a mesh that lights up the road ahead of a car (child of the car, which faces -Z)
     const g = new THREE.ConeGeometry(5.5, 38, 20, 1, true); g.translate(0, -19, 0); g.rotateX(Math.PI / 2); // the tip is at the origin, the wide end 38 units ahead (-Z)
@@ -56,12 +56,12 @@ export function createNight(scene) {
           dummy.rotation.set(0, 0, 0);
           dummy.position.set(l.side * (RH - 4.5), 0.07, l.z); dummy.scale.set(15, 1, 15); dummy.updateMatrix(); pools.setMatrixAt(n, dummy.matrix);
           dummy.position.set(l.hx, 8.8, l.z); dummy.scale.setScalar(1); dummy.updateMatrix(); heads.setMatrixAt(n, dummy.matrix);
-          dummy.position.set(l.hx, 8.8, l.z); dummy.scale.set(7, 7, 7); dummy.updateMatrix(); halos.setMatrixAt(n, dummy.matrix);
+          dummy.position.set(l.hx, 8.8, l.z); dummy.scale.set(4.2, 4.2, 4.2); dummy.updateMatrix(); halos.setMatrixAt(n, dummy.matrix);
           n++;
         }
         pools.count = heads.count = halos.count = n;
         pools.instanceMatrix.needsUpdate = heads.instanceMatrix.needsUpdate = halos.instanceMatrix.needsUpdate = true;
-        poolMat.opacity = Math.min(0.6, night * 0.7); headMat.opacity = Math.min(1, night * 1.5); haloMat.opacity = Math.min(1, night);
+        poolMat.opacity = Math.min(0.34, night * 0.4); headMat.opacity = Math.min(1, night * 1.5); haloMat.opacity = Math.min(0.5, night * 0.5);
       }
       beamMat.uniforms.k.value = night;
       spots.forEach((s, i) => {

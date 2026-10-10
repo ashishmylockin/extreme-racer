@@ -28,10 +28,38 @@ const LEVEL_LEN = 20000;   // World Tour: one city is one level (~65s flat out a
 const VMAX = 5.5;          // CPU top speed (x60 = km/h); the player has no cap
 const NITRO_MAX = VMAX * 1.3;  // where the speed dial needle tops out
 const NITRO_PUSH = 2.2;        // how far above your normal speed nitro can push you (~130 km/h)
-// throttle pull at speed v, per frame: ~40 km/h per second off the line, fading like air drag does
-// (0-100 in ~2.6s, 0-300 in ~10.5s), but never below 4 km/h per second, so holding on always gains speed
-const accelAt = v => Math.max(40 / (1 + (v * 60 / 250) ** 3), 4) / 3600;
+// throttle pull at speed v, per frame: ~60 km/h per second off the line, fading like air drag does
+// (0-100 in ~1.8s, 0-300 in ~7s), but never below 6 km/h per second, so holding on always gains speed
+const accelAt = v => Math.max(60 / (1 + (v * 60 / 250) ** 3), 6) / 3600;
 const NITRO_FRAMES = 200;      // nitro burn time (~3.3s)
 const AHEAD = 1000;        // how far up the road traffic, coins and scenery exist, so the 3D views see an endless road
 const TAU = Math.PI * 2;
 
+
+// ---- traffic: what is on the road, and how fast each thing drives (km/h; the game uses km/h / 60 per frame) ----
+// [model, km/h, how common]. Ordinary cars cruise at about 100; the sporty-looking ones are a little quicker, vans and taxis a little slower;
+// lorries and buses are slow. The models are the ones the 3D renderer draws (js/render3d/car/traffic.js).
+const CAR_MODELS = [["sedan", 100, 3], ["hatch", 95, 3], ["suv", 105, 2], ["van", 85, 1.2], ["taxi", 90, 0.8], ["coupe", 122, 0.9]];
+const TRUCK_MODELS = [["box", 60, 0.4], ["container", 60, 0.25], ["tanker", 55, 0.15], ["bus", 65, 0.2]];
+const PLAYER_MIN_V = 2.2;  // the slowest you can ever be rolling: ~130 km/h, so ordinary traffic never drives up behind you
+const LAUNCH_ZONES = [ // the start-line rev needle: where it is (0..1) -> what you get. The needle sweeps up and down; release in the green.
+  { name: "PERFECT", from: 0.72, to: 0.88, v: 5, color: "#39ff6a" },     // 300 km/h
+  { name: "GOOD", from: 0.5, to: 0.95, v: 3.33, color: "#ffb020" },       // 200 km/h
+  { name: "SLOW", from: 0, to: 1, v: 1.67, color: "#ff4040" },            // 100 km/h
+];
+const launchZoneOf = n => n >= 0.72 && n < 0.88 ? LAUNCH_ZONES[0] : (n >= 0.5 && n < 0.95) ? LAUNCH_ZONES[1] : LAUNCH_ZONES[2];
+
+// ---- tyres: dry slicks, intermediates, full wets. How wet a city is (0..1) decides which one grips best. ----
+const TYRES = [
+  { key: "dry", name: "DRY", sub: "Slicks", band: "#ffd21a", blurb: "Maximum grip on a dry road. Slides about in the rain." },
+  { key: "inter", name: "INTERMEDIATE", sub: "For drizzle", band: "#39c46a", blurb: "Copes with a damp road. Fine in a drizzle, a bit soft when dry." },
+  { key: "wet", name: "WET", sub: "Full wets", band: "#2a7bff", blurb: "Cuts through standing water. Overheats and wanders on a dry road." },
+];
+const cityWetness = st => clamp(((st && st.rain) || 0) / 0.7, 0, 1);        // 0 dry .. ~0.6 drizzle .. 1 properly wet (London, Sao Paulo: drizzle; Brussels: wet)
+const wetLabel = w => w < 0.12 ? "DRY" : w < 0.75 ? "DRIZZLE" : "WET";
+const bestTyre = w => w < 0.25 ? "dry" : w < 0.8 ? "inter" : "wet";
+function gripOf(tyre, w) { // 0.5 .. 1: how well this tyre holds this wetness
+  if (tyre === "dry") return clamp(1 - 0.5 * Math.max(0, w - 0.05) / 0.95, 0.5, 1);
+  if (tyre === "inter") return clamp(1 - 0.3 * Math.abs(w - 0.5), 0.5, 1);
+  return clamp(0.62 + 0.38 * w, 0.5, 1);
+}

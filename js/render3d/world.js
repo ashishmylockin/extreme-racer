@@ -29,16 +29,17 @@ export function createWorld(scene) {
   const asphalt = pbr("color", true), asphaltN = pbr("normal", false), asphaltR = pbr("roughness", false);
   const lane = RH * 2 / 3, wear = wearTexture([-lane, 0, lane], RH);
   const roadMat = new THREE.MeshStandardMaterial({ map: asphalt, normalMap: asphaltN, roughnessMap: asphaltR, normalScale: new THREE.Vector2(1.0, 1.0), color: 0x4a4c52, roughness: 1, metalness: 0 });
-  const roadU = { uWear: { value: wear }, uD: { value: 0 }, uRoadWet: { value: 0 } };
+  const roadU = { uWear: { value: wear }, uD: { value: 0 }, uD2: { value: 0 }, uRoadWet: { value: 0 } };
   roadMat.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, roadU);
     sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nvarying vec2 vRoad;").replace("#include <begin_vertex>", "#include <begin_vertex>\nvRoad = position.xz;");
-    sh.fragmentShader = sh.fragmentShader.replace("#include <common>", "#include <common>\nvarying vec2 vRoad; uniform sampler2D uWear; uniform float uD, uRoadWet;")
+    sh.fragmentShader = sh.fragmentShader.replace("#include <common>", "#include <common>\nvarying vec2 vRoad; uniform sampler2D uWear; uniform float uD, uD2, uRoadWet;")
       .replace("#include <map_fragment>", `#include <map_fragment>
         float wz = vRoad.y + (${(Z_START - LEN / 2).toFixed(3)});
-        vec4 wr = texture2D(uWear, vec2(vRoad.x / ${WEAR_W.toFixed(1)} + 0.5, (uD - wz) / ${WEAR_LEN.toFixed(1)}));
-        float rub = wr.r, tone = (wr.g - 0.5) * 2.0, pud = smoothstep(0.58, 0.78, wr.b) * uRoadWet;
-        diffuseColor.rgb *= (1.0 - 0.5 * rub) * (1.0 + 0.32 * tone) * (1.0 - 0.45 * pud);`)
+        // the wear picture is sampled twice, at two different lengths and mirrored the second time, so its patches never repeat in step (a single copy looked like a pattern stamped along the whole track)
+        vec4 w1 = texture2D(uWear, vec2(vRoad.x / ${WEAR_W.toFixed(1)} + 0.5, (uD - wz) / ${WEAR_LEN.toFixed(1)})), w2 = texture2D(uWear, vec2(0.5 - vRoad.x / ${WEAR_W.toFixed(1)}, (uD2 - wz + 29.7) / 103.6));
+        float rub = max(w1.r, w2.r * 0.85), tone = (w1.g - 0.5) + (w2.g - 0.5), pud = smoothstep(0.58, 0.78, (w1.b + w2.b) * 0.5) * uRoadWet;
+        diffuseColor.rgb *= (1.0 - 0.5 * rub) * (1.0 + 0.2 * tone) * (1.0 - 0.45 * pud);`)
       .replace("#include <roughnessmap_fragment>", `#include <roughnessmap_fragment>
         roughnessFactor = mix(roughnessFactor, 0.16, uRoadWet * 0.7); roughnessFactor = mix(roughnessFactor, 0.03, pud); roughnessFactor *= 1.0 - 0.25 * rub;`)
       .replace("#include <normal_fragment_maps>", `#include <normal_fragment_maps>
@@ -98,7 +99,7 @@ export function createWorld(scene) {
     update(pal, rain, scrollWu, focus, stA, stB, b, wetness = 0) {
       const night = Math.min(1, pal.dark * 4);
       for (const t of [asphalt, asphaltN, asphaltR]) t.offset.y = (scrollWu / ASPH_TILE) % 1; lines.offset.y = (scrollWu / ROAD_TILE) % 1;
-      roadU.uD.value = scrollWu % WEAR_LEN; roadU.uRoadWet.value = wetness;
+      roadU.uD.value = scrollWu % WEAR_LEN; roadU.uD2.value = scrollWu % 103.6; roadU.uRoadWet.value = wetness;
       kerbTex.offset.y = (scrollWu / KERB_TILE) % 1;
 
       setCol(roadMat.color, pal.road[0], pal.road[1], pal.road[2], 2.3 - 0.7 * wetness); // (the asphalt picture is mid grey: the city's road colour is brightened to match)

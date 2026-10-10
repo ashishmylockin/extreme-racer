@@ -389,14 +389,19 @@ function drawStageBar() { // which city you're in, and how far through it
 function drawBanner() { // a small card that slides in from the left edge and leaves again, clear of the road
   const t = banner.t, st = ROUTE[banner.idx];
   const inK = smooth(Math.min(t, 24) / 24), outK = t > 170 ? smooth((t - 170) / 30) : 0;
+  // fit the text: the card grows to the widest line, and a line that is still too wide shrinks (long names like "BRUSSELS" were spilling out of the box)
+  const line2 = roundLabel(st), fit = (s, size, max) => { ctx.font = `bold ${size}px sans-serif`; const w = ctx.measureText(s).width; return w > max ? Math.max(7, Math.floor(size * max / w)) : size; };
+  const maxW = Math.min(W * 0.55, 230);
+  const s1 = fit(st.country, 12, maxW - 58), s2 = fit(line2, 9, maxW - 58);
+  ctx.font = `bold ${s1}px sans-serif`; const w1 = ctx.measureText(st.country).width; ctx.font = `bold ${s2}px sans-serif`; const w2 = ctx.measureText(line2).width;
+  const cardW = Math.max(150, 48 + Math.max(w1, w2) + 12);
   ctx.save();
   ctx.globalAlpha = clamp(1 - outK, 0, 1);
-  ctx.translate(6 - (1 - inK) * 150 - outK * 150, 104);
-  ctx.fillStyle = "rgba(0,0,0,0.55)"; roundRect(0, 0, 150, 44, 9); ctx.fill();
+  ctx.translate(6 - (1 - inK) * (cardW + 6) - outK * (cardW + 6), 104);
+  ctx.fillStyle = "rgba(0,0,0,0.55)"; roundRect(0, 0, cardW, 44, 9); ctx.fill();
   ctx.save(); ctx.translate(8, 11); drawFlag(st.flag, 32, 22); ctx.restore();
-  ctx.font = "bold 12px sans-serif";
-  textAt(st.country, 48, 19, st.country.length > 12 ? 11 : 12, "left", "#fff");
-  textAt(roundLabel(st), 48, 34, 9, "left", "#ffd23f");
+  textAt(st.country, 48, 19, s1, "left", "#fff");
+  textAt(line2, 48, 34, s2, "left", "#ffd23f");
   ctx.restore();
 }
 
@@ -489,6 +494,9 @@ function drawHud() {
     textAt(p.text, s.x + side * 58, s.y - p.t * 0.8, 15 + Math.min(p.t, 6), "center", "#7fffd4");
     ctx.globalAlpha = 1;
   }
+  if (p0.alive && p0.bypass) drawBypass(p0);
+  if (p0.alive && cam !== 2 && !p0.ai) drawTyreChip(p0);
+  if (p0.alive && state === "playing" && !p0.launched && (!grid.done || p0.charging || p0.launchLocked) && !p0.ai) drawLaunchGauge(p0);
   if (p0.alive && p0.nitro > 0) { // nitro burn bar
     const w = 130, x = W / 2 - w / 2, y = 10, g = ctx.createLinearGradient(x, 0, x + w, 0);
     g.addColorStop(0, "#2a7bff"); g.addColorStop(1, "#7fe8ff");
@@ -503,10 +511,10 @@ function drawHud() {
     ctx.globalAlpha = f;
     if (hasTouch && mode !== "multi") { // short enough to sit between the two pedals on a phone
       if (grid.done) text("Tap a side to steer", H - 78, 13);
-      else text("Hold GAS - go on green!", H - 86, 13);
+      else text("Hold GAS + BRAKE, let go in green", H - 60, 12);
     } else if (grid.done) text(mode === "multi" ? "P1: Arrows    P2: W A S D" : "Left/Right steer   Up/Down speed", H - 78, 13);
     else {
-      text(mode === "multi" ? "Hold Up / W - go on green!" : "Hold Up (or RT) - go on green!", H - 86, 13);
+      text(mode === "multi" ? "P1: Up + Down   P2: W + S - let go in the green" : hasPad ? "Hold RT + LT, let go in the green" : "Hold Up + Down, let go in the green", H - 60, 12);
     }
     ctx.globalAlpha = 1;
   }
@@ -545,13 +553,14 @@ function draw() {
 
   if (state === "title" || state === "menu") { ctx.save(); ctx.translate(0, -moy); drawVersion(); ctx.restore(); }
   if (state === "title") drawTitle(moy);
-  if (state === "menu" || state === "tutorial" || state === "difficulty" || state === "garage" || state === "upgrades" || state === "options" || state === "graphics" || state === "songs" || state === "controls" || state === "credits" || state === "map" || state === "brief" || state === "stats") {
+  if (state === "menu" || state === "tutorial" || state === "difficulty" || state === "tyres" || state === "garage" || state === "upgrades" || state === "options" || state === "graphics" || state === "songs" || state === "controls" || state === "credits" || state === "map" || state === "brief" || state === "stats") {
     ctx.fillStyle = window.R3D && state === "garage" ? "rgba(15,15,20,0.0)" : "rgba(15,15,20,0.66)"; // fade the highway behind the title (the 3D showroom needs no fade)
     ctx.fillRect(0, -moy, W, H);
     if (state === "map") drawMap();
     else if (state === "stats") drawStats();
     else if (state === "brief") drawBrief();
     else if (state === "tutorial") drawTutorial();
+    else if (state === "tyres") drawTyres();
     else if (state === "garage") drawGarage();
     else if (state === "upgrades") drawUpgrades();
     else if (state === "graphics") { text("GRAPHICS", 46, 30); text(window.R3D ? "Left / Right or Enter to change" : "3D is off here: showing the 2D game", 64, 12, "center", "#ccc"); }
@@ -572,6 +581,7 @@ function draw() {
     }
     if (state === "menu") drawCarousel(); else drawButtons();
     if (state === "upgrades") drawUpgradeRows();
+    if (state === "tyres") drawTyreRows();
     if (state === "options") drawSliders();
     if (state === "songs") { text("SONGS", 96, 30); text(`Now playing: ${music.playing ? music.name : "-"}`, 128, 12, "center", "#ccc"); }
     if (state === "controls") drawControls();
@@ -683,4 +693,102 @@ function drawFps() {
   const q = R3D.quality;
   ctx.save(); ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(W - 112, 4, 108, 20);
   textAt(`${Math.round(R3D.fps)} fps  ${q.level}`, W - 58, 18, 12, "center", R3D.fps >= 55 ? "#7CFC9A" : R3D.fps >= 35 ? "#ffd23f" : "#ff7b7b"); ctx.restore();
+}
+
+// ---------- tyre choice (before every race) ----------
+// a tyre seen from the side of the car: black rubber, a coloured band for the compound, a rim with spokes; `rot` turns it
+function drawTyreIcon(cx, cy, r, tyre, rot) {
+  ctx.save(); ctx.translate(cx, cy);
+  ctx.fillStyle = "#101114"; ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill();
+  ctx.strokeStyle = "#2a2c31"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, r - 1, 0, TAU); ctx.stroke();
+  ctx.strokeStyle = tyre.band; ctx.lineWidth = Math.max(3, r * 0.07); ctx.beginPath(); ctx.arc(0, 0, r * 0.8, 0, TAU); ctx.stroke(); // the compound band
+  ctx.fillStyle = "rgba(255,255,255,0.8)"; ctx.font = `bold ${Math.max(7, r * 0.12)}px sans-serif`; ctx.textAlign = "center";
+  for (let i = 0; i < 12; i++) { ctx.save(); ctx.rotate(rot * 0.3 + i / 12 * TAU); ctx.fillText("VELOCITA", 0, -r * 0.9); ctx.restore(); } // sidewall lettering
+  ctx.rotate(rot);
+  ctx.fillStyle = "#3a3d44"; ctx.beginPath(); ctx.arc(0, 0, r * 0.52, 0, TAU); ctx.fill();
+  ctx.fillStyle = "#8a8f98"; for (let i = 0; i < 10; i++) { ctx.save(); ctx.rotate(i / 10 * TAU); ctx.fillRect(-r * 0.04, -r * 0.5, r * 0.08, r * 0.36); ctx.restore(); }
+  ctx.fillStyle = "#c9ccd2"; ctx.beginPath(); ctx.arc(0, 0, r * 0.14, 0, TAU); ctx.fill();
+  ctx.restore();
+}
+// a strip of the tread pattern: smooth for slicks, shallow grooves for intermediates, deep channels for wets
+function drawTreadStrip(x, y, w, h, key) {
+  ctx.fillStyle = "#17181c"; roundRect(x, y, w, h, 4); ctx.fill();
+  ctx.strokeStyle = "#3d4048"; ctx.lineWidth = key === "wet" ? 3 : 2; ctx.beginPath();
+  if (key === "dry") { ctx.moveTo(x + 4, y + h / 2); ctx.lineTo(x + w - 4, y + h / 2); }
+  else { const step = key === "wet" ? 9 : 14; for (let i = 6; i < w - 4; i += step) { ctx.moveTo(x + i, y + h - 2); ctx.lineTo(x + i + (key === "wet" ? 6 : 3), y + 2); } if (key === "wet") { ctx.moveTo(x + 4, y + h / 2); ctx.lineTo(x + w - 4, y + h / 2); } }
+  ctx.stroke();
+}
+function drawTyres() {
+  const st = ROUTE[tyreCity], w = cityWetness(st), sel_ = TYRES[Math.min(sel, TYRES.length - 1)], best = bestTyre(w);
+  text("TYRES", 50, 32);
+  const endless = pendingStart && pendingStart[0] === "single", line = endless ? "Weather changes as you travel" : `${st.venue.toUpperCase()}   -   ${wetLabel(w)}`;
+  text(line, 74, 14, "center", w < 0.12 ? "#ffd23f" : "#7fd4ff");
+  if (!endless) { // a little weather icon: sun, or cloud and rain
+    ctx.save(); ctx.translate(W / 2 + ctx.measureText(line).width / 2 + 20, 70);
+    if (w < 0.12) { ctx.fillStyle = "#ffd23f"; ctx.beginPath(); ctx.arc(0, 0, 6, 0, TAU); ctx.fill(); }
+    else { ctx.fillStyle = "#c9d3de"; ctx.beginPath(); ctx.arc(-4, 0, 6, 0, TAU); ctx.arc(4, -1, 7, 0, TAU); ctx.fill(); ctx.strokeStyle = "#5fb4ff"; ctx.lineWidth = 2; for (let i = 0; i < (w > 0.75 ? 3 : 2); i++) { ctx.beginPath(); ctx.moveTo(-5 + i * 5, 8); ctx.lineTo(-7 + i * 5, 13); ctx.stroke(); } }
+    ctx.restore();
+  }
+  drawTyreIcon(W / 2, 148, 46, sel_, clock * 0.04);
+  drawTreadStrip(W / 2 - 46, 202, 92, 14, sel_.key);
+  text(sel_.name + " TYRES", 236, 17, "center", sel_.band);
+  const lines = []; ctx.font = "13px sans-serif"; { let cur = ""; for (const wd of sel_.blurb.split(" ")) { if (ctx.measureText(cur + wd).width > W - 60) { lines.push(cur); cur = ""; } cur += wd + " "; } lines.push(cur); }
+  // (the description sits just under the name, the rows below)
+  lines.slice(0, 1).forEach((s, i) => textAt(s.trim(), W / 2, 252 + i * 14, 11, "center", "#ccc"));
+}
+function drawTyreRows() { // on top of the three buttons: the compound's colour, name, what it is for, how well it grips today and whether it is the sensible pick
+  const menu = currentMenu(), st = ROUTE[tyreCity], w = cityWetness(st), best = bestTyre(w), endless = pendingStart && pendingStart[0] === "single";
+  TYRES.forEach((t, i) => {
+    const r = btnRect(menu, i), g = endless ? gripOf(t.key, 0) : gripOf(t.key, w);
+    ctx.fillStyle = t.band; ctx.beginPath(); ctx.arc(r.x + 22, r.y + r.h / 2, 9, 0, TAU); ctx.fill(); ctx.strokeStyle = "#000"; ctx.lineWidth = 2; ctx.stroke();
+    textAt(t.name, r.x + 42, r.y + 21, 15, "left", "#fff"); textAt(t.sub, r.x + 42, r.y + 38, 11, "left", "#ccc");
+    if (!endless) { // grip bar: how well this tyre holds in this city
+      const bx = r.x + r.w - 120, by = r.y + 28;
+      ctx.fillStyle = "rgba(255,255,255,0.18)"; roundRect(bx, by, 90, 6, 3); ctx.fill();
+      ctx.fillStyle = g > 0.85 ? "#4cd964" : g > 0.68 ? "#ffcc00" : "#ff5a4a"; roundRect(bx, by, Math.max(6, 90 * (g - 0.4) / 0.6), 6, 3); ctx.fill();
+      textAt("GRIP", bx, by - 4, 9, "left", "#bbb");
+      if (t.key === best) textAt("BEST", r.x + r.w - 14, r.y + 16, 11, "right", "#7CFC9A");
+    } else if (t.key === "dry") textAt("USUAL", r.x + r.w - 14, r.y + 16, 11, "right", "#7CFC9A");
+  });
+}
+
+// ---------- the launch gauge (on the grid) ----------
+// A half dial: red / orange / green zones and a needle that sweeps up and down while you hold gas + brake together. Let go in the green.
+function drawLaunchGauge(r) {
+  const cx = W / 2, cy = H - 100, R = 52, a = n => Math.PI + n * Math.PI;
+  ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.beginPath(); ctx.arc(cx, cy, R + 8, Math.PI, TAU); ctx.closePath(); ctx.fill();
+  ctx.lineWidth = 10; ctx.lineCap = "butt";
+  for (const [from, to, col] of [[0, 0.5, "#e03a3a"], [0.5, 0.72, "#ffa31a"], [0.72, 0.88, "#39ff6a"], [0.88, 0.95, "#ffa31a"], [0.95, 1, "#e03a3a"]]) { ctx.strokeStyle = col; ctx.beginPath(); ctx.arc(cx, cy, R - 6, a(from), a(to)); ctx.stroke(); }
+  const live = r.charging, n = live ? r.needle || 0 : r.launchLocked ? r.needle || 0 : 0;
+  ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.lineCap = "round"; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(a(n)) * (R - 2), cy + Math.sin(a(n)) * (R - 2)); ctx.stroke(); ctx.lineCap = "butt";
+  ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(cx, cy, 5, 0, TAU); ctx.fill();
+  if (r.launchLocked && r.launchZone) textAt(`${r.launchZone.name}  ${Math.round(r.launchZone.v * 60)} km/h`, cx, cy - R - 14, 14, "center", r.launchZone.color);
+  else if (!live) textAt(hasPad ? "HOLD RT + LT" : hasTouch ? "HOLD GAS + BRAKE" : "HOLD UP + DOWN", cx, cy - R - 14, 13, "center", "#fff");
+  else textAt("LET GO IN THE GREEN", cx, cy - R - 14, 13, "center", "#39ff6a");
+}
+
+// ---------- the bypass prompt ----------
+function drawBypass(r) {
+  const b = r.bypass; if (!b) return;
+  const pulse = 0.6 + 0.4 * Math.sin(clock * 0.3);
+  if (b.state === "armed") {
+    const left = b.side < 0, x = left ? 26 : W - 26, y = 190;
+    ctx.globalAlpha = 0.5 + 0.5 * pulse; ctx.fillStyle = "#3ad0ff";
+    poly(left ? [[x + 14, y - 22], [x - 14, y], [x + 14, y + 22]] : [[x - 14, y - 22], [x + 14, y], [x - 14, y + 22]]);
+    ctx.globalAlpha = 1;
+    textAt(`BYPASS: steer ${left ? "LEFT" : "RIGHT"}`, W / 2, 128, 15, "center", "#7fffd4");
+    ctx.fillStyle = "rgba(0,0,0,0.5)"; roundRect(W / 2 - 40, 134, 80, 4, 2); ctx.fill(); ctx.fillStyle = "#7fffd4"; roundRect(W / 2 - 40, 134, Math.max(4, 80 * b.timeLeft / 600), 4, 2); ctx.fill();
+  } else {
+    textAt("BYPASS", W / 2, 128, 15, "center", "#7fffd4");
+    ctx.fillStyle = "rgba(0,0,0,0.5)"; roundRect(W / 2 - 40, 134, 80, 4, 2); ctx.fill(); ctx.fillStyle = "#3ad0ff"; roundRect(W / 2 - 40, 134, Math.max(4, 80 * (1 - b.d / b.L)), 4, 2); ctx.fill();
+  }
+}
+
+// a little chip showing your tyres and how well they grip right now (only when it matters)
+function drawTyreChip(r) {
+  const t = TYRES.find(x => x.key === (r.tyre || "dry")) || TYRES[0], g = gripNow(r), x = 12, y = H - 78;
+  if (g > 0.96 && wetnessNow() < 0.12) return; // dry tyres on a dry road: nothing to say
+  ctx.fillStyle = "rgba(0,0,0,0.55)"; roundRect(x, y - 13, 84, 20, 10); ctx.fill();
+  ctx.fillStyle = t.band; ctx.beginPath(); ctx.arc(x + 11, y - 3, 6, 0, TAU); ctx.fill(); ctx.strokeStyle = "#000"; ctx.lineWidth = 1.5; ctx.stroke();
+  textAt(`GRIP ${Math.round(g * 100)}%`, x + 22, y + 1, 11, "left", g > 0.85 ? "#7CFC9A" : g > 0.68 ? "#ffd23f" : "#ff7b7b");
 }

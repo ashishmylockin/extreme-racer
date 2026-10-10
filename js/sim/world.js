@@ -12,7 +12,7 @@ function makeRacer(i, opts) {
 
 function initWorld() {
   enemies = []; pickups = []; particles = []; scenery = []; roadItems = []; wx = [];
-  frame = 0; clock = 0; speed = 2; scroll = 2; scrollPos = 0; dist = 0; sceneAcc = 0; spawnAcc = 0; pickupAcc = 600;
+  frame = 0; clock = 0; speed = 2; scroll = 2; scrollPos = 0; dist = 0; sceneAcc = 0; spawnAcc = 0; pickupAcc = 600; curveAcc = 2600; bypassTrack = null; halfObj = null;
   grid = newGrid(true); startObj = null; level = null; finishObj = null; starAnim = null; uiFx = []; grand = Math.random; confetti = []; flashT = 0; hitStop = 0;
   shake = 0; sprayFog = 0; pops = []; slowT = 0; kickFx = 0; sprayCar = null; tier = 0; newBest = false; banner = null; lastStage = 0; wet = 0; lastGear = 0; result = ""; camOff = 0;
   updateStage();
@@ -37,7 +37,7 @@ function jumpTo(i, frac = 0) {
   for (let y = -AHEAD; y < H + 40; y += 55) spawnScenery(y);
 }
 
-function startGame(m, d, stage = 0) {
+function startGameNow(m, d, stage = 0) { // (startGame, in the menus, asks for tyres first and then calls this)
   mode = m;
   if (d) difficulty = d;
   initWorld();
@@ -48,7 +48,7 @@ function startGame(m, d, stage = 0) {
   startDist = dist;
   if (level) { level.d0 = dist; updateStage(); }
   lastStage = stageIdx;
-  racers = [makeRacer(0, { label: m === "single" || m === "tour" || m === "daily" ? "" : m === "vs" ? "YOU" : "P1", team: TEAMS[equipped] })];
+  racers = [makeRacer(0, { label: m === "single" || m === "tour" || m === "daily" ? "" : m === "vs" ? "YOU" : "P1", team: TEAMS[equipped], tyre: tyreChoice })];
   if (m === "vs") racers.push(makeRacer(1, { label: "CPU", team: rivalTeam(), ai: DIFFS[difficulty] }));
   if (m === "multi") racers.push(makeRacer(1, { label: "P2", team: rivalTeam() }));
   if (m === "tour" && stage === ROUTE.length - 1) { // Grand Final: first to the line wins
@@ -56,6 +56,8 @@ function startGame(m, d, stage = 0) {
     racers.push(makeRacer(1, { label: "CPU", team: rivalTeam(), ai: FINAL_CPU }));
   }
   if ((m === "single" || m === "tour" || m === "daily") && Math.random() < 0.12 * upLvl("shield")) racers[0].shield = true; // Shield upgrade: sometimes you start protected
+  for (const r of racers) if (r.ai) r.tyre = bestTyre(cityWetness(ROUTE[stage % ROUTE.length])); // the CPU always picks the right tyre for the day
+  if (racers[1] && !racers[1].ai) racers[1].tyre = tyreChoice; // (player 2 shares the choice)
   grid = newGrid(false); startObj = { y: H - 100 - 50 }; // cars sit on the grid behind the start line, under the lights
   seedTraffic(-260);
   spawnPickup(-450, true); // one nitro canister up the road

@@ -42,6 +42,8 @@ function updateFx() {
   if (racers[0].alive) camRefY = racers[0].y; // the 3D camera stays put once you've crashed
   if (startObj) { startObj.y += scroll; if (startObj.y > camRefY + 500) startObj = null; }
   if (finishObj) finishObj.y += scroll;
+  if (halfObj) { halfObj.y += scroll; if (halfObj.y > camRefY + 500) halfObj = null; }
+  if (bypassTrack) { bypassTrack.y0 += scroll; if (bypassTrack.y0 - bypassTrack.L > camRefY + 400 && !(racers[0] && racers[0].bypassing)) bypassTrack = null; }
   nitroFx += ((racers[0].alive && racers[0].nitro > 0 ? 1 : 0) - nitroFx) * 0.12;
   if (nitroFx > 0.3) shake = Math.max(shake, 1.6 * nitroFx);
   if (banner && ++banner.t > 200) banner = null;

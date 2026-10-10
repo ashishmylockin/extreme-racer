@@ -241,21 +241,13 @@ export function createCity(scene) {
     const zl = u => -(ctx.s0 + u - sBase), prof = ctx.prof, pal = PAL[prof.arch];
     const tun = tunnelAt(prof, ctx.sRel - LF / 2) || tunnelAt(prof, ctx.sRel + LF / 2) || tunnelAt(prof, ctx.sRel);
     const rb = rng(hash(ctx.city, ctx.rel, 77)), zl0 = ctx.zone(-1), zr0 = ctx.zone(1);
-    // an overhead bridge with a banner across the road
-    if (!tun && ["urban", "downtown", "harbour"].includes(zl0.type) && rb.chance(0.1)) {
-      const u = rb.range(8, 32), g = ROOF_KIT[1];
-      F.solid.add(0, 9.2, zl(u), 40, 1.5, 5, 0, g[0], g[1], g[2]);
-      for (const sd of [-1, 1]) F.solid.add(sd * 19.4, 0, zl(u), 2, 9.2, 4.6, 0, g[0] * 0.8, g[1] * 0.8, g[2] * 0.8);
-      F.banners.add(0, 8.0, zl(u) + 2.58, 34, 2.2, 1, 0, 1, 1, 1, 0, banners.rect(rb.int(0, sponsors.length - 1)));
-    }
     for (const side of [-1, 1]) {
       const zi = side < 0 ? zl0 : zr0, Z = ZONES[zi.type], r = rng(hash(ctx.city, ctx.rel, 100 + (side > 0 ? 1 : 0))), neon = prof.sign === "neon";
       const faceRot = side < 0 ? Math.PI / 2 : -Math.PI / 2, built = Z.fh[1] > 0 && !zi.water, urbanish = Z.shops || zi.type === "harbour";
-      // barrier along the track, with a sponsor banner on every other piece
+      // barrier along the track (plain red and white: no banners)
       for (let u = 4; u < LF; u += 8) {
         const odd = Math.floor((ctx.s0 + u) / 8) % 2;
         F.solid.add(side * 18.8, 0, zl(u), 1.0, 1.05, 8, 0, odd ? 0.8 : 0.9, odd ? 0.1 : 0.9, odd ? 0.08 : 0.9);
-        if (!odd) F.banners.add(side * 18.27, 0.62, zl(u), 7.6, 0.8, 1, faceRot, 1, 1, 1, 0, banners.rect(hash(ctx.city, ctx.rel, u + side) % sponsors.length));
       }
       if (urbanish && !tun && r.chance(0.3)) for (let u = 4; u < LF; u += 8) F.fence.add(side * 19.3, 3.45, zl(u), 8, 4.8, 1, faceRot); // catch fencing
       // street lamps (every 20 units, staggered between the two sides)
@@ -466,7 +458,7 @@ export function createCity(scene) {
       ground.field.color.setRGB(Math.min(1, g[0] * 1.15 / 255), Math.min(1, g[1] * 1.1 / 255), g[2] * 0.8 / 255, THREE.SRGBColorSpace);
       const wc = profileOf(st.venue).water; if (wc) ground.water.color.set(wc.color);
       ground.waterNormal.offset.x += dt * 0.012; ground.waterNormal.offset.y += dt * 0.007;
-      setCrowd(st.crowd); for (const w of windowMats) w.emissiveIntensity = 2.4 * night; // grandstand crowds wear the city's colours; Kenney windows light up
+      setCrowd(st.crowd); for (const w of windowMats) w.emissiveIntensity = 1.4 * night; // grandstand crowds wear the city's colours; Kenney windows light up
       // the street lamps near the car, for the night lighting
       lampCount = 0; const kc = Math.floor(D / LF);
       for (let k = kc - 2; k <= kc + 8; k++) { const sl = lay.F.chunk[mod(k, lay.F.n)] === k ? lay.F.data[mod(k, lay.F.n)] : null; if (!sl || !sl.lamps) continue; for (const l of sl.lamps) { const o = lamps[lampCount] || (lamps[lampCount] = { hx: 0, z: 0, side: 1 }); o.hx = l.hx; o.z = D - l.s; o.side = l.side; lampCount++; } }

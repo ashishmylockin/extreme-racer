@@ -10,6 +10,7 @@ import { createWorld } from "./world.js";
 import { createCameraRig } from "./cameras.js";
 import { leafMat, leafDarkMat, grassTopMat } from "./scenery.js";
 import { createCity } from "./city/city.js";
+import { createBypass } from "./bypass.js";
 import { profileOf } from "./city/profiles.js";
 import { loadSkies } from "./env.js";
 import { glows } from "./landmarks.js";
@@ -26,7 +27,7 @@ const RACE_STATES = new Set(["playing", "over", "cleared", "paused", "camera"]);
 const MODES = ["overhead", "chase", "cockpit"];
 const lerp = (a, b, t) => a + (b - a) * t;
 const rnd = (a, b) => a + Math.random() * (b - a);
-const START_FINISH = ["start", "finish"], NO_GRADE = {}, focus = { x: 0, z: 0, camPos: null }, playerLight = { x: 0, z: 0, yaw: 0, alive: true }, cin = { kick: 0, shake: 0, time: 0, gear: 1, lit: 0, grid01: 0, crashT: 0, finishT: 0, photo: null };
+const START_FINISH = ["start", "half", "finish"], NO_GRADE = {}, focus = { x: 0, z: 0, camPos: null }, playerLight = { x: 0, z: 0, yaw: 0, alive: true }, cin = { kick: 0, shake: 0, time: 0, gear: 1, lit: 0, grid01: 0, crashT: 0, finishT: 0, photo: null };
 const sizeV = new THREE.Vector2(), sunV = new THREE.Vector3(), sunP = new THREE.Vector3(), camFwd = new THREE.Vector3();
 const qTmp = new THREE.Quaternion(), pTmp = new THREE.Vector3(), sTmp = new THREE.Vector3(), mTmp = new THREE.Matrix4(), yAxis = new THREE.Vector3(0, 1, 0);
 
@@ -43,7 +44,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
   const nightFx = createNight(scene);
   const city = createCity(scene); // the buildings, ground and water around the road
   const post = createPost(renderer, scene, camera);
-  const fx = createFX(scene);
+  const fx = createFX(scene, M.makeWheelDebris), bypass = createBypass(scene);
   const reflect = createReflection(renderer, scene, camera, world.groundMeshes, world.reflectMats); // wet-road reflections (Ultra)
   const photo = createPhoto();
   let showroom = null;
@@ -78,11 +79,11 @@ export function createRenderer3D(canvas2d, glCanvas) {
 
   // ---------- pools: finished objects are hidden and reused instead of rebuilt ----------
   const pools = new Map();
-  const acquire = (key, make) => { const list = pools.get(key); const o = list && list.pop() || make(); o.userData.poolKey = key; scene.add(o); return o; };
+  const acquire = (key, make) => { const list = pools.get(key); const o = list && list.pop() || make(); o.userData.poolKey = key; if (o.userData.reset) o.userData.reset(); scene.add(o); return o; };
   const release = o => { scene.remove(o); const k = o.userData.poolKey; (pools.get(k) || pools.set(k, []).get(k)).push(o); };
 
   // ---------- trackers: one record per simulation object, holding its previous and current position ----------
-  let tickId = 0;
+  let tickId = 0, lastRacers = null;
   function makeTracker(keyOf, build, readExtra, xOf = e => e.x, onRemove) {
     const recs = new Map();
     return {
@@ -100,29 +101,30 @@ export function createRenderer3D(canvas2d, glCanvas) {
     };
   }
   const racersT = makeTracker(r => "race:" + r.team.name, r => M.makeRaceCar(r.team), r => r.tilt);
-  const looks = new WeakMap(), lookOf = e => { let v = looks.get(e); if (v === undefined) looks.set(e, v = Math.random()); return v; };
   const enemiesT = makeTracker(
-    e => e.kind === "truck" ? `truck:${e.len}:${e.col}:${M.truckKind(lookOf(e))}` : e.kind === "works" ? `works:${e.len}` : `car:${e.col}:${M.carType(lookOf(e))}`,
-    e => e.kind === "truck" ? M.makeTruck(e.len, e.col, M.truckKind(lookOf(e))) : e.kind === "works" ? M.makeWorks(e.len) : M.makeTrafficCar(e.col, M.carType(lookOf(e))));
-  const pickupsT = makeTracker(k => "pickup:" + k.type, k => k.type === "coin" ? M.makeCoin() : k.type === "nitro" ? M.makeNitro() : M.makeShield(), null, e => e.x,
-    (k, r) => { if (k.taken) fx.pickup(r.cx, r.cz, k.type); }); // a sparkle where a pickup was collected
+    e => e.kind === "truck" ? `truck:${e.len}:${e.col}:${e.model}` : e.kind === "works" ? `works:${e.len}` : `car:${e.col}:${e.model}`,
+    e => e.kind === "truck" ? M.makeTruck(e.len, e.col, e.model) : e.kind === "works" ? M.makeWorks(e.len) : M.makeTrafficCar(e.col, e.model));
+  const pickupsT = makeTracker(k => "pickup:" + k.type, k => k.type === "coin" ? M.makeCoin() : k.type === "nitro" ? M.makeNitro() : k.type === "curve" ? M.makeCurve(k.lane === 0 ? -1 : 1) : M.makeShield(), null, e => e.x,
+    (k, r) => { if (k.taken && !k.gone) fx.pickup(r.cx, r.cz, k.type); }); // a sparkle where a pickup was collected
   const puddlesT = makeTracker(() => "puddle", () => weather.puddleBuild());
   let distPrev = 0, distCur = 0; // how far along the route the car is (sim units), before and after the latest tick
-  const marks = { start: null, finish: null }; // start gantry and finish arch: { obj, pz, cz }
+  const marks = { start: null, half: null, finish: null }; // start gantry, halfway gantry and finish arch: { obj, pz, cz }
   function trackMark(name, src, finish) {
     const m = marks[name];
-    if (src && !m) marks[name] = { obj: acquire(finish ? "finish" : "start", () => M.makeGantry(finish, roadHalf())), pz: simZ(src.y), cz: simZ(src.y) };
+    if (src && !m) marks[name] = { obj: acquire(name, () => M.makeGantry(name === "half" ? "half" : finish, roadHalf())), pz: simZ(src.y), cz: simZ(src.y) };
     else if (src) { m.pz = m.cz; m.cz = simZ(src.y); }
     else if (m) { release(m.obj); marks[name] = null; }
   }
 
   function tick() {
     tickId++;
+    if (racers !== lastRacers) { lastRacers = racers; fx.reset(); crashAt = -1; crashClock = 0; } // a new race: nothing left over from the last one
     racersT.tick(racers);
     enemiesT.tick(enemies);
     pickupsT.tick(pickups);
     puddlesT.tick(roadItems);
     trackMark("start", startObj, false);
+    trackMark("half", halfObj, false);
     trackMark("finish", finishObj, true);
     distPrev = distCur; distCur = dist;
   }
@@ -169,11 +171,20 @@ export function createRenderer3D(canvas2d, glCanvas) {
     const fxDt = (state === "paused" || state === "camera" || photo.active) ? 0 : dt;
     for (const [r, rec] of racersT.recs) {
       const o = rec.obj, x = lerp(rec.px, rec.cx, alpha), z = lerp(rec.pz, rec.cz, alpha), tilt = lerp(rec.pe, rec.ce, alpha);
-      o.position.set(x, 0, z); o.rotation.y = -tilt;
+      o.rotation.order = "YXZ"; o.position.set(x, 0, z); o.rotation.y = -tilt; // (yaw first, then nose up / down, then roll: so a tumbling wreck turns about its own axes)
+      if (!r.alive && rec.wreck && fxDt > 0) { // a wreck: it hops off what it hit, rolls over once if the impact was fast, and settles on its wheels
+        const w = rec.wreck; w.vy -= 30 * fxDt; w.h += w.vy * fxDt;
+        if (w.h < 0) { w.h = 0; w.vy = w.vy < -2 ? -w.vy * 0.28 : 0; w.rollV *= 0.8; }
+        if (Math.abs(w.roll) < Math.PI * 2 && w.rollV) { w.roll += w.rollV * fxDt; if (Math.abs(w.roll) >= Math.PI * 2) { w.roll = 0; w.rollV = 0; w.done = true; } }
+        if (w.h === 0 && w.vy === 0) { const k = Math.min(1, fxDt * 5); w.roll += (Math.round(w.roll / (Math.PI * 2)) * Math.PI * 2 - w.roll) * k; w.pitch *= 1 - k; w.rollV *= 1 - k; } // on the ground it comes to rest on its wheels
+        o.position.y = w.h; o.rotation.z = w.roll; o.rotation.x = w.pitch * Math.min(1, w.h * 2 + 0.2);
+      } else if (r.alive) { o.rotation.z = 0; o.rotation.x = 0; rec.wreck = null; }
       const ud = o.userData, spin = r.v * SCALE / 0.75 * dt * 60, c = Math.cos(-tilt), s = Math.sin(-tilt);
       for (const w of ud.wheels) w.rotation.x -= spin;
       for (const f of ud.front) f.rotation.y = -Math.max(-0.5, Math.min(0.5, tilt * 1.4));
       ud.brake.material.emissiveIntensity = r.braking ? 3 : 0.15;
+      if (ud.setTyre && rec.tyre !== r.tyre) { rec.tyre = r.tyre; ud.setTyre(r.tyre || "dry"); } // the compound band on the sidewalls
+      if (r.slip && fxDt > 0 && Math.random() < 0.5) fx.tyreSmoke(x, z, [0.85, 0.86, 0.9], 0.28); // wrong tyres for the weather: they smoke as they slide
       if (ud.discMat) { const goal = r.alive ? (r.hardBrake ? 3.5 : r.braking ? 1.4 : 0) : 0, d = ud.discMat; d.emissiveIntensity += (goal - d.emissiveIntensity) * Math.min(1, dt * (goal > d.emissiveIntensity ? 14 : 3)); } // brake discs glow orange when you brake, and cool slowly
       if (!ud.beam) { ud.beam = nightFx.makeBeam(); o.add(ud.beam); ud.flame = fx.makeFlame(); o.add(ud.flame); }
       ud.beam.visible = pal.dark > 0.012 && r.alive;
@@ -184,7 +195,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
       if (r.shield && !ud.bubble) { ud.bubble = M.makeShieldBubble(); o.add(ud.bubble); }
       if (ud.bubble) ud.bubble.visible = !!r.shield;
       // ---- events: crash, shield break, nitro, tyre smoke, spray, trails ----
-      if (!r.alive && !rec.crashed) { rec.crashed = true; rec.crashTime = time; fx.crash(x, z, r.team); if (r === racers[0]) { crashAt = time; crashClock = 0; } }
+      if (!r.alive && !rec.crashed) { rec.crashed = true; rec.crashTime = time; fx.crash(x, z, r.team, -(r.wreckV || 0) * SCALE * 60); const fast = (r.wreckV || 0) > 3.2; rec.wreck = { h: 0, vy: Math.min(9, 1.5 + (r.wreckV || 0) * 1.3), roll: 0, rollV: fast ? (r.yawV >= 0 ? 1 : -1) * 5.2 : 0, pitch: -0.22, done: false }; if ((r.wreckV || 0) > 2.2 && ud.shed) { const pair = Math.random() < 0.5 ? [0, 3] : [1, 2]; ud.shed(pair[0]); ud.shed(pair[1]); } if (r === racers[0]) { crashAt = time; crashClock = 0; } }
       if (r.alive) rec.crashed = false;
       if (rec.crashed && time - rec.crashTime < 7 && fxDt > 0) { fx.fire(x, z); fx.fire(x, z); }
       if (rec.hadShield && !r.shield && r.alive) fx.shield(x, z); rec.hadShield = !!r.shield;
@@ -202,19 +213,19 @@ export function createRenderer3D(canvas2d, glCanvas) {
     // traffic, pickups, scenery
     for (const [e, rec] of enemiesT.recs) {
       const o = rec.obj; o.position.set(lerp(rec.px, rec.cx, alpha), 0, lerp(rec.pz, rec.cz, alpha));
-      if (o.userData.wheels) for (const w of o.userData.wheels) w.rotation.x -= speed * SCALE / 0.7 * dt * 60 * 0.3;
+      if (o.userData.wheels) for (const w of o.userData.wheels) w.rotation.x -= (e.cur || 0) * SCALE / 0.65 * dt * 60; // wheels turn with the vehicle's own speed
     }
     for (const [k, rec] of pickupsT.recs) {
       const o = rec.obj; o.position.set(lerp(rec.px, rec.cx, alpha), 0, lerp(rec.pz, rec.cz, alpha));
-      o.rotation.y = time * 2.4 + (k.x || 0);
-      if (k.type !== "coin") o.position.y = Math.sin(time * 3) * 0.25;
+      if (k.type !== "curve") o.rotation.y = time * 2.4 + (k.x || 0);
+      if (k.type !== "coin") o.position.y = Math.sin(time * 3) * 0.25 + (k.type === "curve" ? 0.4 : 0);
     }
     for (const [it, rec] of puddlesT.recs) { rec.obj.position.set(rec.cx, 0.045, lerp(rec.pz, rec.cz, alpha)); rec.obj.scale.set(it.rx * SCALE * 1.4, 1, it.ry * SCALE * 1.8); }
     // everything leafy follows the city's colour, and the cars' lights come up at night
     setCol(leafMat.color, pal.leaf[0], pal.leaf[1], pal.leaf[2]); setCol(leafDarkMat.color, pal.leaf[0], pal.leaf[1], pal.leaf[2], 0.72); setCol(grassTopMat.color, pal.leaf[0], pal.leaf[1], pal.leaf[2], 1.12);
     M.lightMats.head.emissiveIntensity = 0.4 + 4 * night; M.lightMats.tail.emissiveIntensity = 0.8 + 2 * night;
-    M.trafficLamp.color.setScalar(0.8 + 3.2 * night); { const p = M.trafficPool(); p.visible = night > 0.04; p.opacity = Math.min(0.5, night * 0.65); } // working lights on the traffic: lamps glow, headlamps light the road ahead
-    for (const g of glows) g.mat.emissiveIntensity = g.base * (0.12 + 1.5 * night); // neon, lit windows and landmark lights come up at night
+    M.trafficLamp.color.setScalar(0.8 + 1.4 * night); { const p = M.trafficPool(); p.visible = night > 0.04; p.opacity = Math.min(0.32, night * 0.4); } // working lights on the traffic: lamps glow, headlamps light the road ahead
+    for (const g of glows) g.mat.emissiveIntensity = g.base * (0.12 + 0.8 * night); // neon, lit windows and landmark lights come up at night (gently)
     for (const name of START_FINISH) {
       const m = marks[name]; if (!m) continue;
       m.obj.position.set(0, 0, lerp(m.pz, m.cz, alpha));
@@ -233,7 +244,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
     const target = frozen || camTarget;
 
     photo.update(dt);
-    crashClock += dt * (time - crashAt < 1.6 ? 0.35 : 1); // the crash camera runs in slow motion at first
+    crashClock += dt * (time - crashAt < 1.0 ? 0.6 : 1); // the crash camera eases in gently
     cin.kick = kickFx; cin.shake = settings.shake ? shake : 0; cin.time = time; cin.gear = gearOf(p0.v); cin.lit = Math.round(rpmOf(effV(p0)) * 10);
     cin.grid01 = Math.min(1, grid.t / (5 * GRID_STEP + 25)); cin.crashT = crashClock; cin.finishT = time - finishAt; cin.photo = photo;
     rig.update(mode, target, dt, cin);
@@ -261,7 +272,8 @@ export function createRenderer3D(canvas2d, glCanvas) {
     }
     // near miss: a streak of air
     const lp = pops.length ? pops[pops.length - 1] : null; if (lp && lp !== seenPop) { seenPop = lp; nearPulse = 1; if (rec0 && fxDt > 0) fx.nearMiss(camTarget.x, camTarget.z); } nearPulse *= Math.pow(0.04, dt);
-    fx.update(fxDt * (time - crashAt < 1.6 && crashAt >= 0 && state === "over" ? 0.35 : 1), shiftZ, renderer.getDrawingBufferSize(sizeV).y / (2 * Math.tan(camera.fov * Math.PI / 360)));
+    bypass.update(typeof bypassTrack === "undefined" ? null : bypassTrack, alpha, time);
+    fx.update(fxDt * (time - crashAt < 1.0 && crashAt >= 0 && state === "over" ? 0.6 : 1), shiftZ, renderer.getDrawingBufferSize(sizeV).y / (2 * Math.tan(camera.fov * Math.PI / 360)));
 
     // ---- post-processing settings for this frame ----
     {
@@ -277,7 +289,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
       U.aberr.value = Q.ca ? nf * 0.012 + kickFx * 0.01 : 0;   // chromatic aberration only while nitro burns
       U.heat.value = stA.desert ? (1 - night) * 0.9 : 0;       // heat shimmer in the desert cities by day
       U.fmode.value = photo.active ? photo.filter : 0; U.grain.value = photo.active && photo.filter === 2 ? 0.05 : 0;
-      post.bloom.strength = 0.12 + 0.85 * night + flash * 0.6 + nf * 0.25; post.bloom.threshold = 1.5 - 0.65 * night; post.bloom.radius = 0.5 + 0.2 * night;
+      post.bloom.strength = 0.12 + 0.3 * night + flash * 0.6 + nf * 0.2; post.bloom.threshold = 1.5 - 0.3 * night; post.bloom.radius = 0.45 + 0.1 * night; // (a soft, relaxed glow: no blinding halos)
       // lens flare: only when the sun is on screen
       sunV.copy(world.sun.position).sub(camera.position).normalize(); const facing = sunV.dot(camFwd.set(0, 0, -1).applyQuaternion(camera.quaternion));
       sunP.copy(camera.position).addScaledVector(sunV, 200).project(camera);

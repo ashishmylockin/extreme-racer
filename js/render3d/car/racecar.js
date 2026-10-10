@@ -145,6 +145,7 @@ function shared() {
     visor: new THREE.MeshPhysicalMaterial({ color: 0x090a10, metalness: 0.8, roughness: 0.07, clearcoat: 1, clearcoatRoughness: 0.03 }),
     rubber: new THREE.MeshStandardMaterial({ color: 0x131315, roughness: 0.92 }),
     sidewall: new THREE.MeshStandardMaterial({ map: tyreSidewall("#ffd21a"), roughness: 0.85, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }),
+    sidewalls: Object.fromEntries([["dry", "#ffd21a"], ["inter", "#39c46a"], ["wet", "#2a7bff"]].map(([k, c]) => [k, new THREE.MeshStandardMaterial({ map: tyreSidewall(c), roughness: 0.85, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 })])),
     rim: new THREE.MeshStandardMaterial({ color: 0x4a4e56, metalness: 0.7, roughness: 0.4, side: THREE.DoubleSide }),
     vc: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.35, side: THREE.DoubleSide }),
   });
@@ -178,7 +179,7 @@ export function makeProRaceCar(team) {
   const brakeMat = new THREE.MeshStandardMaterial({ color: "#5a0000", emissive: "#ff0000", emissiveIntensity: 0.3 });
   const rainMat = new THREE.MeshStandardMaterial({ color: "#550000", emissive: "#ff2020", emissiveIntensity: 0 });
   const matOf = { carbon: S.carbon, metal: S.metal, dark: S.dark, visor: S.visor, accent: T.accent, helmet: T.helmet };
-  const lod = new THREE.LOD(), wheels = [], front = [], bodies = []; let brake = null, rain = null, helmet = null;
+  const lod = new THREE.LOD(), wheels = [], front = [], bodies = [], decals = [], pivots = [[], [], []]; let brake = null, rain = null, helmet = null;
 
   for (let i = 0; i < 3; i++) {
     const G = geoFor(i), lvl = new THREE.Group(), body = new THREE.Group(); lvl.add(body); bodies.push(body);
@@ -200,9 +201,9 @@ export function makeProRaceCar(team) {
     if (i === 2) { lvl.add(mesh(G.allWheels, S.vc)); }
     else for (const w of G.wheels) {
       const pivot = new THREE.Group(), axle = new THREE.Group(); pivot.position.set(w.x, w.R, w.z); pivot.add(axle); lvl.add(pivot);
-      if (i === 0) axle.add(mesh(w.tyre, S.rubber), mesh(w.rim, S.rim), mesh(w.disc, discMat, false), mesh(w.decal, S.sidewall, false));
+      if (i === 0) { const dm = mesh(w.decal, S.sidewalls.dry, false); decals.push(dm); axle.add(mesh(w.tyre, S.rubber), mesh(w.rim, S.rim), mesh(w.disc, discMat, false), dm); }
       else axle.add(mesh(w.all, S.vc));
-      wheels.push(axle); if (w.front) front.push(pivot);
+      wheels.push(axle); pivots[i].push(pivot); if (w.front) front.push(pivot);
     }
     lod.addLevel(lvl, DIST[i] * bias);
   }
@@ -215,6 +216,15 @@ export function makeProRaceCar(team) {
   const setCockpit = on => { for (const b of bodies) b.visible = !on; proxy.visible = on; };
 
   const shadow = contactShadow(5.2, 10.4); shadow.position.z = -0.1; car.add(shadow); // a soft dark patch, so the car never looks like it floats
-  car.userData = { wheels, front, helmet, brake, rain, kind: "race", setCockpit, discMat };
+  const setTyre = key => { const m = S.sidewalls[key] || S.sidewalls.dry; for (const d of decals) d.material = m; }; // the band colour of the chosen compound: yellow dry, green intermediate, blue wet
+  const shed = k => { for (const l of pivots) if (l[k]) l[k].visible = false; };  // a wheel tears off in a crash
+  const reset = () => { for (const l of pivots) for (const p of l) p.visible = true; setTyre("dry"); };
+  car.userData = { wheels, front, helmet, brake, rain, kind: "race", setCockpit, discMat, setTyre, shed, reset };
   return car;
+}
+
+// a wheel that has come off in a crash: the tyre, the rim and the sidewall lettering, centred on its own middle
+export function makeWheelDebris() {
+  const S = shared(), w = geoFor(0).wheels[2], g = new THREE.Group();
+  g.add(mesh(w.tyre, S.rubber), mesh(w.rim, S.rim), mesh(w.decal, S.sidewalls.dry, false)); return g;
 }

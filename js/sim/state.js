@@ -8,6 +8,7 @@ let difficulty = "medium";
 let racers, enemies, pickups, particles, scenery, roadItems, wx;
 let frame, clock, speed, scroll, scrollPos, dist, sceneAcc, spawnAcc, pickupAcc, shake, tier, newBest, banner, lastStage, lastGear, result;
 let pal, stageIdx = 0, stageFrac = 0, stA = null, stB = null, stBlend = 0, rainI = 0, wind = 0, wet = 0, camOff = 0, camRefY = 0, nitroFx = 0;
+let curveAcc = 2600, bypassTrack = null, halfObj = null; // distance until the next bypass pop-up; the bypass side track (if one is running); the halfway gantry
 let grid = null, startObj = null; // grid = the start-lights sequence, startObj = the start line + gantry (they scroll away once you're racing)
 let level = null, finishObj = null, levelTime = 0; // World Tour: the city being raced ({ idx, d0, len }) and its finish line
 let tourCleared = store.get("tourCleared", 0); // how many cities of the tour are done, in order
