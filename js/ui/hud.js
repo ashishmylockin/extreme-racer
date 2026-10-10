@@ -414,21 +414,26 @@ function drawGauge(r) {
 }
 
 const roundLabel = st => level && level.daily && state !== "map" && state !== "brief" ? `DAILY CHALLENGE` : st.n === ROUTE.length ? `GRAND FINAL` : st.venue.toUpperCase() === st.country ? `ROUND ${st.n}` : `ROUND ${st.n}  -  ${st.venue.toUpperCase()}`; // no 'ABU DHABI - ABU DHABI'
-function drawStageBar() { // which city you're in, and how far through it
-  const st = ROUTE[stageIdx], x0 = 130, w = 140, y = H - 14;
+function drawStageBar() { // which city you're in, and how far through it: the white bar, with labelled halfway and finish points and your car
+  const st = ROUTE[stageIdx], x0 = 176, w = 150, y = H - 14;
   ctx.font = "bold 12px sans-serif";
-  const tw = ctx.measureText(st.country).width, fw = 18, fx = W / 2 - (tw + fw + 6) / 2;
-  ctx.save(); ctx.translate(fx, y - 30); drawFlag(st.flag, fw, 12); ctx.restore();
-  textAt(st.country, fx + fw + 6, y - 19, 12, "left", "#fff");
-  ctx.fillStyle = "rgba(0,0,0,0.5)"; roundRect(x0, y - 4, w, 5, 2.5); ctx.fill();
-  ctx.fillStyle = "#fff"; roundRect(x0, y - 4, Math.max(5, w * stageFrac), 5, 2.5); ctx.fill();
-  if (level) { // markers: a tick at the halfway point (turns green once you are past it) and a chequered flag at the finish line
-    const hx = x0 + w / 2, past = stageFrac >= 0.5;
-    ctx.fillStyle = past ? "#7CFC9A" : "#ffffff"; ctx.fillRect(hx - 1, y - 11, 2, 11);
-    textAt("1/2", hx, y - 13, 8, "center", past ? "#7CFC9A" : "#ddd");
-    const fx2 = x0 + w - 1, fy = y - 16; // the finish flag on a pole
-    ctx.fillStyle = "#ffffff"; ctx.fillRect(fx2, fy, 1.5, 17);
-    for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) { ctx.fillStyle = (i + j) % 2 ? "#ffffff" : "#111111"; ctx.fillRect(fx2 + 1.5 + i * 3, fy + j * 3, 3, 3); }
+  const tw = ctx.measureText(st.country).width, fw = 18, fx = W / 2 - (tw + fw + 6) / 2, top = level ? 24 : 0; // (the country line moves up to make room for the labels)
+  ctx.save(); ctx.translate(fx, y - 30 - top); drawFlag(st.flag, fw, 12); ctx.restore();
+  textAt(st.country, fx + fw + 6, y - 19 - top, 12, "left", "#fff");
+  ctx.fillStyle = "rgba(0,0,0,0.5)"; roundRect(x0, y - 4, w, 6, 3); ctx.fill();
+  ctx.fillStyle = "#fff"; roundRect(x0, y - 4, Math.max(6, w * stageFrac), 6, 3); ctx.fill();
+  if (level) {
+    const hx = x0 + w / 2, past = stageFrac >= 0.5, fx2 = x0 + w, carX = x0 + w * clamp(stageFrac, 0, 1), tcol = ROUTE[stageIdx] && racers[0] ? racers[0].team.p : "#ffe11a";
+    // halfway: a tick and a label (green once you are past it)
+    ctx.fillStyle = past ? "#7CFC9A" : "#ffffff"; ctx.fillRect(hx - 1, y - 12, 2, 14);
+    textAt("HALFWAY", hx, y - 15, 9, "center", past ? "#7CFC9A" : "#ffffff");
+    // finish: a chequered flag on a pole, and a label
+    ctx.fillStyle = "#ffffff"; ctx.fillRect(fx2 - 1, y - 20, 1.5, 22);
+    for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) { ctx.fillStyle = (i + j) % 2 ? "#ffffff" : "#111111"; ctx.fillRect(fx2 + 0.5 + i * 3, y - 20 + j * 3, 3, 3); }
+    textAt("FINISH", fx2 + 8, y - 25, 9, "center", "#ffffff");
+    // your car: a little car in your team's colour sitting on the bar, labelled
+    ctx.save(); ctx.translate(carX, y - 1); ctx.fillStyle = "#000"; roundRect(-6, -5, 12, 9, 3); ctx.fill(); ctx.fillStyle = tcol; roundRect(-5, -4, 10, 7, 2.5); ctx.fill(); ctx.fillStyle = "#101114"; ctx.fillRect(-4, -5, 2, 1.5); ctx.fillRect(2, -5, 2, 1.5); ctx.fillRect(-4, 3, 2, 1.5); ctx.fillRect(2, 3, 2, 1.5); ctx.restore();
+    if (Math.abs(carX - hx) > 24 && Math.abs(carX - fx2) > 24) textAt("YOU", carX, y - 9, 8, "center", "#ffe11a"); else textAt("YOU", carX, y + 12, 8, "center", "#ffe11a");
   }
   textAt(`${st.n}/${ROUTE.length}   ${runKm()} km`, W / 2, y + 12, 11, "center", "#ddd");
 }
@@ -811,7 +816,8 @@ function drawLaunchGauge(r) {
   ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(cx, cy, 5, 0, TAU); ctx.fill();
   if (r.launchLocked && r.launchZone) textAt(`${r.launchZone.name}  ${Math.round(r.launchZone.v * 60)} km/h`, cx, cy - R - 14, 14, "center", r.launchZone.color);
   else if (!live) textAt(hasPad ? "HOLD RT + LT" : hasTouch ? "HOLD GAS + BRAKE" : "HOLD UP + DOWN", cx, cy - R - 14, 13, "center", "#fff");
-  else if (grid.done) textAt("NOW!", cx, cy - R - 14, 16, "center", "#39ff6a");
+  else if (r.inWindow) textAt("NOW!", cx, cy - R - 14, 17, "center", "#39ff6a");
+  else if (grid.done) textAt("LET GO!", cx, cy - R - 14, 13, "center", "#ffb020");
   else textAt("LET GO WHEN IT GOES GREEN", cx, cy - R - 14, 12, "center", "#fff");
 }
 
