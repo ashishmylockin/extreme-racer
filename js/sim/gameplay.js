@@ -66,16 +66,28 @@ const wetnessNow = () => clamp(((pal && pal.rain) || 0) / 0.7, 0, 1);
 const gripNow = r => r.ai ? 1 : gripOf(r.tyre || "dry", wetnessNow());
 
 // ---- the start-line launch: hold gas and brake together (RT + LT, Up + Down) to rev; the needle sweeps up and down; let go in the green ----
-const NEEDLE_PERIOD = 130; // frames for one full sweep up and back
+// The launch needle is tied to the lights: while you hold gas + brake it revs in the orange; the moment the lights turn GREEN it snaps into the green
+// zone and stays there for about 0.4 s, then drifts up through orange to red (over-revved). Let go in that green window for the perfect start.
+// t = frames since the lights went green (negative while they are still counting down).
+function launchNeedle(t) {
+  if (t < 0) return 0.56 + 0.05 * Math.sin(frame * 0.25);
+  if (t < 4) return 0.6 + 0.2 * t / 4;
+  if (t <= 24) return 0.8;
+  if (t < 30) return 0.8 + 0.1 * (t - 24) / 6;            // out of the green...
+  if (t < 52) return 0.9 + 0.05 * (t - 30) / 22;         // ...into a fair stretch of orange
+  return 0.99; // over-revved: red
+}
 function chargeLaunch(r) {
   if (r.launched || r.launchLocked) { r.charging = false; return; }
-  const p = pedals(r), both = p.gas > 0.3 && p.brake > 0.3;
+  const p = pedals(r), both = p.gas > 0.3 && p.brake > 0.3, t = grid.done ? frame - grid.goFrame : -1;
   if (both) {
-    r.charging = true; r.needleT = (r.needleT || 0) + 1; r.needle = 0.5 - 0.5 * Math.cos(r.needleT / NEEDLE_PERIOD * TAU); r.rev = clamp(0.2 + 0.8 * r.needle, 0, 1); // (the engine note follows the needle)
+    r.charging = true; r.needle = launchNeedle(t); r.rev = clamp(0.2 + 0.8 * r.needle, 0, 1); // (the engine note follows the needle)
     return;
   }
-  if (r.charging) { // let go of a pedal: the needle's place decides the launch
-    r.charging = false; r.launchLocked = true; const z = launchZoneOf(r.needle || 0); r.launchZone = z; r.launchGoal = z.v; r.rev = 0.3;
+  if (r.charging) { // let go of a pedal
+    r.charging = false;
+    if (t < 0) { pops.push({ r, text: "TOO EARLY - HOLD AGAIN", t: 0 }); sound.tone(260, 170, 0.2, "sawtooth", 0.05); r.needle = 0; return; } // before the lights go green nothing is locked in
+    r.launchLocked = true; const z = launchZoneOf(r.needle || 0); r.launchZone = z; r.launchGoal = z.v; r.rev = 0.3;
     if (z === LAUNCH_ZONES[0]) unlock("react");
     pops.push({ r, text: `${z.name} START! ${Math.round(z.v * 60)}`, t: 0 }); sound.tone(520, 1040, 0.18, "triangle", 0.07);
   } else r.rev += clamp(p.gas - r.rev, -0.08, 0.05); // gas alone just revs the engine

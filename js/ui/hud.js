@@ -422,6 +422,14 @@ function drawStageBar() { // which city you're in, and how far through it
   textAt(st.country, fx + fw + 6, y - 19, 12, "left", "#fff");
   ctx.fillStyle = "rgba(0,0,0,0.5)"; roundRect(x0, y - 4, w, 5, 2.5); ctx.fill();
   ctx.fillStyle = "#fff"; roundRect(x0, y - 4, Math.max(5, w * stageFrac), 5, 2.5); ctx.fill();
+  if (level) { // markers: a tick at the halfway point (turns green once you are past it) and a chequered flag at the finish line
+    const hx = x0 + w / 2, past = stageFrac >= 0.5;
+    ctx.fillStyle = past ? "#7CFC9A" : "#ffffff"; ctx.fillRect(hx - 1, y - 11, 2, 11);
+    textAt("1/2", hx, y - 13, 8, "center", past ? "#7CFC9A" : "#ddd");
+    const fx2 = x0 + w - 1, fy = y - 16; // the finish flag on a pole
+    ctx.fillStyle = "#ffffff"; ctx.fillRect(fx2, fy, 1.5, 17);
+    for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) { ctx.fillStyle = (i + j) % 2 ? "#ffffff" : "#111111"; ctx.fillRect(fx2 + 1.5 + i * 3, fy + j * 3, 3, 3); }
+  }
   textAt(`${st.n}/${ROUTE.length}   ${runKm()} km`, W / 2, y + 12, 11, "center", "#ddd");
 }
 
@@ -550,10 +558,10 @@ function drawHud() {
     ctx.globalAlpha = f;
     if (hasTouch && mode !== "multi") { // short enough to sit between the two pedals on a phone
       if (grid.done) text("Tap a side to steer", H - 78, 13);
-      else text("Hold GAS + BRAKE, let go in green", H - 60, 12);
+      else text("Hold GAS + BRAKE, let go on green", H - 60, 12);
     } else if (grid.done) text(mode === "multi" ? "P1: Arrows    P2: W A S D" : "Left/Right steer   Up/Down speed", H - 78, 13);
     else {
-      text(mode === "multi" ? "P1: Up + Down   P2: W + S - let go in the green" : hasPad ? "Hold RT + LT, let go in the green" : "Hold Up + Down, let go in the green", H - 60, 12);
+      text(mode === "multi" ? "P1: Up + Down   P2: W + S - let go on green" : hasPad ? "Hold RT + LT, let go on green" : "Hold Up + Down, let go on green", H - 60, 12);
     }
     ctx.globalAlpha = 1;
   }
@@ -803,7 +811,8 @@ function drawLaunchGauge(r) {
   ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(cx, cy, 5, 0, TAU); ctx.fill();
   if (r.launchLocked && r.launchZone) textAt(`${r.launchZone.name}  ${Math.round(r.launchZone.v * 60)} km/h`, cx, cy - R - 14, 14, "center", r.launchZone.color);
   else if (!live) textAt(hasPad ? "HOLD RT + LT" : hasTouch ? "HOLD GAS + BRAKE" : "HOLD UP + DOWN", cx, cy - R - 14, 13, "center", "#fff");
-  else textAt("LET GO IN THE GREEN", cx, cy - R - 14, 13, "center", "#39ff6a");
+  else if (grid.done) textAt("NOW!", cx, cy - R - 14, 16, "center", "#39ff6a");
+  else textAt("LET GO WHEN IT GOES GREEN", cx, cy - R - 14, 12, "center", "#fff");
 }
 
 // ---------- the bypass prompt ----------

@@ -87,8 +87,8 @@ requestAnimationFrame(loop);
       if (q.has("clean")) document.getElementById("game").style.visibility = "hidden"; // clean: hide the 2D HUD for screenshots
       if (q.has("team")) racers[0].team = TEAMS[+q.get("team") % TEAMS.length]; // team=N: drive that team's car
       if (q.has("bypass")) { const r0 = racers[0]; grid.done = true; grid.goFrame = 0; r0.launchGoal = 3.33; r0.lane = 0; r0.x = laneX(0); enemies = []; pickups = []; pickups.push({ type: "curve", lane: 0, x: laneX(0), y: r0.y - 300 }); enemies.push({ kind: "car", model: "van", lane: 0, x: laneX(0), y: r0.y - 950, len: CAR_H, v: 1.4, cur: 1.4, col: "#f2f2f0", passed: {}, miss: {} }); window.devSteer = +q.get("bypass") || 120; } // bypass=N: a bypass pop-up and a slow van in the left lane; steers left at tick N
-      if (q.has("charge")) { held.add("ArrowDown"); window.devRel = +q.get("release") || 0; } // charge: hold gas and brake together; release=N lets go of the brake at tick N
-      for (let i = +q.get("ff") || 0; i > 0; i--) { if (window.devRel && frame >= window.devRel) held.delete("ArrowDown"); if (window.devSteer && frame === window.devSteer) steer(racers[0], -1); update(); } // ff=600 fast-forwards 600 sim ticks (10 s)
+      if (q.has("charge")) { held.add("ArrowDown"); window.devRel = +q.get("release") || 0; window.devRelGreen = q.has("onGreen") ? +q.get("onGreen") : null; } // charge: hold gas and brake together; release=N lets go of the brake at tick N
+      for (let i = +q.get("ff") || 0; i > 0; i--) { if ((window.devRel && frame >= window.devRel) || (window.devRelGreen != null && grid.done && frame >= grid.goFrame + window.devRelGreen)) held.delete("ArrowDown"); if (window.devSteer && frame === window.devSteer) steer(racers[0], -1); update(); } // ff=600 fast-forwards 600 sim ticks (10 s)
       if (q.has("half") && level) dist = level.d0 + level.len / 2 - (+q.get("half") || 700); // half=N: jump to N units before the halfway point
       if (q.has("nitro")) startNitro(racers[0]); // nitro: fire a nitro canister straight away
       if (q.has("report")) { // testing: run the simulation flat out for a while and print what the traffic did
@@ -97,7 +97,7 @@ requestAnimationFrame(loop);
         const trace = [];
         for (let i = 0; i < n; i++) {
           if (!racers[0].alive) { st.crashes++; break; }
-          if (window.devRel && frame >= window.devRel) held.delete("ArrowDown"); update(); st.ticks++; if (i % 20 === 0 && i < 520) trace.push(`${frame}:${Math.round(racers[0].v * 60)}${grid.done ? "" : "(grid)"}`);
+          if ((window.devRel && frame >= window.devRel) || (window.devRelGreen != null && grid.done && frame >= grid.goFrame + window.devRelGreen)) held.delete("ArrowDown"); update(); st.ticks++; if (i % 20 === 0 && i < 520) trace.push(`${frame}:${Math.round(racers[0].v * 60)}${grid.done ? "" : "(grid)"}`);
           for (const k of pickups) for (const e of enemies) if (e.lane === k.lane && Math.abs(k.y - e.y) < lenOf(e) / 2 + 6 && k.y < racers[0].y - 100) st.pickInCar++;
           for (const a of enemies) for (const b of enemies) if (a !== b && a.lane === b.lane && a.y < b.y && b.y - a.y < (lenOf(a) + lenOf(b)) / 2 - 2) st.carOverlap++;
           for (const e of enemies) { const s = st.spd[e.model] || (st.spd[e.model] = { n: 0, sum: 0, min: 1e9, max: 0 }); s.n++; s.sum += e.cur; s.min = Math.min(s.min, e.cur); s.max = Math.max(s.max, e.cur); }
