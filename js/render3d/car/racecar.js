@@ -9,92 +9,10 @@
 //
 // The car faces -Z, stands on Y = 0, is centred on X = 0 and about 3.75 wide and 8.6 long.
 import * as THREE from "three";
-import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { carbonTexture, topLivery, sideDecal, tyreSidewall } from "./liveries.js";
+import { contactShadow } from "./traffic.js";
+import { V2, V3, TAU, merge, mergeGeometries, tinted, moved, loft, foil, poly, extrudeX, extrudeY, tube, useDetail } from "./loft.js";
 
-const V2 = (x, y) => new THREE.Vector2(x, y), V3 = (x, y, z) => new THREE.Vector3(x, y, z);
-let cur = null; // the detail level being built (set in statics): the helpers below read how many bevel steps and airfoil points it wants
-const TAU = Math.PI * 2;
-
-// ---------------------------------------------------------------------------------------------------------------------
-// geometry helpers
-// ---------------------------------------------------------------------------------------------------------------------
-const KEEP = ["position", "normal", "uv", "color"];
-function prep(g) { // a plain non-indexed geometry with the same attributes as every other part, so they can be merged
-  const n = g.index ? g.toNonIndexed() : g.clone();
-  for (const k of Object.keys(n.attributes)) if (!KEEP.includes(k)) n.deleteAttribute(k);
-  if (!n.attributes.uv) n.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(n.attributes.position.count * 2), 2));
-  return n;
-}
-const merge = list => mergeGeometries(list.map(prep));
-function tinted(g, hex) { // the same geometry with a vertex colour, for the far levels of detail (one material for many parts)
-  const n = prep(g), c = new THREE.Color(hex), a = new Float32Array(n.attributes.position.count * 3);
-  for (let i = 0; i < a.length; i += 3) { a[i] = c.r; a[i + 1] = c.g; a[i + 2] = c.b; }
-  n.setAttribute("color", new THREE.BufferAttribute(a, 3)); return n;
-}
-const moved = (g, x, y, z) => g.translate(x, y, z);
-
-// smooth interpolation (Catmull-Rom) through a list of key cross-sections
-const cr = (a, b, c, d, t) => 0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t * t + (-a + 3 * b - 3 * c + d) * t * t * t);
-function resample(keys, n) {
-  const out = [], m = keys.length - 1;
-  for (let i = 0; i <= n; i++) {
-    const u = i / n * m, k = Math.min(m - 1, Math.floor(u)), t = u - k;
-    const p0 = keys[Math.max(0, k - 1)], p1 = keys[k], p2 = keys[k + 1], p3 = keys[Math.min(m, k + 2)], o = {};
-    for (const f in p1) o[f] = cr(p0[f], p1[f], p2[f], p3[f], t);
-    out.push(o);
-  }
-  return out;
-}
-const SEC = rows => rows.map(([z, cx, cy, w, h, n]) => ({ z, cx, cy, w, h, n }));
-
-// A smooth lofted surface: rounded cross-sections (superellipses: n = 2 is an ellipse, higher is boxier) strung along Z.
-// The UVs are a plan view of the car, so the team livery (drawn as a picture of the car from above) wraps over it.
-function loft(rows, n, around) {
-  const s = resample(SEC(rows), n), pos = [], uv = [], idx = [];
-  for (let i = 0; i <= n; i++) {
-    const q = s[i], e = 2 / Math.max(1.2, q.n);
-    for (let j = 0; j < around; j++) {
-      const a = j / around * TAU, c = Math.cos(a), sn = Math.sin(a);
-      const x = q.cx + Math.sign(c) * Math.pow(Math.abs(c), e) * q.w / 2, y = q.cy + Math.sign(sn) * Math.pow(Math.abs(sn), e) * q.h / 2;
-      pos.push(x, y, q.z); uv.push((x + 1.6) / 3.2, 1 - (q.z + 3.8) / 7.6);
-    }
-  }
-  for (let i = 0; i < n; i++) for (let j = 0; j < around; j++) {
-    const a = i * around + j, b = i * around + (j + 1) % around, c = (i + 1) * around + j, d = (i + 1) * around + (j + 1) % around;
-    idx.push(a, b, c, b, d, c);
-  }
-  const f0 = (n + 1) * around, f1 = f0 + 1, q0 = s[0], q1 = s[n]; // flat end caps
-  pos.push(q0.cx, q0.cy, q0.z, q1.cx, q1.cy, q1.z); uv.push((q0.cx + 1.6) / 3.2, 1 - (q0.z + 3.8) / 7.6, (q1.cx + 1.6) / 3.2, 1 - (q1.z + 3.8) / 7.6);
-  for (let j = 0; j < around; j++) { idx.push(f0, (j + 1) % around, j); idx.push(f1, n * around + j, n * around + (j + 1) % around); }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx);
-  g.computeVertexNormals(); return g;
-}
-
-// an airfoil outline seen from the side (x = forward, y = up), leading edge forward; negative camber = an upside-down wing (downforce)
-function foil(chord, thick, camber, aoa) {
-  const N = cur.foilN, pts = [], ca = Math.cos(aoa), sa = Math.sin(aoa);
-  const P = (t, y) => { const x = (0.5 - t) * chord, yy = y * chord; return V2(x * ca - yy * sa, x * sa + yy * ca); };
-  const prof = t => 5 * thick * (0.2969 * Math.sqrt(t) - 0.126 * t - 0.3516 * t * t + 0.2843 * t ** 3 - 0.1036 * t ** 4);
-  for (let i = 0; i <= N; i++) { const t = i / N; pts.push(P(t, 4 * camber * t * (1 - t) + prof(t))); }
-  for (let i = N - 1; i > 0; i--) { const t = i / N; pts.push(P(t, 4 * camber * t * (1 - t) - prof(t))); }
-  return new THREE.Shape(pts);
-}
-const poly = pts => new THREE.Shape(pts.map(([x, y]) => V2(x, y)));
-// extrude a side-view outline (x = forward, y = up) across the car, `width` wide and centred on X = 0; bevelled edges stay inside the outline
-function extrudeX(shape, width, bevel = 0) {
-  bevel = cur.bev ? bevel : 0; const d = Math.max(0.001, width - 2 * bevel);
-  const g = new THREE.ExtrudeGeometry(shape, { depth: d, bevelEnabled: bevel > 0, bevelThickness: bevel, bevelSize: bevel, bevelOffset: -bevel, bevelSegments: cur.bev || 1, curveSegments: 4 });
-  g.translate(0, 0, -d / 2); g.rotateY(Math.PI / 2); return g; // (shape x, y, depth) -> (depth, y, -shape x): forward ends up as -Z
-}
-// extrude a plan-view outline (x, z) downwards by `thick`, with its top face at height y
-function extrudeY(shape, thick, y, bevel = 0) {
-  bevel = cur.bev ? bevel : 0; const d = Math.max(0.001, thick - 2 * bevel);
-  const g = new THREE.ExtrudeGeometry(shape, { depth: d, bevelEnabled: bevel > 0, bevelThickness: bevel, bevelSize: bevel, bevelOffset: -bevel, bevelSegments: cur.bev || 1, curveSegments: 4 });
-  g.rotateX(Math.PI / 2); g.translate(0, y - bevel, 0); return g; // (x, z, depth) -> (x, -depth, z)
-}
-const tube = (a, b, r, rad = 6) => new THREE.TubeGeometry(new THREE.LineCurve3(V3(...a), V3(...b)), 1, r, rad, false);
 
 // ---------------------------------------------------------------------------------------------------------------------
 // the shape of the car (key cross-sections: z, centre x, centre y, width, height, roundness)
@@ -142,7 +60,7 @@ function wheelGeo(R, W, s, q) { // s = -1 for a wheel on the left, +1 on the rig
 // the fixed parts of the car (everything that doesn't move on its own), as a list of { k: material class, g: geometry }
 // ---------------------------------------------------------------------------------------------------------------------
 function statics(q) {
-  cur = q; const P = [], add = (k, g, extra) => P.push({ k, g, ...extra });
+  useDetail(q); const P = [], add = (k, g, extra) => P.push({ k, g, ...extra });
   // floor and splitter
   add("carbon", extrudeY(poly([[-0.7, -3.15], [0.7, -3.15], [1.05, -1.6], [1.1, 2.3], [0.9, 3.4], [-0.9, 3.4], [-1.1, 2.3], [-1.05, -1.6]]), 0.1, 0.27, 0.02));
   // front wing: three elements, endplates, two pylons joining it to the nose
@@ -296,6 +214,7 @@ export function makeProRaceCar(team) {
   proxy.add(mesh(G0.fwAccent, T.accent, false), mesh(G0.fwCarbon, S.carbon, false)); proxy.visible = false; car.add(proxy);
   const setCockpit = on => { for (const b of bodies) b.visible = !on; proxy.visible = on; };
 
+  const shadow = contactShadow(5.2, 10.4); shadow.position.z = -0.1; car.add(shadow); // a soft dark patch, so the car never looks like it floats
   car.userData = { wheels, front, helmet, brake, rain, kind: "race", setCockpit, discMat };
   return car;
 }

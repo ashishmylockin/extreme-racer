@@ -5,8 +5,12 @@ import { SCALE } from "./mapping.js";
 import { hasModel, cloneModel, fitModel } from "./assets.js";
 import { makeLandmark, hasLandmark } from "./landmarks.js";
 import { makeProp, hasProp } from "./props.js";
-import { makeProRaceCar, setCarDetail } from "./car/racecar.js";
-export { setCarDetail };
+import { makeProRaceCar, setCarDetail as setRaceCarDetail } from "./car/racecar.js";
+import * as TRAFFIC from "./car/traffic.js";
+export const setCarDetail = k => { setRaceCarDetail(k); TRAFFIC.setTrafficDetail(k); }; // how far away vehicles keep their detail (graphics setting)
+export const trafficLamp = TRAFFIC.trafficLamp, trafficPool = TRAFFIC.trafficPool;
+export const carType = TRAFFIC.carTypeFor;
+export const truckKind = r => TRAFFIC.TRUCK_KINDS[r < 0.4 ? 0 : r < 0.65 ? 1 : r < 0.8 ? 2 : 3]; // r is 0..1: boxes are the most common, then containers, buses, tankers
 
 const geoCache = new Map();
 const matCache = new Map();
@@ -215,7 +219,8 @@ const CAR_MODELS = ["sedan", "sedan-sports", "hatchback-sports", "suv", "suv-lux
 const hashStr = s => { let h = 0; for (const c of String(s)) h = (h * 31 + c.charCodeAt(0)) | 0; return Math.abs(h); };
 function withWheels(root) { const ws = []; root.traverse(o => { if (/^wheel/.test(o.name)) { o.rotation.order = "YXZ"; ws.push(o); } }); return ws; }
 
-export function makeTrafficCar(col) {
+export function makeTrafficCar(col, type) {
+  try { return TRAFFIC.makeCar(type, col); } catch (e) { console.warn("detailed traffic car failed, using the model car instead", e); }
   const name = CAR_MODELS[hashStr(col) % CAR_MODELS.length];
   if (!hasModel(name)) return phTrafficCar(col);
   const root = cloneModel(name), wheels = withWheels(root); tint(root);
@@ -227,7 +232,8 @@ export function makeTrafficCar(col) {
 }
 
 // a long truck: a cab from the pickup model, a plain box trailer behind it
-export function makeTruck(lenSim, col) {
+export function makeTruck(lenSim, col, kind) {
+  try { return TRAFFIC.makeTruck(lenSim * SCALE, col, kind); } catch (e) { console.warn("detailed lorry failed, using the model lorry instead", e); }
   if (!hasModel("truck")) return phTruck(lenSim, col);
   const L = lenSim * SCALE, truck = new THREE.Group();
   const root = cloneModel("truck"), wheels = withWheels(root); tint(root);

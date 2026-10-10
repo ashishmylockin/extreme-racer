@@ -100,9 +100,10 @@ export function createRenderer3D(canvas2d, glCanvas) {
     };
   }
   const racersT = makeTracker(r => "race:" + r.team.name, r => M.makeRaceCar(r.team), r => r.tilt);
+  const looks = new WeakMap(), lookOf = e => { let v = looks.get(e); if (v === undefined) looks.set(e, v = Math.random()); return v; };
   const enemiesT = makeTracker(
-    e => e.kind === "truck" ? `truck:${e.len}:${e.col}` : e.kind === "works" ? `works:${e.len}` : "car:" + e.col,
-    e => e.kind === "truck" ? M.makeTruck(e.len, e.col) : e.kind === "works" ? M.makeWorks(e.len) : M.makeTrafficCar(e.col));
+    e => e.kind === "truck" ? `truck:${e.len}:${e.col}:${M.truckKind(lookOf(e))}` : e.kind === "works" ? `works:${e.len}` : `car:${e.col}:${M.carType(lookOf(e))}`,
+    e => e.kind === "truck" ? M.makeTruck(e.len, e.col, M.truckKind(lookOf(e))) : e.kind === "works" ? M.makeWorks(e.len) : M.makeTrafficCar(e.col, M.carType(lookOf(e))));
   const pickupsT = makeTracker(k => "pickup:" + k.type, k => k.type === "coin" ? M.makeCoin() : k.type === "nitro" ? M.makeNitro() : M.makeShield(), null, e => e.x,
     (k, r) => { if (k.taken) fx.pickup(r.cx, r.cz, k.type); }); // a sparkle where a pickup was collected
   const puddlesT = makeTracker(() => "puddle", () => weather.puddleBuild());
@@ -212,6 +213,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
     // everything leafy follows the city's colour, and the cars' lights come up at night
     setCol(leafMat.color, pal.leaf[0], pal.leaf[1], pal.leaf[2]); setCol(leafDarkMat.color, pal.leaf[0], pal.leaf[1], pal.leaf[2], 0.72); setCol(grassTopMat.color, pal.leaf[0], pal.leaf[1], pal.leaf[2], 1.12);
     M.lightMats.head.emissiveIntensity = 0.4 + 4 * night; M.lightMats.tail.emissiveIntensity = 0.8 + 2 * night;
+    M.trafficLamp.color.setScalar(0.8 + 3.2 * night); { const p = M.trafficPool(); p.visible = night > 0.04; p.opacity = Math.min(0.5, night * 0.65); } // working lights on the traffic: lamps glow, headlamps light the road ahead
     for (const g of glows) g.mat.emissiveIntensity = g.base * (0.12 + 1.5 * night); // neon, lit windows and landmark lights come up at night
     for (const name of START_FINISH) {
       const m = marks[name]; if (!m) continue;
