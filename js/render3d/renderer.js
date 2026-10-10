@@ -58,11 +58,12 @@ export function createRenderer3D(canvas2d, glCanvas) {
   let Q = resolve(qSettings(), auto.level);
   function applyQuality() {
     Q = resolve(qSettings(), auto.level);
+    for (const kv of (new URLSearchParams(location.search).get("q") || "").split(",")) { const [k, v] = kv.split(":"); if (k && v !== undefined) Q[k] = v === "true" ? true : v === "false" ? false : +v; } // testing: ?q=msaa:0,shadows:1024 overrides single quality values
     renderer.shadowMap.enabled = Q.shadows > 0; world.sun.castShadow = Q.shadows > 0;
     if (world.sun.shadow.mapSize.x !== Q.shadows && Q.shadows > 0) { world.sun.shadow.mapSize.set(Q.shadows, Q.shadows); if (world.sun.shadow.map) { world.sun.shadow.map.dispose(); world.sun.shadow.map = null; } }
     renderer.shadowMap.needsUpdate = true;
     fx.setDensity(Q.particles); reflect.enable(Q.reflect); city.setQuality({ ahead: Q.cityAhead * Q.dist, density: Q.cityDensity }); M.setCarDetail(Q.carLod ?? 1);
-    post.bloom.enabled = Q.bloom; post.fx.enabled = Q.grade; post.smaa.enabled = Q.smaa; post.fxaa.enabled = Q.fxaa;
+    post.bloom.enabled = post.clean.enabled = Q.bloom; post.clean.uniforms.debug.value = Q.debugnan ? 1 : 0; post.fx.enabled = Q.grade; post.smaa.enabled = Q.smaa; post.fxaa.enabled = Q.fxaa;
     for (const t of [post.composer.renderTarget1, post.composer.renderTarget2]) if (t.samples !== Q.msaa) { t.samples = Q.msaa; t.dispose(); }
     for (const m of rig.mirrors) m.rt.setSize(Q.mirrorRes, Q.mirrorRes / 2);
     sizeKey = ""; // the pixel ratio may have changed

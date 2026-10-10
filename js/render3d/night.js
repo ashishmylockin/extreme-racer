@@ -31,7 +31,7 @@ export function createNight(scene) {
     uniforms: { k: { value: 0 }, color: { value: new THREE.Color(1.0, 0.93, 0.75) } },
     vertexShader: `varying vec3 vN; varying vec3 vV; varying float vT; void main() { vT = clamp(-position.z / 38.0, 0.0, 1.0); vec4 mv = modelViewMatrix * vec4(position, 1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }`,
     fragmentShader: `uniform float k; uniform vec3 color; varying vec3 vN; varying vec3 vV; varying float vT;
-      void main() { float f = pow(abs(dot(normalize(vN), normalize(vV))), 1.6); float a = f * pow(1.0 - vT, 1.4) * 0.5 * k; if (a < 0.004) discard; gl_FragColor = vec4(color * a * 2.0, a); }`,
+      void main() { float f = pow(clamp(abs(dot(normalize(vN), normalize(vV))), 0.0001, 1.0), 1.6); float a = f * pow(clamp(1.0 - vT, 0.0001, 1.0), 1.4) * 0.5 * k; /* (clamped: pow of a negative number is NaN, which turns the whole screen black through the bloom) */ if (a < 0.004) discard; gl_FragColor = vec4(color * a * 2.0, a); }`,
   });
   const makeBeam = () => { // returns a mesh that lights up the road ahead of a car (child of the car, which faces -Z)
     const g = new THREE.ConeGeometry(5.5, 38, 20, 1, true); g.translate(0, -19, 0); g.rotateX(Math.PI / 2); // the tip is at the origin, the wide end 38 units ahead (-Z)

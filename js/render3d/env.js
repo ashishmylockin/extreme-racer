@@ -31,12 +31,22 @@ function horizonColour(tex) { // average colour of the band just above the horiz
   return c.multiplyScalar(1 / n);
 }
 
+// The brightest spots in a sky image (the sun, the moon) can be too bright for a half-float number and load as infinity. Filtering an
+// infinite texel gives NaN, and a NaN pixel makes the whole screen flash black once bloom has smeared it. So: cap every texel.
+function capHDR(tex, cap = 4000) {
+  const d = tex.image.data; let n = 0;
+  if (d instanceof Uint16Array) { const lim = THREE.DataUtils.toHalfFloat(cap); for (let i = 0; i < d.length; i++) { const h = d[i]; if ((h & 0x7c00) === 0x7c00 || (h & 0x7fff) > lim) { d[i] = (h & 0x7c00) === 0x7c00 && (h & 0x03ff) ? 0 : lim; n++; } } }
+  else if (d instanceof Float32Array) for (let i = 0; i < d.length; i++) if (!(d[i] < cap)) { d[i] = d[i] !== d[i] ? 0 : cap; n++; }
+  return n;
+}
+
 export async function loadSkies(renderer, onProgress = () => {}) {
   const pmrem = new THREE.PMREMGenerator(renderer), loader = new RGBELoader();
   let done = 0;
   await Promise.all(TODS.map(async name => {
     try {
       const tex = await loader.loadAsync(`assets/hdri/${name}.hdr`);
+      const capped = capHDR(tex); if (capped) console.info(`sky ${name}: capped ${capped} out-of-range texel values`);
       tex.mapping = THREE.EquirectangularReflectionMapping; tex.colorSpace = THREE.LinearSRGBColorSpace;
       tex.minFilter = THREE.LinearMipmapLinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = true; tex.needsUpdate = true; // mipmaps let the sky shader soften the magnified image
       skies[name] = { tex, env: pmrem.fromEquirectangular(tex).texture, horizon: horizonColour(tex) };

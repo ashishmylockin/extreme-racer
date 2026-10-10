@@ -57,6 +57,26 @@ const FXShader = {
     }`,
 };
 
+// One bad pixel (NaN or infinity) in the HDR picture would be smeared over the whole screen by the bloom blur, which shows as the screen
+// flashing black. This pass sits in front of the bloom and replaces such pixels with the average of their good neighbours, and caps
+// absurdly bright ones.
+const CleanShader = {
+  uniforms: { tDiffuse: { value: null }, texel: { value: new THREE.Vector2(1 / 1280, 1 / 720) }, debug: { value: 0 } },
+  vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: `uniform sampler2D tDiffuse; uniform vec2 texel; uniform float debug; varying vec2 vUv;
+    bool bad1(float x) { return (floatBitsToUint(x) & 0x7F800000u) == 0x7F800000u; } // exponent all ones = NaN or infinity (checked on the raw bits, so the compiler cannot optimise it away)
+    bool bad(vec3 c) { return bad1(c.r) || bad1(c.g) || bad1(c.b); }
+    void main() {
+      vec4 c = texture2D(tDiffuse, vUv);
+      if (bad(c.rgb)) {
+        vec3 s = vec3(0.0); float n = 0.0;
+        for (int i = 0; i < 4; i++) { vec2 o = vec2(i < 2 ? (i == 0 ? 2.0 : -2.0) : 0.0, i >= 2 ? (i == 2 ? 2.0 : -2.0) : 0.0) * texel; vec3 t = texture2D(tDiffuse, vUv + o).rgb; if (!bad(t)) { s += t; n += 1.0; } }
+        c.rgb = debug > 0.5 ? vec3(40.0, 0.0, 40.0) : n > 0.0 ? s / n : vec3(0.0); // (debug: bad pixels shown in magenta)
+      }
+      gl_FragColor = vec4(clamp(c.rgb, vec3(0.0), vec3(64.0)), 1.0);
+    }`,
+};
+
 export function createPost(renderer, scene, camera) {
   const size = renderer.getDrawingBufferSize(new THREE.Vector2());
   const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: 4 }); // 4x multisampling inside the pipeline
@@ -64,17 +84,18 @@ export function createPost(renderer, scene, camera) {
   const renderPass = new RenderPass(scene, camera);
   const bokeh = new BokehPass(scene, camera, { focus: 18, aperture: 0.0012, maxblur: 0.012 }); bokeh.enabled = false;
   const bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.3, 0.55, 1.0);
+  const clean = new ShaderPass(CleanShader);
   const fx = new ShaderPass(FXShader);
   const output = new OutputPass();
   const smaa = new SMAAPass(size.x, size.y);
   const fxaa = new ShaderPass(FXAAShader); fxaa.enabled = false;
-  [renderPass, bokeh, bloom, fx, output, smaa, fxaa].forEach(p => composer.addPass(p));
+  [renderPass, bokeh, clean, bloom, fx, output, smaa, fxaa].forEach(p => composer.addPass(p));
   const u = fx.uniforms;
   const api = {
-    composer, renderPass, bokeh, bloom, fx, smaa, fxaa, u,
+    composer, renderPass, bokeh, clean, bloom, fx, smaa, fxaa, u,
     setSize(w, h, pr) {
       composer.setPixelRatio(pr); composer.setSize(w, h);
-      fxaa.material.uniforms.resolution.value.set(1 / (w * pr), 1 / (h * pr)); u.aspect.value = w / h;
+      fxaa.material.uniforms.resolution.value.set(1 / (w * pr), 1 / (h * pr)); u.aspect.value = w / h; clean.uniforms.texel.value.set(1 / (w * pr), 1 / (h * pr));
     },
     setScene(s, c) { renderPass.scene = s; renderPass.camera = c; bokeh.scene = s; bokeh.camera = c; },
     render(dt) { composer.render(dt); },

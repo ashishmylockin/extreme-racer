@@ -92,7 +92,7 @@ export function createFX(scene) {
     uniforms: { time: { value: 0 }, k: { value: 1 } },
     vertexShader: `varying vec2 vUv; varying float vT; void main() { vUv = uv; vT = uv.y; vec3 p = position; float w = 1.0 + 0.2 * sin(p.y * 9.0); gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0); }`,
     fragmentShader: `uniform float time, k; varying vec2 vUv; varying float vT;
-      void main() { float flick = 0.75 + 0.25 * sin(time * 60.0 + vUv.x * 12.0); float core = pow(1.0 - vT, 1.8);
+      void main() { float flick = 0.75 + 0.25 * sin(time * 60.0 + vUv.x * 12.0); float core = pow(clamp(1.0 - vT, 0.0001, 1.0), 1.8); /* (vT can round to just over 1.0 at the tip: pow of a negative number is NaN, and one NaN pixel turns the whole screen black through the bloom) */
         vec3 c = mix(vec3(0.15, 0.4, 1.0), vec3(0.85, 0.95, 1.0), core * 0.9); gl_FragColor = vec4(c * (0.6 + core) * flick, (1.0 - vT) * 0.9 * k); }`,
   });
   const flameGeo = new THREE.ConeGeometry(0.42, 5.5, 12, 1, true).translate(0, 2.75, 0).rotateX(Math.PI / 2); // base at the car, tip trailing behind (+Z)
