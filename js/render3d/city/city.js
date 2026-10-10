@@ -13,7 +13,7 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { SCALE, roadHalf } from "../mapping.js";
 import { rng, hash, noise2 } from "./rng.js";
-import { profileOf, ZONES, PALETTES, FACADES } from "./profiles.js";
+import { profileOf, ZONES, PALETTES, FACADES, LANDMARKS_3D } from "./profiles.js";
 import { SlotMesh } from "./slotmesh.js";
 import { unitBox, unitPlane, roofGeo, lampGeo, lampGlowGeo, personGeo, headGeo, hillGeo, treeGeos, yachtGeo, busStopGeo, carGeo, fenceTexture, flowerBedGeo } from "./geo.js";
 import { shared, buildingMaterial, solidMaterial, makeSignAtlas, signMaterial, signRect, SIGN_COUNT, makeBannerAtlas, groundMaterials } from "./materials.js";
@@ -35,12 +35,15 @@ const PAL = Object.fromEntries(Object.entries(PALETTES).map(([k, v]) => [k, v.ma
 const AWNINGS = ["#c8372d", "#2d6fb5", "#2e8b57", "#e0a526", "#7a3f9d", "#e9e9e4", "#d9622b"].map(lin);
 const ROOF_KIT = ["#8b9096", "#6f757c", "#a7abb0", "#5d6269"].map(lin);
 const BOAT = ["#f4f4f2", "#f4f4f2", "#1c2a3a", "#c8d4dc", "#e8e2d0"].map(lin);
-const CAP = { F: { boxes: 36, solid: 110, signs: 22, banners: 14, lamps: 6, glow: 6, light: 10, trees: 16, people: 24, cars: 4, stops: 2, fence: 12, models: 6, flowers: 6 },
+const CAP = { F: { boxes: 36, solid: 110, signs: 34, banners: 14, lamps: 6, glow: 6, light: 10, trees: 16, people: 24, cars: 4, stops: 2, fence: 12, models: 6, flowers: 6 },
   B: { boxes: 64, solid: 96, trees: 40, houses: 26, yachts: 8, models: 12 }, S: { boxes: 64, hills: 18 } };
 const CAR_MODELS = ["sedan", "sedan-sports", "hatchback-sports", "suv", "taxi", "van"];
 const BUILD_MODELS = ["building-a", "building-d", "building-i", "building-skyscraper-a", "building-skyscraper-d"];
 
 const mod = (a, n) => ((a % n) + n) % n;
+// a hillside (Monaco): the ground rises from 52 units out on the hill's side, and the city climbs it
+const HILL_TOP = 150, hy = x => Math.min(HILL_TOP, Math.max(0, (x - 52) * 0.42));
+const hillY = (prof, side, x) => prof.hill && (prof.hill === "L" ? -1 : 1) === side ? hy(x) : 0;
 
 // Kenney building as one geometry scaled to a 1x1x1 box (base at y=0), so an instance size is the building's real size
 function unitModel(name) {
@@ -51,12 +54,12 @@ function unitModel(name) {
   const all = mergeGeometries(parts); all.computeBoundingBox(); const bb = all.boundingBox, sz = new THREE.Vector3(); bb.getSize(sz);
   all.translate(-(bb.min.x + bb.max.x) / 2, -bb.min.y, -(bb.min.z + bb.max.z) / 2).scale(1 / sz.x, 1 / sz.y, 1 / sz.z);
   lightWindows([{ material }]);
-  return { geometry: all, material, aspect: sz.y / Math.max(sz.x, sz.z) };
+  return { geometry: all, material, aspect: sz.y / Math.max(sz.x, sz.z), tower: name.includes("skyscraper") };
 }
 
 // merge a landmark / prop (many little meshes) into one mesh per material, so a hero object costs a handful of draw calls
 function mergeStatic(grp) {
-  if (grp.userData.spin || grp.userData.ball) return grp;
+  if (grp.userData.spin || grp.userData.ball || grp.userData.keep) return grp;
   grp.updateMatrixWorld(true); const by = new Map();
   grp.traverse(o => { if (!o.isMesh) return; const g = o.geometry.clone().applyMatrix4(o.matrixWorld); for (const k of Object.keys(g.attributes)) if (k !== "position" && k !== "normal") g.deleteAttribute(k); (by.get(o.material) || by.set(o.material, []).get(o.material)).push(g.index ? g.toNonIndexed() : g); });
   const out = new THREE.Group();
@@ -84,6 +87,8 @@ export function createCity(scene) {
   const TYPES = { round: "tree_default", pine: "tree_pineTallA", palm: "tree_palmTall", cactus: "cactus_tall" };
   const treeG = {}; for (const [k, name] of Object.entries(TYPES)) treeG[k] = treeGeos(name);
   const carG = CAR_MODELS.map(carGeo).filter(Boolean), modelG = BUILD_MODELS.map(unitModel).filter(Boolean);
+  const modelPick = { all: modelG.map((_, i) => i), low: modelG.map((g, i) => g.tower ? -1 : i).filter(i => i >= 0) }; // (old towns get no glass skyscrapers)
+  const modelsFor = prof => prof.towers === false ? modelPick.low : modelPick.all;
 
   const slotsOf = id => Math.ceil((AHEAD[id] + BEHIND[id]) / { F: LF, B: LB, S: LS, G: LG }[id]) + 2;
   const nF = slotsOf("F"), nB = slotsOf("B"), nS = slotsOf("S"), nG = slotsOf("G");
@@ -139,6 +144,14 @@ export function createCity(scene) {
     g.setIndex(side > 0 ? [0, 1, 2, 0, 2, 3] : [0, 2, 1, 0, 3, 2]); return g;
   };
   const geos = [-1, 1].map(side => STRIPS.map(([x0, x1]) => stripGeo(side, x0, x1)));
+  const hillStrip = (side, x0, x1) => { // the same strip, rising up the hillside
+    const xs = []; for (let x = x0; x < x1; x += x < 520 ? 24 : 240) xs.push(x); xs.push(x1);
+    const pos = [], uv = [], idx = [];
+    for (const x of xs) for (const z of [0, -LG]) { pos.push(side * x, hy(x), z); uv.push(x, -z); }
+    for (let i = 0; i < xs.length - 1; i++) { const a = i * 2, b = a + 1, c = a + 2, d = a + 3; if (side > 0) idx.push(a, c, d, a, d, b); else idx.push(a, d, c, a, b, d); }
+    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals(); return g;
+  };
+  const hillGeos = [-1, 1].map(side => STRIPS.map(([x0, x1]) => hillStrip(side, x0, x1)));
   ground.city.map.offset.set(-X0 / 30, 0);
   for (let i = 0; i < nG; i++) {
     const grp = new THREE.Group(), meshes = [];
@@ -168,7 +181,7 @@ export function createCity(scene) {
   function zoneAt(prof, city, sRel, side) { // the neighbourhood next to the road at sRel, on one side
     const name = zonePick(prof, city, Math.floor(sRel / 300));
     const wsd = prof.water && (prof.water.side === "B" || (prof.water.side === "L" ? -1 : 1) === side);
-    if (name === "harbour") return wsd ? { type: "harbour", water: true } : { type: "urban", water: false };
+    if (name === "harbour") return wsd ? (prof.beach ? { type: "beach", water: true, beach: true } : { type: "harbour", water: true }) : { type: "urban", water: false };
     return { type: name, water: false };
   }
   function chunkCtx(L, k) {
@@ -180,9 +193,9 @@ export function createCity(scene) {
   const hsv = (r, pal) => { const c = pal[r.int(0, pal.length - 1)], k = r.range(0.9, 1.08); return [c[0] * k, c[1] * k, c[2] * k]; };
   const treeKind = (st, r) => { const t = st.trees ? r.pick(st.trees) : "round"; return t === "pine" || t === "cypress" ? "pine" : t === "palm" ? "palm" : t === "cactus" ? "cactus" : "round"; };
   const treeSize = { round: [9, 14], pine: [12, 19], palm: [12, 16], cactus: [3.5, 6] };
-  function addTree(meshes, kind, x, z, r, scale = 1) {
+  function addTree(meshes, kind, x, z, r, scale = 1, y = 0) {
     const m = meshes[kind] || meshes.round; if (!m) return; const [lo, hi] = treeSize[kind] || treeSize.round, h = r.range(lo, hi) * scale;
-    m.trunk && m.trunk.add(x, 0, z, h, h, h, r() * 6.28); m.leaves && m.leaves.add(x, 0, z, h, h, h, r() * 6.28);
+    m.trunk && m.trunk.add(x, y, z, h, h, h, r() * 6.28); m.leaves && m.leaves.add(x, y, z, h, h, h, r() * 6.28);
   }
 
   // =================================================================================================================================
@@ -191,11 +204,15 @@ export function createCity(scene) {
   const heroCache = new Map();
   function heroesOfChunk(k) {
     let list = heroCache.get(k); if (list) return list;
-    list = []; const ctx = chunkCtx(LH, k), lms = ctx.st.lms || [];
+    list = []; const ctx = chunkCtx(LH, k), lms = LANDMARKS_3D[ctx.st.venue] || ctx.st.lms || [];
+    // 0. a landmark built over the track itself (Abu Dhabi's Yas hotel): every ~800 units
+    const span = ctx.prof.span && hasLandmark(ctx.prof.span) && (HERO_ALL || mod(ctx.rel, 13) === 6);
+    if (span) list.push({ kind: "lm", key: ctx.prof.span, s: ctx.s0 + 30, x: 0, side: 0, sc: 1, ry: 0, rad: 30, radX: 58, range: 1500 });
     // 1. the city's attractions, one every ~120 units, alternating sides and cycling through the list: big, close to the street, impossible to miss
-    if (lms.length && (HERO_ALL || mod(ctx.rel, 2) === 0)) {
-      const q = Math.floor(ctx.rel / 2), r2 = rng(hash(ctx.city, q, 501)), key = lms[mod(q, lms.length)], side = mod(q, 2) ? -1 : 1, zi = ctx.zone(side), far = zi.water, u = r2.range(10, 50);
-      if (hasLandmark(key)) list.push({ kind: "lm", key, s: ctx.s0 + u, x: side * (far ? r2.range(300, 400) : r2.range(70, 88)), side, sc: far ? 3.4 : 2.6, ry: -side * 0.3, rad: far ? 60 : 32, range: 1500 });
+    //    (the street front around each one is kept low-rise, so you can see it coming: see lmNear)
+    if (lms.length && !span && (HERO_ALL || mod(ctx.rel, 2) === 0)) {
+      const q = Math.floor(ctx.rel / 2), r2 = rng(hash(ctx.city, q, 501)), key = lms[mod(q, lms.length)], s0 = mod(q, 2) ? -1 : 1, side = ctx.zone(s0).beach ? -s0 : s0, zi = ctx.zone(side), far = zi.water, u = r2.range(10, 50); // (never out in the surf: across the road instead)
+      if (hasLandmark(key)) list.push({ kind: "lm", key, s: ctx.s0 + u, x: side * (far ? r2.range(300, 400) : r2.range(68, 84)), side, sc: far ? 3.6 : 3.2, ry: -side * 0.3, rad: far ? 60 : 34, range: 1500 });
     }
     // 2. the city's signature on the skyline: the first attraction, huge, far off, so each city has a recognisable horizon
     if (lms.length && (HERO_ALL || mod(ctx.rel, 7) === 3)) {
@@ -209,7 +226,9 @@ export function createCity(scene) {
     }
     const rp = rng(hash(ctx.city, ctx.rel, 503)), props = ctx.st.props || [];
     for (const side of [-1, 1]) { // the city's own roadside things: out in the quiet neighbourhoods, and along the pavement in the busy ones
-      const zi = ctx.zone(side); if (zi.water || !props.length) continue;
+      const zi = ctx.zone(side);
+      if (zi.beach) { if (hasProp("lifeguard") && rp.chance(0.55)) list.push({ kind: "prop", key: "lifeguard", s: ctx.s0 + rp.range(8, 52), x: side * rp.range(36, 44), side, sc: 1.6, ry: side > 0 ? -Math.PI / 2 : Math.PI / 2, rad: 5, range: 420 }); continue; } // lifeguard towers on the sand
+      if (zi.water || !props.length) continue;
       if (["park", "country", "residential", "desert"].includes(zi.type)) {
         const n = rp.int(0, 2); for (let i = 0; i < n; i++) { const key = props[rp.int(0, props.length - 1)][0]; if (hasProp(key)) list.push({ kind: "prop", key, s: ctx.s0 + rp.range(2, 58), x: side * rp.range(28, 58), side, sc: 1.5, ry: -side * 0.5 + rp.range(-0.4, 0.4), rad: 7, range: 380 }); }
       } else if (rp.chance(0.7)) { // street dressing: a lantern pole, phone box, neon sign... standing on the pavement
@@ -220,8 +239,13 @@ export function createCity(scene) {
     heroCache.set(k, list); if (heroCache.size > 400) heroCache.delete(heroCache.keys().next().value);
     return list;
   }
-  const heroBlocks = (side, s0, s1, x0, x1) => { // is a hero standing on the strip s0..s1 x x0..x1 on this side?
-    for (let k = Math.floor((s0 - 40) / LH); k <= Math.floor((s1 + 40) / LH); k++) for (const h of heroesOfChunk(k)) if (h.side === side && h.s + h.rad > s0 && h.s - h.rad < s1 && Math.abs(h.x) + h.rad > x0 && Math.abs(h.x) - h.rad < x1) return true;
+  const heroBlocks = (side, s0, s1, x0, x1) => { // is a hero standing on the strip s0..s1 x x0..x1 on this side? (side 0: it spans the road)
+    for (let k = Math.floor((s0 - 40) / LH); k <= Math.floor((s1 + 40) / LH); k++) for (const h of heroesOfChunk(k)) { const rx = h.radX ?? h.rad; if ((h.side === side || h.side === 0) && h.s + h.rad > s0 && h.s - h.rad < s1 && Math.abs(h.x) + rx > x0 && Math.abs(h.x) - rx < x1) return true; }
+    return false;
+  };
+  // is a landmark standing near the road within `d` of s on this side? Then the buildings round it stay low, so it can be seen from the road
+  const lmNear = (side, s, d) => {
+    for (let k = Math.floor((s - d) / LH); k <= Math.floor((s + d) / LH); k++) for (const h of heroesOfChunk(k)) if (h.kind === "lm" && (h.side === side || h.side === 0) && Math.abs(h.x) < 130 && Math.abs(h.s - s) < d) return true;
     return false;
   };
   const heroPool = new Map(), heroActive = new Map(); let heroStamp = 0;
@@ -268,6 +292,11 @@ export function createCity(scene) {
         F.lamps.add(side * 20.2, 0, zl(u), 1, 1, 1, side > 0 ? Math.PI : 0); F.glow.add(side * 20.2, 0, zl(u), 1, 1, 1, side > 0 ? Math.PI : 0);
         data.lamps.push({ s: ctx.s0 + u, hx: side * (20.2 - 2.4), side });
       }
+      if (zi.beach) { // a beach: palms along the sand and people out on it
+        for (let i = r.int(2, 4); i > 0; i--) addTree(F.trees, "palm", side * r.range(23, 42), zl(r.range(0, LF)), r);
+        for (let i = r.int(1, 4); i > 0; i--) { const c = hsv(r, PAL.colonial), x = side * r.range(26, 46), z = zl(r.range(0, LF)); F.people.add(x, 0, z, 0.85, 0.85, 0.85, r() * 6, c[0], c[1], c[2]); F.heads.add(x, 0, z, 0.85, 0.85, 0.85); }
+        continue;
+      }
       if (zi.water) { for (let u = 3; u < LF; u += 9) F.solid.add(side * 33, 0, zl(u), 0.5, 1.6, 0.5, 0, 0.18, 0.18, 0.2); continue; } // harbour: quay, bollards
       if (!tun) {
         if (urbanish || zi.type === "residential") { // planter trees, parked cars, a bus stop
@@ -278,25 +307,26 @@ export function createCity(scene) {
         }
       }
       if (built) {
-        const xEdge = zi.type === "residential" ? 31 : 28, standHere = heroBlocks(side, ctx.s0, ctx.s0 + LF, 26, 52);
+        const xEdge = zi.type === "residential" ? 31 : 28, standHere = heroBlocks(side, ctx.s0, ctx.s0 + LF, 26, 52), mlist = modelsFor(prof);
+        const lowK = lmNear(side, ctx.s0 + LF / 2, 130) ? 0.38 : 1; // a landmark close by: low-rise here, so it can be seen from the road
         let u = r.range(0, 3);
         while (u < LF - 6) {
           let w = r.range(Z.fw[0], Z.fw[1]); if (u + w > LF) w = LF - u; if (w < 6) break;
           if (standHere && heroBlocks(side, ctx.s0 + u, ctx.s0 + u + w, 26, 52)) { u += w + 1; continue; } // a grandstand stands here
           const d = r.range(13, 21), floors = r.int(Z.fh[0], Z.fh[1]);
-          const h = Math.max(7, floors * 4.4 * prof.height * (zi.type === "residential" ? 1 : r.range(0.85, 1.15))), xc = side * (xEdge + d / 2 + r.range(0, 1.5)), col = hsv(r, pal), seed = r(), zc = zl(u + w / 2);
-          if (modelG.length && Z.shops && r.chance(0.26)) { // a hand-made Kenney building for variety
-            const mi = r.int(0, modelG.length - 1), mg = modelG[mi], fp = Math.min(w * 0.95, 20), mh = Math.max(14, floors * 4.2);
+          const h = Math.max(7, floors * 4.4 * prof.height * lowK * (zi.type === "residential" ? 1 : r.range(0.85, 1.15))), xc = side * (xEdge + d / 2 + r.range(0, 1.5)), col = hsv(r, pal), seed = r(), zc = zl(u + w / 2);
+          if (mlist.length && Z.shops && lowK === 1 && r.chance(0.26)) { // a hand-made Kenney building for variety
+            const mi = mlist[r.int(0, mlist.length - 1)], mg = modelG[mi], fp = Math.min(w * 0.95, 20), mh = Math.max(14, floors * 4.2);
             F.models[mi].add(side * (xEdge + fp * 0.5 + 0.4), 0, zc, fp, Math.min(mh, fp * mg.aspect * 1.3), fp * 0.9, faceRot - (side < 0 ? Math.PI / 2 : -Math.PI / 2) + (side < 0 ? Math.PI / 2 : -Math.PI / 2), 1, 1, 1);
             u += w + r.range(0.2, 1); continue;
           }
-          const podium = zi.type === "downtown" && floors >= 12 && r.chance(0.55);
+          const podium = zi.type === "downtown" && floors >= 12 && lowK === 1 && r.chance(0.55);
           if (podium) { // a wide base with a narrower tower on top
             F.boxes.add(side * (xEdge + d * 0.58), 0, zc, d * 1.16, 9.5, w, 0, col[0] * 0.92, col[1] * 0.92, col[2] * 0.92, r());
             F.boxes.add(side * (xEdge + d * 0.78), 0, zc, d * 0.72, h, w * 0.78, 0, col[0], col[1], col[2], seed);
           } else F.boxes.add(xc, 0, zc, d, h, w, 0, col[0], col[1], col[2], seed);
           if (Z.houses) { const c2 = hsv(r, PAL.warm); F.solid.add(xc, h, zc, d * 1.05, h * 0.35, w * 1.05, 0, c2[0] * 0.8, c2[1] * 0.5, c2[2] * 0.45); }
-          if (floors >= 14) { const th = h * r.range(0.15, 0.35); F.boxes.add(xc + side * d * 0.1, h, zc, d * 0.68, th, w * 0.72, 0, col[0] * 0.95, col[1] * 0.95, col[2] * 0.95, r()); }
+          if (floors >= 14 && lowK === 1) { const th = h * r.range(0.15, 0.35); F.boxes.add(xc + side * d * 0.1, h, zc, d * 0.68, th, w * 0.72, 0, col[0] * 0.95, col[1] * 0.95, col[2] * 0.95, r()); }
           if (Z.shops) {
             const a = AWNINGS[r.int(0, AWNINGS.length - 1)];
             F.solid.add(side * (xEdge - 1.1), 3.2, zc, 2.3, 0.3, w * 0.84, 0, a[0], a[1], a[2]);
@@ -304,6 +334,10 @@ export function createCity(scene) {
             F.signs.add(side * (xEdge - 0.08), 3.55, zc, sw, sw / 4.4, 1, faceRot, 1, 1, 1, 0, signRect(r.int(0, SIGN_COUNT - 1)));
             if (neon || r.chance(0.3)) F.signs.add(side * (xEdge - 0.9), 9 + r.range(0, 8), zl(u + w * r.range(0.15, 0.85)), 1.6, 5.5, 1, 0, 1, 1, 1, 0, signRect(r.int(0, SIGN_COUNT - 1))); // blade sign over the street
             if (neon && floors >= 6 && r.chance(0.45)) F.signs.add(side * (xEdge - 0.12), Math.min(h * 0.6, 40), zc, Math.min(w * 0.85, 17), Math.min(w * 0.85, 17) / 4.4, 1, faceRot, 1, 1, 1, 0, signRect(r.int(0, SIGN_COUNT - 1))); // a big LED screen
+            if (prof.neonDense) { // Tokyo, Las Vegas: signs stacked up the frontage, one over the other
+              for (let i = r.int(1, 3); i > 0; i--) F.signs.add(side * (xEdge - 0.9 - r.range(0, 0.6)), 6 + r.range(0, Math.max(4, Math.min(h - 8, 30))), zl(u + w * r.range(0.1, 0.9)), 1.4, r.range(4, 8), 1, 0, 1, 1, 1, 0, signRect(r.int(0, SIGN_COUNT - 1)));
+              if (h > 14 && r.chance(0.6)) F.signs.add(side * (xEdge - 0.12), r.range(7, Math.min(h - 3, 24)), zl(u + w * r.range(0.3, 0.7)), Math.min(w * 0.6, 10), Math.min(w * 0.6, 10) / 4.4, 1, faceRot, 1, 1, 1, 0, signRect(r.int(0, SIGN_COUNT - 1)));
+            }
           }
           for (let i = r.int(0, 2); i > 0; i--) { const g = ROOF_KIT[r.int(0, 3)]; F.solid.add(xc + r.range(-d * 0.3, d * 0.3), h, zc + r.range(-w * 0.3, w * 0.3), r.range(1.5, 4), r.range(1, 2.8), r.range(1.5, 4), 0, g[0], g[1], g[2]); }
           if (floors > 12 && r.chance(0.4)) F.solid.add(xc, h, zc, 0.35, r.range(6, 15), 0.35, 0, 0.7, 0.7, 0.72);
@@ -332,27 +366,30 @@ export function createCity(scene) {
     const zl = u => -(ctx.s0 + u - sBase), prof = ctx.prof, pal = PAL[prof.arch], dens = quality.density;
     for (const side of [-1, 1]) {
       const zi = ctx.zone(side), Z = ZONES[zi.type], r = rng(hash(ctx.city, ctx.rel, 200 + (side > 0 ? 1 : 0)));
-      if (zi.water) { for (let i = r.int(2, 5); i > 0; i--) { const c = BOAT[r.int(0, BOAT.length - 1)], s = r.range(5, 11); B.yachts.add(side * r.range(55, 300), 0.0, zl(r.range(0, LB)), s, s, s, r.range(-0.4, 0.4) + (r.chance(0.5) ? 0 : Math.PI), c[0], c[1], c[2]); } continue; } // boats on the water
+      if (zi.water) { for (let i = r.int(2, 5); i > 0; i--) { const c = BOAT[r.int(0, BOAT.length - 1)], s = r.range(5, 11); B.yachts.add(side * r.range(zi.beach ? 90 : 55, 300), 0.0, zl(r.range(0, LB)), s, s, s, r.range(-0.4, 0.4) + (r.chance(0.5) ? 0 : Math.PI), c[0], c[1], c[2]); } continue; } // boats on the water (off a beach: out past the surf)
+      const mlist = modelsFor(prof);
       for (let row = 0; row < 2; row++) for (let col = 0; col < 10; col++) {
         const cx = X0 + col * 30 + 11 + r.range(-2, 2), cz = row * 30 + 11 + r.range(-2, 2);
         if (heroBlocks(side, ctx.s0 + cz - 12, ctx.s0 + cz + 12, cx - 12, cx + 12)) continue;
-        if (r() > Z.occ * (0.55 + 0.45 * dens) || (dens < 0.7 && (col + row) % 2)) { if (Z.tree > 0.4 && r.chance(0.7)) for (let i = r.int(1, 3); i > 0; i--) addTree(B.trees, treeKind(ctx.st, r), side * (cx + r.range(-9, 9)), zl(cz + r.range(-9, 9)), r); continue; }
+        const y0 = hillY(prof, side, cx), sink = y0 > 0 ? 6 : 0, by = y0 - sink; // on a hillside each building stands on the slope (its foot sunk into it)
+        if (r() > Z.occ * (0.55 + 0.45 * dens) || (dens < 0.7 && (col + row) % 2)) { if (Z.tree > 0.4 && r.chance(0.7)) for (let i = r.int(1, 3); i > 0; i--) { const tx = cx + r.range(-9, 9); addTree(B.trees, treeKind(ctx.st, r), side * tx, zl(cz + r.range(-9, 9)), r, 1, hillY(prof, side, tx)); } continue; }
         const fpx = r.range(12, 20), fpz = r.range(12, 20), nse = noise2((ctx.s0 + cz) * 0.004, cx * 0.006, ctx.city);
-        const floors = Z.bh[0] + (Z.bh[1] - Z.bh[0]) * Math.pow(nse, 1.35) * r.range(0.6, 1.1), h = Math.max(6, floors * 4.4 * prof.height);
-        const slope = prof.hill && (prof.hill === "L" ? -1 : 1) === side ? Math.max(0, (cx - 50) * 0.3) : 0, col3 = hsv(r, pal), seed = r();
+        const lowK = cx < 200 && lmNear(side, ctx.s0 + cz, 130) ? 0.4 : 1;
+        const floors = Z.bh[0] + (Z.bh[1] - Z.bh[0]) * Math.pow(nse, 1.35) * r.range(0.6, 1.1), h = Math.max(6, floors * 4.4 * prof.height * lowK) + sink;
+        const col3 = hsv(r, pal), seed = r();
         if (Z.houses || Z.farm) { // houses and farm buildings: a coloured box with a roof
-          const hh = r.range(5, 9), c2 = hsv(r, PAL.warm);
-          B.houses.add(side * cx, 0, zl(cz), fpx * 0.7, hh, fpz * 0.7, 0, col3[0], col3[1], col3[2]); B.roofs.add(side * cx, hh, zl(cz), fpx * 0.78, hh * 0.55, fpz * 0.78, 0, c2[0] * 0.7, c2[1] * 0.4, c2[2] * 0.35);
+          const hh = r.range(5, 9) + sink, c2 = hsv(r, PAL.warm);
+          B.houses.add(side * cx, by, zl(cz), fpx * 0.7, hh, fpz * 0.7, 0, col3[0], col3[1], col3[2]); B.roofs.add(side * cx, by + hh, zl(cz), fpx * 0.78, (hh - sink) * 0.55, fpz * 0.78, 0, c2[0] * 0.7, c2[1] * 0.4, c2[2] * 0.35);
           if (Z.farm && r.chance(0.6)) { B.houses.add(side * (cx + 11), 0, zl(cz + 4), 10, 9, 14, 0, 0.62, 0.18, 0.14); B.roofs.add(side * (cx + 11), 9, zl(cz + 4), 11, 6, 15, 0, 0.3, 0.3, 0.32); B.solid.add(side * (cx - 10), 0, zl(cz + 3), 4, 16, 4, 0, 0.8, 0.8, 0.78); } // barn and silo
-        } else if (modelG.length && r.chance(0.3)) { // a hand-made Kenney building
-          const mi = r.int(0, modelG.length - 1), mg = modelG[mi], fp = r.range(13, 20);
-          B.models[mi].add(side * cx, slope, zl(cz), fp, Math.min(h, fp * mg.aspect * r.range(1.1, 2.2)) + slope * 0, fp * r.range(0.85, 1.1), r.chance(0.5) ? 0 : Math.PI, 1, 1, 1);
+        } else if (mlist.length && lowK === 1 && r.chance(0.3)) { // a hand-made Kenney building
+          const mi = mlist[r.int(0, mlist.length - 1)], mg = modelG[mi], fp = r.range(13, 20);
+          B.models[mi].add(side * cx, by, zl(cz), fp, Math.min(h, fp * mg.aspect * r.range(1.1, 2.2) + sink), fp * r.range(0.85, 1.1), r.chance(0.5) ? 0 : Math.PI, 1, 1, 1);
         } else {
-          B.boxes.add(side * cx, 0, zl(cz), fpx, h + slope, fpz, 0, col3[0], col3[1], col3[2], seed);
-          if (floors >= 16) B.boxes.add(side * (cx + 1), slope + h, zl(cz), fpx * 0.66, h * r.range(0.12, 0.3), fpz * 0.66, 0, col3[0], col3[1], col3[2], r());
-          if (r.chance(0.6)) { const g = ROOF_KIT[r.int(0, 3)]; B.solid.add(side * cx + r.range(-3, 3), slope + h, zl(cz) + r.range(-3, 3), r.range(2, 4.5), r.range(1.2, 3), r.range(2, 4.5), 0, g[0], g[1], g[2]); }
+          B.boxes.add(side * cx, by, zl(cz), fpx, h, fpz, 0, col3[0], col3[1], col3[2], seed);
+          if (floors >= 16 && lowK === 1) B.boxes.add(side * (cx + 1), by + h, zl(cz), fpx * 0.66, h * r.range(0.12, 0.3), fpz * 0.66, 0, col3[0], col3[1], col3[2], r());
+          if (r.chance(0.6)) { const g = ROOF_KIT[r.int(0, 3)]; B.solid.add(side * cx + r.range(-3, 3), by + h, zl(cz) + r.range(-3, 3), r.range(2, 4.5), r.range(1.2, 3), r.range(2, 4.5), 0, g[0], g[1], g[2]); }
         }
-        if (r.chance(Z.tree * 0.6)) addTree(B.trees, treeKind(ctx.st, r), side * (cx + r.range(-10, 10)), zl(cz + 13), r);
+        if (r.chance(Z.tree * 0.6)) { const tx = cx + r.range(-10, 10); addTree(B.trees, treeKind(ctx.st, r), side * tx, zl(cz + 13), r, 1, hillY(prof, side, tx)); }
       }
     }
     for (const m of ms) m.end();
@@ -367,6 +404,8 @@ export function createCity(scene) {
     const hill = lin(ctx.st.mount || "#8aa5b8"), green = lin(ctx.st.hill || "#6fae5c"), peaky = ["peaks", "alps", "fuji", "volcano"].includes(ctx.st.horizon);
     for (const side of [-1, 1]) {
       const zi = ctx.zone(side), r = rng(hash(ctx.city, ctx.rel, 300 + (side > 0 ? 1 : 0)));
+      if (zi.beach) continue; // the open sea
+      const onHill = hillY(prof, side, 400) > 0;
       const urban = zi.type === "downtown" || zi.type === "urban" || zi.type === "harbour";
       const n = Math.round((urban ? 14 : zi.type === "residential" ? 9 : 5) * dens);
       for (let j = 0; j < n; j++) {
@@ -374,9 +413,11 @@ export function createCity(scene) {
         const nse = noise2((ctx.s0 + u) * 0.0025, x * 0.003, ctx.city + 5);
         let h = (urban ? 50 + 280 * Math.pow(nse, 1.5) : zi.type === "residential" ? 25 + 30 * nse : 12 + 14 * nse) * prof.skyline * (urban ? 0.8 + (x - 340) / 700 : 1);
         if (zi.type === "downtown") h *= 1.2;
-        const c = hsv(r, pal); S.boxes.add(side * x, 0, zl(u), w, h, d, 0, c[0], c[1], c[2], r());
+        if (onHill) h = Math.min(h, 60); // the hill town: low, climbing the slope
+        const c = hsv(r, pal), y = onHill ? hy(x) - 8 : 0; S.boxes.add(side * x, y, zl(u), w, h + (onHill ? 8 : 0), d, 0, c[0], c[1], c[2], r());
         if (h > 120 && r.chance(0.4)) S.boxes.add(side * x, h, zl(u), w * 0.55, h * r.range(0.1, 0.25), d * 0.55, 0, c[0], c[1], c[2], r());
       }
+      if (onHill) continue; // (the hill itself is the ground here)
       for (let j = zi.type === "downtown" ? 1 : r.int(2, 4); j > 0; j--) {
         const w = r.range(150, 320), hgt = r.range(25, 70) * (peaky ? 2.6 : 1), x = r.range(420, 1150), g = r.chance(0.5) ? hill : green;
         S.hills.add(side * x, -hgt * 0.1, zl(r() * LS), w, hgt, w * r.range(0.7, 1.2), r() * 6, g[0], g[1], g[2]);
@@ -391,11 +432,12 @@ export function createCity(scene) {
   function buildG(gs, k) {
     const ctx = chunkCtx(LG, k), desert = ["Las Vegas", "Doha", "Abu Dhabi"].includes(ROUTE[ctx.city].venue);
     for (let si = 0; si < 2; si++) {
-      const side = si ? 1 : -1, zi = ctx.zone(side), Z = ZONES[zi.type], m = gs.meshes[si];
-      const s0 = zi.water ? "quay" : Z.ground === "city" ? "pavement" : Z.ground === "sand" ? "sand" : "grass";
-      const s1 = zi.water ? "water" : Z.ground, s2 = desert ? "sand" : "grass";
+      const side = si ? 1 : -1, zi = ctx.zone(side), Z = ZONES[zi.type], m = gs.meshes[si], hill = !zi.water && hillY(ctx.prof, side, 400) > 0;
+      const s0 = zi.beach ? "beach" : zi.water ? "quay" : Z.ground === "city" ? "pavement" : Z.ground === "sand" ? "sand" : "grass";
+      const s1 = zi.beach ? "beach" : zi.water ? "water" : Z.ground, s2 = zi.beach ? "water" : hill ? "hill" : desert ? "sand" : "grass";
       m[0].material = ground[s0]; m[1].material = ground[s1]; m[2].material = ground[s2];
-      m[1].position.y = zi.water ? -0.02 : 0; m[0].position.y = zi.water ? 0.4 : 0; // (water sits just above the big ground disc under everything)
+      for (let st = 1; st < 3; st++) m[st].geometry = (hill ? hillGeos : geos)[si][st]; // (a hillside rises; everywhere else is flat)
+      m[1].position.y = zi.water && !zi.beach ? -0.02 : 0; m[0].position.y = zi.water && !zi.beach ? 0.4 : 0; // (water sits just above the big ground disc under everything)
     }
     gs.chunk = k; gs.city = ctx.city; gs.start = ctx.start;
   }
@@ -412,8 +454,9 @@ export function createCity(scene) {
     backCity = idx; const st = ROUTE[idx], prof = profileOf(st.venue), pal = PAL[prof.arch], r = rng(hash(idx, 0, 909));
     const urban = (prof.zones.downtown || 0) + (prof.zones.urban || 0) + (prof.zones.harbour || 0) >= 0.55, hill = lin(st.mount || "#8aa5b8");
     for (let i = 0; i < 150; i++) {
-      const x = -1250 + i * 16.7 + r.range(-6, 6), w = r.range(30, 70), h = urban ? r.range(60, 340) * prof.skyline * (0.6 + 0.4 * Math.abs(Math.sin(i * 0.37))) : r.range(8, 40), c = hsv(r, pal);
-      dm.position.set(x, 0, -1450 - r.range(0, 160)); dm.scale.set(w, h, w); dm.rotation.set(0, 0, 0); dm.updateMatrix(); backBoxes.setMatrixAt(i, dm.matrix); backBoxes.setColorAt(i, new THREE.Color(c[0], c[1], c[2])); backBoxes.geometry.attributes.aSeed.array[i] = r();
+      const x = -1250 + i * 16.7 + r.range(-6, 6), w = r.range(30, 70), c = hsv(r, pal), hillUp = hillY(prof, Math.sign(x), Math.abs(x));
+      const h = hillUp > 0 ? r.range(15, 50) : urban ? r.range(60, 340) * prof.skyline * (0.6 + 0.4 * Math.abs(Math.sin(i * 0.37))) : r.range(8, 40);
+      dm.position.set(x, hillUp > 0 ? hillUp - 6 : 0, -1450 - r.range(0, 160)); dm.scale.set(w, h, w); dm.rotation.set(0, 0, 0); dm.updateMatrix(); backBoxes.setMatrixAt(i, dm.matrix); backBoxes.setColorAt(i, new THREE.Color(c[0], c[1], c[2])); backBoxes.geometry.attributes.aSeed.array[i] = r();
     }
     for (let i = 0; i < 40; i++) {
       const w = r.range(260, 520), h = r.range(60, 150) * (["peaks", "alps", "fuji", "volcano"].includes(st.horizon) ? 2.2 : 1), x = -1300 + i * 65 + r.range(-20, 20);
@@ -460,7 +503,7 @@ export function createCity(scene) {
         for (const gs of gslots) gs.chunk = NaN; heroCache.clear();
       }
       lastD = D;
-      { const fa = FACADES[st.venue] || [0, 0, 0, 0, 0]; shared.uStyleA.value.set(fa[0], fa[1], fa[2], fa[3]); shared.uStyleB.value.set(fa[4], 0, 0, 0); } // this city's facade character
+      { const fa = FACADES[st.venue] || [0, 0, 0, 0, 0]; shared.uStyleA.value.set(fa[0], fa[1], fa[2], fa[3]); shared.uStyleB.value.set(fa[4], 0, fa[5] || 0, 0); } // this city's facade character
       shared.uNight.value = night; shared.uSky.value.setRGB(Math.min(1, fogColor.r * 1.1 + 0.05), Math.min(1, fogColor.g * 1.1 + 0.07), Math.min(1, fogColor.b * 1.1 + 0.1));
       ensure(lay.F, D, 3); ensure(lay.B, D, 3); ensure(lay.S, D, 2); ensureG(D, 4);
       maskZ = D - sBase; { const on = bypassClear ? maskFn : null; for (const m of listF) m.setMask(on); } // clear the street front beside the bypass track
@@ -473,7 +516,8 @@ export function createCity(scene) {
       ground.lawnU.uD.value = D; const g = pal.grass; ground.grass.color.setRGB(g[0] / 255, g[1] / 255, g[2] / 255, THREE.SRGBColorSpace);
       ground.sand.color.setRGB(Math.min(1, g[0] * 1.15 / 255), Math.min(1, g[1] * 1.12 / 255), Math.min(1, g[2] * 1.1 / 255), THREE.SRGBColorSpace);
       ground.field.color.setRGB(Math.min(1, g[0] * 1.15 / 255), Math.min(1, g[1] * 1.1 / 255), g[2] * 0.8 / 255, THREE.SRGBColorSpace);
-      const wc = profileOf(st.venue).water; if (wc) ground.water.color.set(wc.color);
+      const wc = profileOf(st.venue).water; if (wc) { ground.water.color.set(wc.color); ground.beachU.uSea.value.set(wc.color); }
+      ground.hill.color.set(st.hill || "#6fae5c"); ground.beach.color.setRGB(0.93, 0.85, 0.66, THREE.SRGBColorSpace); // (real sand colour: the "sand" ground follows each city's grass colour, which is green in Miami) ground.beachU.uT.value += dt;
       ground.waterNormal.offset.x += dt * 0.012; ground.waterNormal.offset.y += dt * 0.007;
       setCrowd(st.crowd); for (const w of windowMats) w.emissiveIntensity = 1.4 * night; // grandstand crowds wear the city's colours; Kenney windows light up
       // the street lamps near the car, for the night lighting

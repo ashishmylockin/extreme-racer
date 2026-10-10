@@ -13,7 +13,7 @@ import { createCity } from "./city/city.js";
 import { createBypass } from "./bypass.js";
 import { profileOf } from "./city/profiles.js";
 import { loadSkies } from "./env.js";
-import { glows } from "./landmarks.js";
+import { glows, tickLandmarks } from "./landmarks.js";
 import { createWeather } from "./weather.js";
 import { createNight } from "./night.js";
 import { createPost } from "./post.js";
@@ -231,7 +231,8 @@ export function createRenderer3D(canvas2d, glCanvas) {
     setCol(leafMat.color, pal.leaf[0], pal.leaf[1], pal.leaf[2]); setCol(leafDarkMat.color, pal.leaf[0], pal.leaf[1], pal.leaf[2], 0.72); setCol(grassTopMat.color, pal.leaf[0], pal.leaf[1], pal.leaf[2], 1.12);
     M.lightMats.head.emissiveIntensity = 0.4 + 4 * night; M.lightMats.tail.emissiveIntensity = 0.8 + 2 * night;
     M.trafficLamp.color.setScalar(0.8 + 1.4 * night); { const p = M.trafficPool(); p.visible = night > 0.04; p.opacity = Math.min(0.32, night * 0.4); } // working lights on the traffic: lamps glow, headlamps light the road ahead
-    for (const g of glows) g.mat.emissiveIntensity = g.base * (0.12 + 0.8 * night); // neon, lit windows and landmark lights come up at night (gently)
+    for (const g of glows) g.mat.emissiveIntensity = g.base * (g.nightOnly ? night : 0.12 + 0.8 * night); // neon, lit windows and landmark lights come up at night (gently)
+    tickLandmarks(time, night); // (the Las Vegas Sphere's LED shows)
     for (const name of START_FINISH) {
       const m = marks[name]; if (!m) continue;
       m.obj.position.set(0, 0, lerp(m.pz, m.cz, alpha));

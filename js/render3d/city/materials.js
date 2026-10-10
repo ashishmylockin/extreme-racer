@@ -6,7 +6,7 @@ export const shared = {
   uNight: { value: 0 },                          // 0 day .. 1 night: how many windows are lit
   uSky: { value: new THREE.Color(0.5, 0.65, 0.85) }, // what window glass reflects by day
   uStyleA: { value: new THREE.Vector4(0, 0, 0, 0) },  // facade character of the current city: x brick, y stone pilasters + cornices, z shutters, w arched windows
-  uStyleB: { value: new THREE.Vector4(0, 0, 0, 0) },  // x art-deco colour bands, y second window colour (tint of the shutters), z, w spare
+  uStyleB: { value: new THREE.Vector4(0, 0, 0, 0) },  // x art-deco colour bands, y spare, z classic punched windows (old towns), w spare
 };
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -39,6 +39,7 @@ float winMask = 0.0; vec3 emitCol = vec3(0.0);
     if (sty < 0.28) { lo.x = 0.0; hi.x = 1.0; }                                    // ribbon windows
     else if (sty < 0.5) { lo.x = 0.32; hi.x = 0.68; }                              // narrow slots
     else if (sty < 0.62) { lo = vec2(0.12, 0.5); hi = vec2(0.88, 0.95); }          // high windows
+    if (uStyleB.z > 0.5 && sty < 0.62) { lo = vec2(0.3, 0.24); hi = vec2(0.7, 0.82); } // old towns: punched windows in solid walls, never glass ribbons
     if (ground) { lo = vec2(0.05, 0.07); hi = vec2(0.95, 0.66); }                  // shop windows
     float inX = step(lo.x, f.x) * step(f.x, hi.x), inY = step(lo.y, f.y) * step(f.y, hi.y);
     float edge = step(1.0, u) * step(u, faceW - 1.0);                              // no windows on the corners
@@ -229,5 +230,27 @@ export function groundMaterials() {
   }, 28, { srgb: false });
   mats.water = new THREE.MeshStandardMaterial({ color: 0x2a78a8, emissive: 0x0a2c44, emissiveIntensity: 0.5, roughness: 0.1, metalness: 0.0, normalMap: wn, normalScale: new THREE.Vector2(0.5, 0.5), envMapIntensity: 1.6 });
   mats.waterNormal = wn;
+
+  // a hillside (Monaco): plain rough green, coloured per city
+  mats.hill = new THREE.MeshStandardMaterial({ color: 0x8fae7a, roughness: 1, metalness: 0, flatShading: true });
+
+  // a beach (Miami): sand out to a wavy shoreline, a line of surf, wet sand behind it, then the sea (its UVs are world units from the road centre)
+  const beachU = { uSea: { value: new THREE.Color(0x2fc0cf) }, uT: { value: 0 } };
+  const beach = new THREE.MeshStandardMaterial({ map: sand, color: 0xd8b98a, roughness: 0.95, metalness: 0 });
+  beach.onBeforeCompile = sh => {
+    Object.assign(sh.uniforms, beachU);
+    sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nvarying float vBX; varying float vBZ;").replace("#include <uv_vertex>", "#include <uv_vertex>\nvBX = uv.x; vBZ = (modelMatrix * vec4(position, 1.0)).z;");
+    sh.fragmentShader = sh.fragmentShader.replace("#include <common>", "#include <common>\nvarying float vBX; varying float vBZ; uniform vec3 uSea; uniform float uT; float bSea = 0.0;")
+      .replace("#include <map_fragment>", `#include <map_fragment>
+        { float shore = 50.0 + sin(vBZ * 0.045 + uT * 0.5) * 1.8 + sin(vBZ * 0.13) * 0.9, wash = sin(uT * 0.9) * 1.4;
+          bSea = smoothstep(shore + wash - 0.4, shore + wash + 2.0, vBX);
+          float wetS = smoothstep(shore - 8.0, shore, vBX) * (1.0 - bSea), foam = 1.0 - smoothstep(0.0, 1.4, abs(vBX - shore - wash - 0.9));
+          vec3 sea = mix(uSea * 1.15 + vec3(0.04, 0.1, 0.08), uSea * 0.55, smoothstep(shore, shore + 70.0, vBX)); // shallow turquoise, deeper blue further out
+          diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - 0.38 * wetS), sea, bSea);
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.96, 0.97, 0.97), foam * 0.85); }`)
+      .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.07, bSea);");
+  };
+  beach.customProgramCacheKey = () => "beach-shore";
+  mats.beach = beach; mats.beachU = beachU;
   return mats;
 }
