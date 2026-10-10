@@ -19,7 +19,7 @@ function shared() {
     detail: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.4, side: THREE.DoubleSide }),
     wheel: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.65, metalness: 0.35, side: THREE.DoubleSide }),
     glass: new THREE.MeshPhysicalMaterial({ color: 0x0c131b, metalness: 0.7, roughness: 0.06, clearcoat: 1, clearcoatRoughness: 0.03, side: THREE.DoubleSide }),
-    shadow: new THREE.MeshBasicMaterial({ map: blobTexture(), transparent: true, depthWrite: false, opacity: 0.55, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, fog: false }),
+    shadow: new THREE.MeshBasicMaterial({ map: blobTexture(), transparent: true, depthWrite: false, opacity: 0.38, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, fog: false }),
     pool: new THREE.MeshBasicMaterial({ map: poolTexture(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0, fog: true, polygonOffset: true, polygonOffsetFactor: -3 }),
   });
 }

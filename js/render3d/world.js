@@ -3,8 +3,9 @@
 import * as THREE from "three";
 import { roadHalf, arrToHex, setCol } from "./mapping.js";
 import { LOOK, CITY_TOD, skyOf, createSkyDome, sunSpot } from "./env.js";
+import { wearTexture, linesTexture, kerbTexture, kerbGeometry, WEAR_W, WEAR_LEN } from "./roadtex.js";
 
-const ROAD_TILE = 16, KERB_TILE = 4.8, GRASS_TILE = 24; // world units of road covered by one repeat of each texture
+const ROAD_TILE = 16, KERB_TILE = 4.8, ASPH_TILE = 6; // world units of road covered by one repeat of each texture
 const LEN = 1700, Z_START = 80;                         // the road runs from Z = +80 (behind the car) to Z = -1620, out to the horizon
 
 function canvasTex(w, h, draw, repeat = true) {
@@ -21,36 +22,46 @@ const aces = v => { v /= 0.6; return Math.min(1, Math.max(0, (v * (2.51 * v + 0.
 export function createWorld(scene) {
   const RH = roadHalf();
 
-  // --- asphalt (grey noise, tinted by the city's road colour) with the white lines on a see-through layer above it ---
-  const asphalt = canvasTex(256, 256, (g, w, h) => {
-    g.fillStyle = "#cfcfcf"; g.fillRect(0, 0, w, h);
-    for (let i = 0; i < 5000; i++) { const v = 150 + Math.random() * 100 | 0; g.fillStyle = `rgb(${v},${v},${v})`; g.fillRect(Math.random() * w, Math.random() * h, 1.5, 1.5); }
-  });
-  asphalt.repeat.set(2, LEN / ROAD_TILE * 2);
-  const roadMat = new THREE.MeshStandardMaterial({ map: asphalt, color: 0x4a4c52, roughness: 0.85, metalness: 0 });
+  // --- asphalt: real CC0 asphalt (colour, normal, roughness from ambientCG) plus a "wear" layer drawn in code: tyre marks down every lane,
+  //     repair patches, cracks, manhole and drain covers, and the spots where puddles gather. The white lines sit on a see-through layer above. ---
+  const texLoader = new THREE.TextureLoader();
+  const pbr = (name, srgb) => { const t = texLoader.load(`assets/textures/asphalt_${name}.jpg`); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.repeat.set(RH * 2 / ASPH_TILE, LEN / ASPH_TILE); return t; };
+  const asphalt = pbr("color", true), asphaltN = pbr("normal", false), asphaltR = pbr("roughness", false);
+  const lane = RH * 2 / 3, wear = wearTexture([-lane, 0, lane], RH);
+  const roadMat = new THREE.MeshStandardMaterial({ map: asphalt, normalMap: asphaltN, roughnessMap: asphaltR, normalScale: new THREE.Vector2(1.0, 1.0), color: 0x4a4c52, roughness: 1, metalness: 0 });
+  const roadU = { uWear: { value: wear }, uD: { value: 0 }, uRoadWet: { value: 0 } };
+  roadMat.onBeforeCompile = sh => {
+    Object.assign(sh.uniforms, roadU);
+    sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nvarying vec2 vRoad;").replace("#include <begin_vertex>", "#include <begin_vertex>\nvRoad = position.xz;");
+    sh.fragmentShader = sh.fragmentShader.replace("#include <common>", "#include <common>\nvarying vec2 vRoad; uniform sampler2D uWear; uniform float uD, uRoadWet;")
+      .replace("#include <map_fragment>", `#include <map_fragment>
+        float wz = vRoad.y + (${(Z_START - LEN / 2).toFixed(3)});
+        vec4 wr = texture2D(uWear, vec2(vRoad.x / ${WEAR_W.toFixed(1)} + 0.5, (uD - wz) / ${WEAR_LEN.toFixed(1)}));
+        float rub = wr.r, tone = (wr.g - 0.5) * 2.0, pud = smoothstep(0.58, 0.78, wr.b) * uRoadWet;
+        diffuseColor.rgb *= (1.0 - 0.5 * rub) * (1.0 + 0.32 * tone) * (1.0 - 0.45 * pud);`)
+      .replace("#include <roughnessmap_fragment>", `#include <roughnessmap_fragment>
+        roughnessFactor = mix(roughnessFactor, 0.16, uRoadWet * 0.7); roughnessFactor = mix(roughnessFactor, 0.03, pud); roughnessFactor *= 1.0 - 0.25 * rub;`)
+      .replace("#include <normal_fragment_maps>", `#include <normal_fragment_maps>
+        normal = normalize(mix(normal, nonPerturbedNormal, clamp(pud + uRoadWet * 0.25, 0.0, 1.0)));`);
+  };
+  roadMat.customProgramCacheKey = () => "road-wear";
   const road = new THREE.Mesh(new THREE.PlaneGeometry(RH * 2, LEN).rotateX(-Math.PI / 2), roadMat);
   road.position.set(0, 0, Z_START - LEN / 2); road.receiveShadow = true; scene.add(road);
 
-  const lines = canvasTex(512, 256, (g, w, h) => { // 32 wide x 16 long world units: two edge lines and two dashed lane lines
-    g.clearRect(0, 0, w, h); g.fillStyle = "rgba(255,255,255,0.95)";
-    g.fillRect(6, 0, 8, h); g.fillRect(w - 14, 0, 8, h);
-    for (const fx of [1 / 3, 2 / 3]) for (const y0 of [0, 128]) g.fillRect(w * fx - 4, y0, 8, 64);
-  });
+  const lines = linesTexture();
   lines.repeat.set(1, LEN / ROAD_TILE);
   const lineMat = new THREE.MeshStandardMaterial({ map: lines, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, roughness: 0.6 });
   const lineMesh = new THREE.Mesh(new THREE.PlaneGeometry(RH * 2, LEN).rotateX(-Math.PI / 2), lineMat);
   lineMesh.position.set(0, 0.02, Z_START - LEN / 2); scene.add(lineMesh);
 
-  // --- red and white kerbs along both edges ---
-  const kerbTex = canvasTex(32, 128, (g, w, h) => { for (let i = 0; i < 4; i++) { g.fillStyle = i % 2 ? "#f4f4f4" : "#d4281e"; g.fillRect(0, i * 32, w, 32); } });
+  // --- red and white kerbs along both edges, with real height ---
+  const kerbTex = kerbTexture();
   kerbTex.repeat.set(1, LEN / KERB_TILE);
   const kerbMat = new THREE.MeshStandardMaterial({ map: kerbTex, roughness: 0.7 });
-  for (const s of [-1, 1]) { const m = new THREE.Mesh(new THREE.PlaneGeometry(1.4, LEN).rotateX(-Math.PI / 2), kerbMat); m.position.set(s * (RH + 0.7), 0.03, Z_START - LEN / 2); scene.add(m); }
+  for (const s of [-1, 1]) { const m = new THREE.Mesh(kerbGeometry(s, LEN, KERB_TILE), kerbMat); m.position.set(s * RH, 0, Z_START - LEN / 2); m.receiveShadow = true; m.castShadow = true; scene.add(m); }
 
-  // --- mown grass stripes either side ---
-  const grassTex = canvasTex(4, 64, (g, w, h) => { g.fillStyle = "#ffffff"; g.fillRect(0, 0, w, h / 2); g.fillStyle = "#e6e6e6"; g.fillRect(0, h / 2, w, h / 2); });
-  grassTex.repeat.set(1, LEN / GRASS_TILE); grassTex.magFilter = THREE.NearestFilter;
-  const grassMat = new THREE.MeshStandardMaterial({ map: grassTex, color: 0x5fae4a, roughness: 1 });
+  // --- the ground beyond (the city builder draws the pavements and grass; this disc is just the far horizon) ---
+  const grassMat = new THREE.MeshStandardMaterial({ color: 0x5fae4a, roughness: 1 });
   const farGround = new THREE.Mesh(new THREE.CircleGeometry(2600, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x5fae4a, fog: true })); // a huge disc that follows the camera, so there is ground to the horizon in every direction
   farGround.position.set(0, -0.05, -100); scene.add(farGround);
 
@@ -86,11 +97,12 @@ export function createWorld(scene) {
     // pal = the simulation's blended palette; stA / stB = this city and the next; b = how far through the blend (0..1)
     update(pal, rain, scrollWu, focus, stA, stB, b, wetness = 0) {
       const night = Math.min(1, pal.dark * 4);
-      asphalt.offset.y = (scrollWu / ROAD_TILE * 2) % 1; lines.offset.y = (scrollWu / ROAD_TILE) % 1;
-      kerbTex.offset.y = (scrollWu / KERB_TILE) % 1; grassTex.offset.y = (scrollWu / GRASS_TILE) % 1;
+      for (const t of [asphalt, asphaltN, asphaltR]) t.offset.y = (scrollWu / ASPH_TILE) % 1; lines.offset.y = (scrollWu / ROAD_TILE) % 1;
+      roadU.uD.value = scrollWu % WEAR_LEN; roadU.uRoadWet.value = wetness;
+      kerbTex.offset.y = (scrollWu / KERB_TILE) % 1;
 
-      setCol(roadMat.color, pal.road[0], pal.road[1], pal.road[2], 1.35 - 0.45 * wetness);
-      roadMat.roughness = 0.85 - 0.6 * wetness; roadMat.metalness = 0.4 * wetness; lineMat.roughness = 0.6 - 0.3 * wetness; // wet asphalt shines
+      setCol(roadMat.color, pal.road[0], pal.road[1], pal.road[2], 2.3 - 0.7 * wetness); // (the asphalt picture is mid grey: the city's road colour is brightened to match)
+      roadMat.metalness = 0.25 * wetness; lineMat.roughness = 0.6 - 0.3 * wetness; // wet asphalt shines (the shader lowers the roughness)
       setCol(grassMat.color, pal.grass[0], pal.grass[1], pal.grass[2]);
       setCol(farGround.material.color, pal.grass[0], pal.grass[1], pal.grass[2], 0.7 - 0.45 * night); farGround.position.set(focus.camPos.x, -0.05, focus.camPos.z);
 

@@ -15,7 +15,7 @@ import { SCALE, roadHalf } from "../mapping.js";
 import { rng, hash, noise2 } from "./rng.js";
 import { profileOf, ZONES, PALETTES } from "./profiles.js";
 import { SlotMesh } from "./slotmesh.js";
-import { unitBox, unitPlane, roofGeo, lampGeo, lampGlowGeo, personGeo, headGeo, hillGeo, treeGeos, yachtGeo, busStopGeo, carGeo, fenceTexture } from "./geo.js";
+import { unitBox, unitPlane, roofGeo, lampGeo, lampGlowGeo, personGeo, headGeo, hillGeo, treeGeos, yachtGeo, busStopGeo, carGeo, fenceTexture, flowerBedGeo } from "./geo.js";
 import { shared, buildingMaterial, solidMaterial, makeSignAtlas, signMaterial, signRect, SIGN_COUNT, makeBannerAtlas, groundMaterials } from "./materials.js";
 import { leafMat, crowdMat, setCrowd, lightWindows, windowMats } from "../scenery.js";
 import { cloneModel, hasModel, fitModel, sceneOf } from "../assets.js";
@@ -35,7 +35,7 @@ const PAL = Object.fromEntries(Object.entries(PALETTES).map(([k, v]) => [k, v.ma
 const AWNINGS = ["#c8372d", "#2d6fb5", "#2e8b57", "#e0a526", "#7a3f9d", "#e9e9e4", "#d9622b"].map(lin);
 const ROOF_KIT = ["#8b9096", "#6f757c", "#a7abb0", "#5d6269"].map(lin);
 const BOAT = ["#f4f4f2", "#f4f4f2", "#1c2a3a", "#c8d4dc", "#e8e2d0"].map(lin);
-const CAP = { F: { boxes: 36, solid: 110, signs: 22, banners: 14, lamps: 6, glow: 6, light: 10, trees: 16, people: 24, cars: 4, stops: 2, fence: 12, models: 6 },
+const CAP = { F: { boxes: 36, solid: 110, signs: 22, banners: 14, lamps: 6, glow: 6, light: 10, trees: 16, people: 24, cars: 4, stops: 2, fence: 12, models: 6, flowers: 6 },
   B: { boxes: 64, solid: 96, trees: 40, houses: 26, yachts: 8, models: 12 }, S: { boxes: 64, hills: 18 } };
 const CAR_MODELS = ["sedan", "sedan-sports", "hatchback-sports", "suv", "taxi", "van"];
 const BUILD_MODELS = ["building-a", "building-d", "building-i", "building-skyscraper-a", "building-skyscraper-d"];
@@ -101,6 +101,7 @@ export function createCity(scene) {
     heads: new SlotMesh(gF, headGeo(), skinMat, nF, CAP.F.people, {}),
     stops: new SlotMesh(gF, busStopGeo(), stopMat, nF, CAP.F.stops, { shadow: true }),
     fence: new SlotMesh(gF, unitPlane, fenceMat, nF, CAP.F.fence, {}),
+    flowers: new SlotMesh(gF, flowerBedGeo(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 }), nF, CAP.F.flowers, {}),
     cars: carG.map(c => new SlotMesh(gF, c.geometry, c.material, nF, CAP.F.cars, { shadow: true })),
     models: modelG.map(c => new SlotMesh(gF, c.geometry, c.material, nF, CAP.F.models, { shadow: true })),
     trees: {},
@@ -124,7 +125,7 @@ export function createCity(scene) {
     B.trees[k] = { trunk: t.trunk ? new SlotMesh(gB, t.trunk, trunkMat, nB, CAP.B.trees, {}) : null, leaves: t.leaves ? new SlotMesh(gB, t.leaves, leafMat, nB, CAP.B.trees, {}) : null };
   }
   const treeMeshes = T => Object.values(T).flatMap(t => [t.trunk, t.leaves]).filter(Boolean);
-  const listF = [F.boxes, F.solid, F.signs, F.banners, F.lamps, F.glow, F.light, F.people, F.heads, F.stops, F.fence, ...F.cars, ...F.models, ...treeMeshes(F.trees)];
+  const listF = [F.boxes, F.solid, F.signs, F.banners, F.lamps, F.glow, F.light, F.people, F.heads, F.stops, F.fence, F.flowers, ...F.cars, ...F.models, ...treeMeshes(F.trees)];
   const listB = [B.boxes, B.solid, B.houses, B.roofs, B.yachts, ...B.models, ...treeMeshes(B.trees)];
   const listS = [S.boxes, S.hills];
 
@@ -268,6 +269,7 @@ export function createCity(scene) {
           for (let u = side < 0 ? 17 : 7; u < LF; u += 20) if (r.chance(0.75)) { F.solid.add(side * 20.6, 0, zl(u), 1.5, 0.9, 1.5, 0, 0.45, 0.4, 0.38); addTree(F.trees, treeKind(ctx.st, r), side * 20.6, zl(u), r, 0.55); }
           if (carG.length) for (let i = r.int(0, 2); i > 0; i--) F.cars[r.int(0, F.cars.length - 1)].add(side * 23.6, 0, zl(r.range(3, LF - 3)), 1, 1, 1, r.chance(0.5) ? 0 : Math.PI);
           if (r.chance(0.12)) F.stops.add(side * 22.4, 0, zl(r.range(8, 32)), 1, 1, 1, side > 0 ? Math.PI : 0);
+          if (r.chance(zi.type === "residential" ? 0.5 : 0.32)) F.flowers.add(side * 26.9, 0, zl(r.range(4, 36)), 1, 1, 1, 0); // a flower bed against the frontage
         }
       }
       if (built) {
@@ -303,6 +305,7 @@ export function createCity(scene) {
           u += w + (r.chance(0.2) ? r.range(3, 6) : r.range(0.2, 1.0));
         }
       } else if (zi.type !== "country" || r.chance(0.5)) { // park / countryside: scattered trees
+        if (zi.type === "park" && r.chance(0.6)) F.flowers.add(side * r.range(22, 32), 0, zl(r.range(4, 36)), r.range(0.9, 1.3), 1, r.range(1, 1.5), 0); // flower beds in the park
         for (let i = Math.round(Z.tree * 5); i > 0; i--) addTree(F.trees, treeKind(ctx.st, r), side * r.range(23, 70), zl(r.range(0, LF)), r);
       }
       if (Z.shops && !tun) for (let i = r.int(0, 3); i > 0; i--) { const c = hsv(r, PAL.colonial), x = side * r.range(24.6, 26.6), z = zl(r.range(0, LF)); F.people.add(x, 0, z, 0.85, 0.85, 0.85, r() * 6, c[0], c[1], c[2]); F.heads.add(x, 0, z, 0.85, 0.85, 0.85); } // people on the pavement
@@ -458,7 +461,7 @@ export function createCity(scene) {
       const cidx = cityForS(D).idx; if (cidx !== backCity) buildBackdrop(cidx);
       gBack.position.z = camZ;
       // ground colours follow the city's palette; ripples slide over the water
-      const g = pal.grass; ground.grass.color.setRGB(g[0] / 255, g[1] / 255, g[2] / 255, THREE.SRGBColorSpace);
+      ground.lawnU.uD.value = D; const g = pal.grass; ground.grass.color.setRGB(g[0] / 255, g[1] / 255, g[2] / 255, THREE.SRGBColorSpace);
       ground.sand.color.setRGB(Math.min(1, g[0] * 1.15 / 255), Math.min(1, g[1] * 1.12 / 255), Math.min(1, g[2] * 1.1 / 255), THREE.SRGBColorSpace);
       ground.field.color.setRGB(Math.min(1, g[0] * 1.15 / 255), Math.min(1, g[1] * 1.1 / 255), g[2] * 0.8 / 255, THREE.SRGBColorSpace);
       const wc = profileOf(st.venue).water; if (wc) ground.water.color.set(wc.color);

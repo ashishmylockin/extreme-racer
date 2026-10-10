@@ -10,7 +10,9 @@ export function createReflection(renderer, scene, camera, hideWhileDrawing, mate
 
   // put the reflection into a MeshStandardMaterial (only compiled in when USE_PLANAR_REFLECT is defined on it)
   for (const m of materials) {
+    const prevHook = m.onBeforeCompile, prevKey = m.customProgramCacheKey; // (the road material already has its own shader changes: keep them)
     m.onBeforeCompile = shader => {
+      if (prevHook && prevHook !== THREE.Material.prototype.onBeforeCompile) prevHook.call(m, shader);
       Object.assign(shader.uniforms, uniforms);
       shader.fragmentShader = `#ifdef USE_PLANAR_REFLECT\nuniform sampler2D tReflect; uniform mat4 texMat; uniform float uWet;\n#endif\n` + shader.fragmentShader.replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
         #ifdef USE_PLANAR_REFLECT
@@ -22,7 +24,7 @@ export function createReflection(renderer, scene, camera, hideWhileDrawing, mate
         }
         #endif`);
     };
-    m.customProgramCacheKey = () => "planar-reflect";
+    m.customProgramCacheKey = () => (prevKey && prevKey !== THREE.Material.prototype.customProgramCacheKey ? prevKey.call(m) : "") + "planar-reflect";
   }
 
   return {

@@ -2,6 +2,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { cloneModel, hasModel } from "../assets.js";
+import { rng } from "./rng.js";
 
 const flat = g => { const o = g.index ? g.toNonIndexed() : g; for (const k of Object.keys(o.attributes)) if (k !== "position" && k !== "normal") o.deleteAttribute(k); return o; };
 
@@ -96,4 +97,15 @@ export function fenceTexture() {
   g.beginPath(); for (let i = -64; i <= 128; i += 16) { g.moveTo(i, 0); g.lineTo(i + 64, 64); g.moveTo(i + 64, 0); g.lineTo(i, 64); } g.stroke();
   g.fillStyle = "#cfd3d8"; g.fillRect(0, 0, 64, 4);
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(2, 1); return t;
+}
+
+// a flower bed 6 long and 1.7 wide: dark soil, a mound of green leaves, and colourful flower heads (vertex colours; the layout is fixed)
+export function flowerBedGeo() {
+  const rnd = rng(4242), parts = [], col = (g, c) => { const o = flat(g), a = new Float32Array(o.attributes.position.count * 3); for (let i = 0; i < a.length; i += 3) { a[i] = c[0]; a[i + 1] = c[1]; a[i + 2] = c[2]; } o.setAttribute("color", new THREE.BufferAttribute(a, 3)); return o; };
+  const lin = h => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; }, GREENS = ["#2f6b2f", "#3d8a3a", "#4f9a3f", "#2a5f2e"].map(lin), FLOWERS = ["#d6342a", "#f08ab0", "#f2c230", "#ffffff", "#8a3fa8", "#ff8a1f", "#e8506a"].map(lin);
+  parts.push(col(new THREE.BoxGeometry(6, 0.42, 1.7).translate(0, 0.21, 0), lin("#3a2a1f")));
+  for (let i = 0; i < 40; i++) parts.push(col(new THREE.SphereGeometry(rnd.range(0.26, 0.42), 6, 4).scale(1, 0.75, 1).translate(rnd.range(-2.8, 2.8), 0.5, rnd.range(-0.62, 0.62)), rnd.pick(GREENS)));
+  const tone = []; for (let k = 0; k < 4; k++) tone.push(rnd.pick(FLOWERS)); // each bed is mostly two or three colours
+  for (let i = 0; i < 80; i++) parts.push(col(new THREE.SphereGeometry(rnd.range(0.1, 0.16), 5, 4).translate(rnd.range(-2.85, 2.85), rnd.range(0.62, 0.82), rnd.range(-0.7, 0.7)), tone[Math.floor(rnd() * (i < 55 ? 2 : 4))]));
+  return mergeGeometries(parts);
 }

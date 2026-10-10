@@ -169,6 +169,41 @@ export function groundMaterials() {
     pavement: mk(pave, 0xffffff, 0.9), city: mk(grid, 0xffffff, 0.9), grass: mk(grass, 0x5fae4a), sand: mk(sand, 0xd8b98a), field: mk(field, 0x8fae4a), quay: mk(quay, 0xffffff, 0.85),
   };
 
+  // real CC0 textures (ambientCG) for the pavements and the lawns
+  const tl = new THREE.TextureLoader();
+  const load = (name, srgb, tile) => { const t = tl.load(`assets/textures/${name}.jpg`); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.repeat.set(1 / tile, 1 / tile); return t; };
+  const paving = (color, tile) => new THREE.MeshStandardMaterial({ map: load("paving_color", true, tile), normalMap: load("paving_normal", false, tile), roughnessMap: load("paving_roughness", false, tile), color, normalScale: new THREE.Vector2(0.9, 0.9), metalness: 0 });
+  mats.pavement = paving(0xd9d5cd, 3.5); mats.quay = paving(0xaaa69c, 4.5);
+
+  // the lawn: the photo's brightness only (so each city's own grass colour can tint it), mown stripes, and large soft patches of lighter, drier grass
+  const lawn = new THREE.MeshStandardMaterial({ color: 0x5fae4a, roughness: 1, metalness: 0, normalMap: load("grass_normal", false, 5), normalScale: new THREE.Vector2(0.7, 0.7) });
+  tl.load("assets/textures/grass_color.jpg", t => {
+    const c = document.createElement("canvas"); c.width = c.height = 512; const g = c.getContext("2d"); g.drawImage(t.image, 0, 0, 512, 512);
+    const d = g.getImageData(0, 0, 512, 512), a = d.data; let sum = 0;
+    for (let i = 0; i < a.length; i += 4) { const l = 0.299 * a[i] + 0.587 * a[i + 1] + 0.114 * a[i + 2]; a[i] = l; sum += l; }
+    const k = 205 / (sum / (a.length / 4));
+    for (let i = 0; i < a.length; i += 4) a[i] = a[i + 1] = a[i + 2] = Math.min(255, a[i] * k);
+    g.putImageData(d, 0, 0);
+    const m = new THREE.CanvasTexture(c); m.wrapS = m.wrapT = THREE.RepeatWrapping; m.colorSpace = THREE.SRGBColorSpace; m.anisotropy = 8; m.repeat.set(1 / 5, 1 / 5);
+    lawn.map = m; lawn.needsUpdate = true; t.dispose();
+  });
+  const lawnU = { uD: { value: 0 } }; // how far along the route the car is, so the stripes and patches stay put on the ground
+  lawn.onBeforeCompile = sh => {
+    Object.assign(sh.uniforms, lawnU);
+    sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nvarying vec3 vGW;").replace("#include <begin_vertex>", "#include <begin_vertex>\nvGW = (modelMatrix * vec4(position, 1.0)).xyz;");
+    sh.fragmentShader = sh.fragmentShader.replace("#include <common>", `#include <common>
+      varying vec3 vGW; uniform float uD;
+      float h21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float vnoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(h21(i), h21(i + vec2(1.0, 0.0)), f.x), mix(h21(i + vec2(0.0, 1.0)), h21(i + vec2(1.0, 1.0)), f.x), f.y); }`)
+      .replace("#include <map_fragment>", `#include <map_fragment>
+        { float s = uD - vGW.z; vec2 q = vec2(s, vGW.x);
+          float stripe = mod(floor(s / 14.0), 2.0), n1 = vnoise(q * 0.018), n2 = vnoise(q * 0.06 + 17.0), dry = smoothstep(0.58, 0.85, vnoise(q * 0.011 + 5.0));
+          diffuseColor.rgb *= (0.92 + 0.08 * stripe) * (0.86 + 0.3 * n1) * (0.9 + 0.2 * n2);
+          diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.22, 1.0, 0.62), dry * 0.65); }`);
+  };
+  lawn.customProgramCacheKey = () => "lawn-variation";
+  mats.grass = lawn; mats.lawnU = lawnU;
+
   // water: a dark blue surface with moving ripples (a normal map slid over it) that reflects the sky
   const wn = tex(256, 256, (g, w, h) => {
     const img = g.createImageData(w, h), hgt = new Float32Array(w * h);

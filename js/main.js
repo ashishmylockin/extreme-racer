@@ -20,7 +20,8 @@ function disable3D(why) {
   canvas.classList.remove("over3d");
 }
 function tick3D() { try { R3D.tick(); } catch (e) { disable3D(e); } }
-function render3D(alpha) { try { R3D.render(alpha); } catch (e) { disable3D(e); } }
+let infoN = 0; const SHOW_STATS = new URLSearchParams(location.search).has("info"); // testing: ?info logs draw calls and triangles after 40 frames
+function render3D(alpha) { try { R3D.render(alpha); if (SHOW_STATS && ++infoN === 40) { const i = R3D.renderer.info; console.info("INFO calls=" + i.render.calls + " triangles=" + i.render.triangles + " geometries=" + i.memory.geometries + " textures=" + i.memory.textures); } } catch (e) { disable3D(e); } }
 
 function loop(now) {
   if (window.R3D_PENDING) { lastTime = now; requestAnimationFrame(loop); return; } // still loading the 3D assets: hold the game
