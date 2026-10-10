@@ -143,12 +143,6 @@ export function createFX(scene, makeWheelDebris) {
     },
     // clean slate for a new race: no debris, particles or trails left over from the last one
     reset() {
-      for (const p of wheelPieces) { // a wheel that has torn off: it bounces, then rolls along on its edge, slowing
-        if (p.life <= 0) continue; p.life -= dt; p.v.y -= 38 * dt; p.m.position.addScaledVector(p.v, dt); p.m.position.z += shiftZ;
-        if (p.m.position.y < 0.78) { p.m.position.y = 0.78; if (p.v.y < -1) p.v.y = -p.v.y * 0.4; else p.v.y = 0; const k = Math.pow(0.55, dt * 3); p.v.x *= k; p.v.z *= k; }
-        const sp = Math.hypot(p.v.x, p.v.z); p.m.rotation.x -= p.v.z * dt / 0.78 * -1; p.m.rotation.z += 0; if (sp < 0.3 && p.m.position.y <= 0.8) p.life = Math.min(p.life, 8); // (it keeps lying there, then goes)
-        if (p.life <= 0) p.m.visible = false;
-      }
       for (const p of pieces) { p.life = 0; p.m.visible = false; p.v.set(0, 0, 0); }
       for (const p of wheelPieces) { p.life = 0; p.m.visible = false; p.v.set(0, 0, 0); }
       for (const sys of [add, smoke]) sys.clear();

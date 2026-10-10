@@ -44,6 +44,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
   const nightFx = createNight(scene);
   const city = createCity(scene); // the buildings, ground and water around the road
   const post = createPost(renderer, scene, camera);
+  const titleLight = new THREE.SpotLight(0xffe2bd, 0, 70, 0.55, 0.85, 1.2); scene.add(titleLight, titleLight.target);
   const fx = createFX(scene, M.makeWheelDebris), bypass = createBypass(scene), bypassWin = { side: 1, zBack: 0, zFront: 0 };
   const reflect = createReflection(renderer, scene, camera, world.groundMeshes, world.reflectMats); // wet-road reflections (Ultra)
   const photo = createPhoto();
@@ -104,7 +105,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
   const enemiesT = makeTracker(
     e => e.kind === "truck" ? `truck:${e.len}:${e.col}:${e.model}` : e.kind === "works" ? `works:${e.len}` : `car:${e.col}:${e.model}`,
     e => e.kind === "truck" ? M.makeTruck(e.len, e.col, e.model) : e.kind === "works" ? M.makeWorks(e.len) : M.makeTrafficCar(e.col, e.model));
-  const pickupsT = makeTracker(k => "pickup:" + k.type, k => k.type === "coin" ? M.makeCoin() : k.type === "nitro" ? M.makeNitro() : k.type === "curve" ? M.makeCurve(k.lane === 0 ? -1 : 1) : M.makeShield(), null, e => e.x,
+  const pickupsT = makeTracker(k => "pickup:" + k.type + (k.type === "curve" ? ":" + k.lane : ""), k => k.type === "coin" ? M.makeCoin() : k.type === "nitro" ? M.makeNitro() : k.type === "curve" ? M.makeCurve(k.lane === 0 ? -1 : 1) : M.makeShield(), null, e => e.x,
     (k, r) => { if (k.taken && !k.gone) fx.pickup(r.cx, r.cz, k.type); }); // a sparkle where a pickup was collected
   const puddlesT = makeTracker(() => "puddle", () => weather.puddleBuild());
   let distPrev = 0, distCur = 0; // how far along the route the car is (sim units), before and after the latest tick
@@ -133,7 +134,8 @@ export function createRenderer3D(canvas2d, glCanvas) {
   let sizeKey = "";
   function resize() {
     const cw = canvas2d.clientWidth, ch = canvas2d.clientHeight; if (!cw || !ch) return;
-    const pr = Math.max(0.5, Math.min(Math.max(window.devicePixelRatio || 1, 1), 2) * Q.scale), key = `${cw}x${ch}@${pr}`;
+    const sc = state === "title" || state === "menu" ? Math.max(Q.scale, 1.6) : Q.scale; // the title and main menu render at a very high resolution
+    const pr = Math.max(0.5, Math.min(2.6, Math.min(Math.max(window.devicePixelRatio || 1, 1), 2) * sc)), key = `${cw}x${ch}@${pr}`;
     if (key === sizeKey) return; sizeKey = key;
     renderer.setPixelRatio(pr); renderer.setSize(cw, ch, false); post.setSize(cw, ch, pr);
     camera.aspect = cw / ch; camera.updateProjectionMatrix();
@@ -249,6 +251,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
     cin.kick = kickFx; cin.shake = settings.shake ? shake : 0; cin.time = time; cin.gear = gearOf(p0.v); cin.lit = Math.round(rpmOf(effV(p0)) * 10);
     cin.grid01 = Math.min(1, grid.t / (5 * GRID_STEP + 25)); cin.crashT = crashClock; cin.finishT = time - finishAt; cin.photo = photo;
     rig.update(mode, target, dt, cin);
+    { const show = mode === "title" && R.photo === photo && !photo.active; titleLight.intensity = show ? 800 : 0; if (show) { titleLight.position.set(camera.position.x + 2.5, camera.position.y + 3, camera.position.z + 1); titleLight.target.position.set(target.x, 0.9, target.z); } } // a soft showroom light on your car behind the title
     focus.x = target.x; focus.z = target.z; focus.camPos = camera.position; // (reused every frame: nothing is allocated while racing)
     const D = lerp(distPrev, distCur, alpha) * SCALE; // how far along the route the car is (world units)
     world.update(pal, rainI, D, focus, stA, stB, stBlend, wet);
@@ -290,6 +293,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
       U.aberr.value = Q.ca ? nf * 0.003 : 0;   // (the picture stays clean and sharp at speed: only the faintest hint of speed blur, none from near misses or the nitro kick)
       U.heat.value = stA.desert ? (1 - night) * 0.9 : 0;       // heat shimmer in the desert cities by day
       U.fmode.value = photo.active ? photo.filter : 0; U.grain.value = photo.active && photo.filter === 2 ? 0.05 : 0;
+      { const crisp = state === "title" || state === "menu"; post.smaa.enabled = Q.smaa || crisp; post.fxaa.enabled = Q.fxaa && !crisp; } // best anti-aliasing behind the title and menus
       post.bloom.strength = 0.12 + 0.3 * night + flash * 0.6 + nf * 0.2; post.bloom.threshold = 1.5 - 0.3 * night; post.bloom.radius = 0.45 + 0.1 * night; // (a soft, relaxed glow: no blinding halos)
       // lens flare: only when the sun is on screen
       sunV.copy(world.sun.position).sub(camera.position).normalize(); const facing = sunV.dot(camFwd.set(0, 0, -1).applyQuaternion(camera.quaternion));
@@ -298,7 +302,7 @@ export function createRenderer3D(canvas2d, glCanvas) {
       U.flareAmt.value = sunUp ? Math.min(1, (facing - 0.55) * 3) * Math.min(1, world.sun.intensity / 3) * (1 - rainI) * (1 - night) * 0.45 : 0;
       U.flarePos.value.set(sunP.x * 0.5 + 0.5, sunP.y * 0.5 + 0.5);
       // depth of field behind the menus and in photo mode
-      post.bokeh.enabled = Q.dof && (mode === "menu" || mode === "title" || (photo.active && photo.dof));
+      post.bokeh.enabled = Q.dof && photo.active && photo.dof; // (no blur behind the title and menus: they are razor sharp)
       if (post.bokeh.enabled) { post.bokeh.uniforms.focus.value = camera.position.distanceTo(pTmp.set(target.x, 1, target.z)); post.bokeh.uniforms.aperture.value = photo.active ? photo.aperture : 0.0012; }
     }
     // mirrors first (cockpit view only), without the cockpit in them

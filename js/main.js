@@ -14,12 +14,13 @@ function perfGuard(dt) {
 
 // ---- the 3D renderer (js/render3d) is optional: if WebGL is missing or anything in it throws, we drop back to the 2D renderer ----
 function disable3D(why) {
-  console.warn("3D renderer off, using the 2D one:", why);
+  console.warn("3D renderer off, using the 2D one:", why, why && why.stack);
   window.R3D = null;
   const gl = document.getElementById("gl"); if (gl) gl.style.display = "none";
   canvas.classList.remove("over3d");
 }
-function tick3D() { try { R3D.tick(); } catch (e) { disable3D(e); } }
+let r3dErrors = 0; const r3dFail = e => { console.error("3D error:", e); if (++r3dErrors > 8) disable3D(e); }; // (a one-off hiccup must not throw you into the 2D version: only a renderer that keeps failing is switched off)
+function tick3D() { try { R3D.tick(); } catch (e) { r3dFail(e); } }
 const FILM = new URLSearchParams(location.search).get("film"); let filmT = null; const filmShots = []; // testing: film=0.2,0.6,1.2 captures the 3D view that many seconds after the crash and shows the shots side by side
 function filmFrame() {
   if (!FILM || !(state === "title" || (state === "over" && !racers[0].alive))) return; const want = FILM.split(",").map(Number); if (filmT === null) filmT = clock;
@@ -27,7 +28,7 @@ function filmFrame() {
   if (filmShots.length === want.length && !document.getElementById("film")) { const d = document.createElement("div"); d.id = "film"; d.style.cssText = "position:fixed;inset:0;background:#111;z-index:99;display:flex;flex-wrap:wrap;gap:4px"; filmShots.forEach((c, i) => { c.style.width = "calc(33% - 4px)"; d.appendChild(c); }); document.body.appendChild(d); }
 }
 let infoN = 0; const SHOW_STATS = new URLSearchParams(location.search).has("info"); // testing: ?info logs draw calls and triangles after 40 frames
-function render3D(alpha) { try { R3D.render(alpha); filmFrame(); if (SHOW_STATS && ++infoN === 40) { const i = R3D.renderer.info; console.info("INFO calls=" + i.render.calls + " triangles=" + i.render.triangles + " geometries=" + i.memory.geometries + " textures=" + i.memory.textures); } } catch (e) { disable3D(e); } }
+function render3D(alpha) { try { R3D.render(alpha); filmFrame(); if (r3dErrors > 0 && Math.random() < 0.01) r3dErrors--; if (SHOW_STATS && ++infoN === 40) { const i = R3D.renderer.info; console.info("INFO calls=" + i.render.calls + " triangles=" + i.render.triangles + " geometries=" + i.memory.geometries + " textures=" + i.memory.textures); } } catch (e) { r3dFail(e); } }
 
 let errorsRecently = 0;
 function loop(now) {
@@ -50,7 +51,7 @@ function loop(now) {
 songDB.all().then(rows => { for (const r of rows || []) music.addBlob(r.name, r.blob); }).catch(() => {});
 fit();
 grabFocus();
-initDemo(); jumpTo(3, 0.3); // the title scene: Miami at its best (warm light), with your own car leading
+initDemo(); // the title scene: Las Vegas at night, with your own car leading
 { // testing: demotest=N runs the title / menu demo for N ticks and counts how often cars overlap
   const n = +new URLSearchParams(location.search).get("demotest");
   if (n) {
@@ -111,6 +112,9 @@ requestAnimationFrame(loop);
       if (q.has("next")) { // testing: after finishing / crashing, choose the first menu button (Next city / Retry) and run the sim to see whether anything throws
         try { for (let i = 0; i < 5; i++) update(); const menu = currentMenu(); console.info("NEXT state=" + state); menu.items[0].go(); console.info("NEXT after click state=" + state); for (let i = 0; i < 200; i++) update(); console.info("NEXT survived 200 ticks, state=" + state); if (q.has("pick")) { TYRES_MENU[+q.get("pick")].go(); for (let i = 0; i < 700; i++) update(); console.info("NEXT raced: state=" + state + " mode=" + mode + " city=" + (level && level.idx) + " tyre=" + racers[0].tyre + " v=" + Math.round(racers[0].v * 60)); } }
         catch (e) { console.info("NEXT THREW " + e.message + " | " + (e.stack || "").split("\n")[1]); }
+      }
+      if (q.has("retry")) { // testing: after the crash screen has been up a moment, press Retry and pick the first tyre, like a player would
+        let done = false; const iv = setInterval(() => { if (!done && state === "over" && performance.now() - overAt > 2500) { done = true; try { currentMenu().items[0].go(); TYRES_MENU[0].go(); console.info("RETRY pressed, state=" + state); } catch (e) { console.info("RETRY THREW " + e.message); } } else if (done && state === "playing" && frame > 200) { console.info("RETRY running 3D=" + !!window.R3D + " frame=" + frame); clearInterval(iv); } }, 200);
       }
       if (m === "pause") state = "paused";
       if (m === "camerapick") openMenu("camera", cam);

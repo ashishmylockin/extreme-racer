@@ -20,8 +20,9 @@ function initWorld() {
   for (let y = -AHEAD; y < H + 40; y += 55) spawnScenery(y);
 }
 
+const TITLE_CITY = 19; // Las Vegas: the title and menus are set at night, in neon
 function initDemo() {
-  initWorld();
+  initWorld(); jumpTo(TITLE_CITY, 0.3);
   racers = [equipped, ...[10, 8, 9, 7].filter(t => t !== equipped).slice(0, 2)].map((t, i) => { const lane = [1, 0, 2][i], y = H - 100 - i * 90; return makeRacer(i, { team: TEAMS[t], ai: DEMO_AI, lane, x: laneX(lane), y, ty: y, v: 2.8, fromLane: lane, rolling: true }); }); // (the lead car is yours: it is what the title and menu cameras follow)
   seedTraffic();
 }
